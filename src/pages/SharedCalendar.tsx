@@ -21,9 +21,14 @@ export default function SharedCalendar() {
     const calendarName = searchParams.get('name');
     const encryptionKey = searchParams.get('key') || undefined;
 
+    console.log('SharedCalendar URL params:', { calendarId, calendarName, encryptionKey });
+
     if (calendarId && calendarName) {
+      const decodedName = decodeURIComponent(calendarName);
+      console.log('Decoded calendar name:', decodedName);
+      
       setSharedCalendarId(calendarId);
-      setSharedCalendarName(decodeURIComponent(calendarName));
+      setSharedCalendarName(decodedName);
       setSharedEncryptionKey(encryptionKey);
       
       // Create calendar entry in local storage

@@ -76,7 +76,14 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
             setEvents(prev => {
               // Check if event already exists to avoid duplicates
               const exists = prev.some(e => e.id === action.event!.id);
-              return exists ? prev : [...prev, action.event!];
+              if (!exists) {
+                // Save the event to storage as well
+                storage.saveEvent(action.event!).catch(err => 
+                  console.error('Failed to save synced event to storage:', err)
+                );
+                return [...prev, action.event!];
+              }
+              return prev;
             });
             toast({
               title: "Event synchronized",
@@ -86,7 +93,16 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           break;
         case 'UPDATE_EVENT':
           if (action.event) {
-            setEvents(prev => prev.map(e => e.id === action.eventId ? action.event! : e));
+            setEvents(prev => prev.map(e => {
+              if (e.id === action.eventId) {
+                // Save the updated event to storage as well
+                storage.saveEvent(action.event!).catch(err => 
+                  console.error('Failed to save updated synced event to storage:', err)
+                );
+                return action.event!;
+              }
+              return e;
+            }));
             toast({
               title: "Event updated",
               description: `"${action.event.title}" was updated by another user.`
@@ -96,6 +112,10 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         case 'DELETE_EVENT':
           if (action.eventId) {
             setEvents(prev => prev.filter(e => e.id !== action.eventId));
+            // Delete the event from storage as well
+            storage.deleteEvent(action.eventId).catch(err => 
+              console.error('Failed to delete synced event from storage:', err)
+            );
             toast({
               title: "Event deleted",
               description: "An event was deleted by another user."
@@ -126,6 +146,13 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
               const existingIds = new Set(prev.map(e => e.id));
               const newEvents = action.events!.filter(syncEvent => !existingIds.has(syncEvent.id));
               if (newEvents.length > 0) {
+                // Save all new events to storage
+                newEvents.forEach(event => {
+                  storage.saveEvent(event).catch(err => 
+                    console.error('Failed to save synced event to storage:', err)
+                  );
+                });
+                
                 toast({
                   title: "Events synchronized",
                   description: `${newEvents.length} historical events were loaded.`
@@ -222,6 +249,8 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     const calendar = calendars.find(cal => cal.id === calendarId);
     if (!calendar) return;
 
+    console.log('Sharing calendar:', calendar.name, 'ID:', calendarId, 'Private:', isPrivate);
+
     // Generate share URL manually
     const baseUrl = window.location.origin;
     const params = new URLSearchParams({
@@ -236,6 +265,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     }
     
     const shareUrl = `${baseUrl}/shared?${params.toString()}`;
+    console.log('Generated share URL:', shareUrl);
 
     const updatedCalendar = { 
       ...calendar, 
