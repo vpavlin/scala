@@ -111,7 +111,7 @@ All colors MUST be HSL.
   }
   
   .calendar-event {
-    @apply text-xs px-2 py-1 rounded-sm bg-accent/10 text-accent-foreground border-l-2 border-accent mb-1 block min-h-[20px];
+    @apply text-xs px-2 py-1 rounded-sm bg-accent/20 text-accent border-l-2 border-accent mb-1 block min-h-[20px] font-medium;
   }
   
   .sidebar-transition {
