@@ -53,9 +53,21 @@ export function ShareCalendarModal({
     }
   };
 
-  const handleShareCalendar = () => {
+  const handleShareCalendar = async () => {
     if (!isConnected) {
       onInitializeWaku(calendarId, isPrivate ? encryptionKey : undefined);
+      // Auto-copy URL after enabling sharing
+      setTimeout(async () => {
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          toast({
+            title: "Share link copied!",
+            description: "The calendar share link has been copied to your clipboard."
+          });
+        } catch (error) {
+          // Silent fail - the copy button is still available
+        }
+      }, 1000);
     }
   };
 

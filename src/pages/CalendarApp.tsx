@@ -25,7 +25,12 @@ interface CalendarData {
   shareUrl?: string;
 }
 
-export default function CalendarApp() {
+interface CalendarAppProps {
+  sharedCalendarId?: string;
+  sharedEncryptionKey?: string;
+}
+
+export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: CalendarAppProps = {}) {
   const [calendars, setCalendars] = useState<CalendarData[]>([
     {
       id: 'default',
@@ -82,7 +87,7 @@ export default function CalendarApp() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [sharedCalendarId, setSharedCalendarId] = useState<string | null>(null);
+  const [wakuCalendarId, setWakuCalendarId] = useState<string | null>(sharedCalendarId || null);
 
   // Initialize Waku sync
   const {
@@ -180,7 +185,7 @@ export default function CalendarApp() {
     setCalendars(prev => prev.map(cal => 
       cal.id === calendarId ? { ...cal, isShared: true, isPrivate } : cal
     ));
-    setSharedCalendarId(calendarId);
+    setWakuCalendarId(calendarId);
   };
 
   const handleEventCreate = async (eventData: Omit<CalendarEvent, 'id'>) => {
