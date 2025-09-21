@@ -11,9 +11,18 @@ export interface CalendarEvent {
 }
 
 export interface EventSourceAction {
-  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT';
-  eventId: string;
+  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_CALENDAR' | 'SYNC_EVENTS';
+  eventId?: string;
   event?: CalendarEvent;
+  calendar?: {
+    id: string;
+    name: string;
+    color: string;
+    isVisible: boolean;
+    isShared?: boolean;
+    isPrivate?: boolean;
+  };
+  events?: CalendarEvent[];
   timestamp: number;
   senderId: string;
 }
@@ -23,8 +32,10 @@ const EventActionMessage = new protobuf.Type("EventActionMessage")
   .add(new protobuf.Field("type", 1, "string"))
   .add(new protobuf.Field("eventId", 2, "string"))
   .add(new protobuf.Field("eventData", 3, "string")) // JSON serialized event
-  .add(new protobuf.Field("timestamp", 4, "uint64"))
-  .add(new protobuf.Field("senderId", 5, "string"));
+  .add(new protobuf.Field("calendarData", 4, "string")) // JSON serialized calendar
+  .add(new protobuf.Field("eventsData", 5, "string")) // JSON serialized events array
+  .add(new protobuf.Field("timestamp", 6, "uint64"))
+  .add(new protobuf.Field("senderId", 7, "string"));
 
 export class WakuCalendarSync {
   private node: any = null;
@@ -189,8 +200,10 @@ export class WakuCalendarSync {
       
       const action: EventSourceAction = {
         type: decoded.type as EventSourceAction['type'],
-        eventId: decoded.eventId,
+        eventId: decoded.eventId || undefined,
         event: decoded.eventData ? JSON.parse(decoded.eventData) : undefined,
+        calendar: decoded.calendarData ? JSON.parse(decoded.calendarData) : undefined,
+        events: decoded.eventsData ? JSON.parse(decoded.eventsData) : undefined,
         timestamp: Number(decoded.timestamp),
         senderId: decoded.senderId
       };
@@ -213,8 +226,10 @@ export class WakuCalendarSync {
     try {
       const message = EventActionMessage.create({
         type: action.type,
-        eventId: action.eventId,
+        eventId: action.eventId || '',
         eventData: action.event ? JSON.stringify(action.event) : '',
+        calendarData: action.calendar ? JSON.stringify(action.calendar) : '',
+        eventsData: action.events ? JSON.stringify(action.events) : '',
         timestamp: Date.now(),
         senderId: this.senderId
       });
@@ -253,6 +268,50 @@ export class WakuCalendarSync {
       type: 'DELETE_EVENT',
       eventId
     });
+  }
+
+  public async syncCalendar(calendar: any): Promise<boolean> {
+    console.log('Syncing calendar metadata:', calendar);
+    return this.sendEventAction({
+      type: 'SYNC_CALENDAR',
+      calendar
+    });
+  }
+
+  public async syncEvents(events: CalendarEvent[]): Promise<boolean> {
+    console.log('Syncing historical events:', events.length, 'events');
+    return this.sendEventAction({
+      type: 'SYNC_EVENTS',
+      events
+    });
+  }
+
+  public async initializeSharing(calendar: any, events: CalendarEvent[]): Promise<boolean> {
+    if (!this.isConnected) {
+      this.eventHandlers.onError('Not connected to Waku network');
+      return false;
+    }
+
+    try {
+      console.log('Initializing sharing with historical data...');
+      
+      // First sync calendar metadata
+      await this.syncCalendar(calendar);
+      
+      // Then sync all historical events for this calendar
+      const calendarEvents = events.filter(event => event.calendarId === calendar.id);
+      if (calendarEvents.length > 0) {
+        await this.syncEvents(calendarEvents);
+      }
+      
+      console.log(`Sharing initialized: synced calendar + ${calendarEvents.length} events`);
+      return true;
+      
+    } catch (error) {
+      console.error('Failed to initialize sharing:', error);
+      this.eventHandlers.onError(`Failed to initialize sharing: ${error}`);
+      return false;
+    }
   }
 
   public generateShareUrl(calendarId: string, encryptionKey?: string): string {

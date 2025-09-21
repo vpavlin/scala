@@ -82,6 +82,18 @@ export function useWakuSync(calendarId?: string, encryptionKey?: string) {
     return wakuSyncRef.current?.deleteEvent(eventId) ?? false;
   };
 
+  const syncCalendar = async (calendar: any): Promise<boolean> => {
+    return wakuSyncRef.current?.syncCalendar(calendar) ?? false;
+  };
+
+  const syncEvents = async (events: CalendarEvent[]): Promise<boolean> => {
+    return wakuSyncRef.current?.syncEvents(events) ?? false;
+  };
+
+  const initializeSharing = async (calendar: any, events: CalendarEvent[]): Promise<boolean> => {
+    return wakuSyncRef.current?.initializeSharing(calendar, events) ?? false;
+  };
+
   const getNodeStats = (): typeof nodeStats => {
     return wakuSyncRef.current?.getNodeStats() || nodeStats;
   };
@@ -117,6 +129,9 @@ export function useWakuSync(calendarId?: string, encryptionKey?: string) {
     createEvent,
     updateEvent,
     deleteEvent,
+    syncCalendar,
+    syncEvents,
+    initializeSharing,
     generateShareUrl,
     getNodeStats,
     getDetailedNodeInfo,

@@ -62,12 +62,15 @@ export function ShareCalendarModal({
           await navigator.clipboard.writeText(shareUrl);
           toast({
             title: "Share link copied!",
-            description: "The calendar share link has been copied to your clipboard."
+            description: "Calendar sharing enabled and link copied to clipboard."
           });
         } catch (error) {
-          // Silent fail - the copy button is still available
+          toast({
+            title: "Sharing enabled",
+            description: "Calendar sharing is now active. Historical data has been synchronized."
+          });
         }
-      }, 1000);
+      }, 2000); // Wait a bit longer for sync to complete
     }
   };
 

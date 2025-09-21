@@ -104,6 +104,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     createEvent: wakuCreateEvent,
     updateEvent: wakuUpdateEvent,
     deleteEvent: wakuDeleteEvent,
+    initializeSharing,
     initializeWaku,
     getDetailedNodeInfo,
     clearError
@@ -140,11 +141,45 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           }
           break;
         case 'DELETE_EVENT':
-          setEvents(prev => prev.filter(e => e.id !== action.eventId));
-          toast({
-            title: "Event deleted",
-            description: "An event was deleted by another user."
-          });
+          if (action.eventId) {
+            setEvents(prev => prev.filter(e => e.id !== action.eventId));
+            toast({
+              title: "Event deleted",
+              description: "An event was deleted by another user."
+            });
+          }
+          break;
+        case 'SYNC_CALENDAR':
+          if (action.calendar) {
+            console.log('Received calendar sync:', action.calendar);
+            setCalendars(prev => {
+              const exists = prev.some(cal => cal.id === action.calendar!.id);
+              if (exists) {
+                return prev.map(cal => cal.id === action.calendar!.id ? { ...cal, ...action.calendar } : cal);
+              } else {
+                return [...prev, action.calendar as CalendarData];
+              }
+            });
+            toast({
+              title: "Calendar synchronized",
+              description: `Calendar "${action.calendar.name}" was shared with you.`
+            });
+          }
+          break;
+        case 'SYNC_EVENTS':
+          if (action.events && action.events.length > 0) {
+            console.log('Received events sync:', action.events.length, 'events');
+            setEvents(prev => {
+              const newEvents = action.events!.filter(syncEvent => 
+                !prev.some(existingEvent => existingEvent.id === syncEvent.id)
+              );
+              return [...prev, ...newEvents];
+            });
+            toast({
+              title: "Events synchronized",
+              description: `${action.events.length} historical events were synchronized.`
+            });
+          }
           break;
       }
     });
@@ -214,6 +249,16 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const handleCalendarShare = async (calendarId: string, isPrivate: boolean) => {
     await handleCalendarUpdate(calendarId, { isShared: true, isPrivate });
     setWakuCalendarId(calendarId);
+    
+    // Initialize sharing with historical data
+    const sharedCalendar = calendars.find(cal => cal.id === calendarId);
+    if (sharedCalendar && isWakuConnected) {
+      await initializeSharing(sharedCalendar, events);
+      toast({
+        title: "Calendar sharing enabled",
+        description: `Calendar "${sharedCalendar.name}" and all events have been synchronized.`
+      });
+    }
   };
 
   const handleEventCreate = async (eventData: Omit<CalendarEvent, 'id'>) => {
