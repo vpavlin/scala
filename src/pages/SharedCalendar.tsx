@@ -36,7 +36,10 @@ export default function SharedCalendar() {
   if (!calendarData) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground">Loading shared calendar...</div>
+        <div className="space-y-2 text-center">
+          <div className="text-muted-foreground">Loading shared calendar...</div>
+          <div className="text-sm text-muted-foreground">Connecting to Waku network</div>
+        </div>
       </div>
     );
   }

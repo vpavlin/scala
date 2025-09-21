@@ -93,7 +93,18 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [wakuCalendarId, setWakuCalendarId] = useState<string | null>(sharedCalendarId || null);
 
-  // Initialize Waku sync
+  // Show indication when we're in shared calendar mode
+  useEffect(() => {
+    if (sharedCalendarId) {
+      console.log('Loading shared calendar:', sharedCalendarId);
+      toast({
+        title: "Joining shared calendar",
+        description: "Connecting to Waku network and loading calendar data..."
+      });
+    }
+  }, [sharedCalendarId]);
+
+  // Initialize Waku sync - pass shared calendar parameters for auto-initialization
   const {
     isConnected: isWakuConnected,
     connectionStatus,
@@ -108,7 +119,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     initializeWaku,
     getDetailedNodeInfo,
     clearError
-  } = useWakuSync();
+  } = useWakuSync(sharedCalendarId, sharedEncryptionKey);
 
   const selectedCalendars = calendars.filter(cal => cal.isVisible).map(cal => cal.id);
 
@@ -185,7 +196,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     });
   }, [setEventHandler]);
 
-  // Show Waku errors
+  // Show Waku errors and connection status for shared calendars
   useEffect(() => {
     if (wakuError) {
       toast({
@@ -196,6 +207,16 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       clearError();
     }
   }, [wakuError, clearError]);
+
+  // Show connection success for shared calendars
+  useEffect(() => {
+    if (sharedCalendarId && isWakuConnected) {
+      toast({
+        title: "Connected to shared calendar",
+        description: "You are now receiving live updates from this calendar."
+      });
+    }
+  }, [sharedCalendarId, isWakuConnected]);
 
   const handleCalendarToggle = async (calendarId: string) => {
     const updatedCalendars = calendars.map(cal => 
