@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Calendar } from '@/components/Calendar';
 import { CalendarSidebar } from '@/components/CalendarSidebar';
+import { EventDetailsPanel } from '@/components/EventDetailsPanel';
 
 interface CalendarEvent {
   id: string;
@@ -67,6 +68,8 @@ export default function CalendarApp() {
     }
   ]);
 
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+
   const selectedCalendars = calendars.filter(cal => cal.isVisible).map(cal => cal.id);
 
   const handleCalendarToggle = (calendarId: string) => {
@@ -112,10 +115,22 @@ export default function CalendarApp() {
     setEvents(prev => prev.map(event => 
       event.id === updatedEvent.id ? updatedEvent : event
     ));
+    setSelectedEvent(null);
   };
 
   const handleEventDelete = (eventId: string) => {
     setEvents(prev => prev.filter(event => event.id !== eventId));
+    setSelectedEvent(null);
+  };
+
+  const handleEventClick = (event: CalendarEvent) => {
+    setSelectedEvent(event);
+  };
+
+  const handleEventEditFromPanel = (event: CalendarEvent) => {
+    // This will open the edit modal
+    setSelectedEvent(null);
+    // You could set up state to open the modal with this event
   };
 
   return (
@@ -135,7 +150,17 @@ export default function CalendarApp() {
         onEventCreate={handleEventCreate}
         onEventEdit={handleEventEdit}
         onEventDelete={handleEventDelete}
+        onEventClick={handleEventClick}
       />
+      {selectedEvent && (
+        <EventDetailsPanel
+          event={selectedEvent}
+          calendars={calendars}
+          onClose={() => setSelectedEvent(null)}
+          onEdit={handleEventEditFromPanel}
+          onDelete={handleEventDelete}
+        />
+      )}
     </div>
   );
 }
