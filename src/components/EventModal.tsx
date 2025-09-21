@@ -130,6 +130,7 @@ export function EventModal({
               type="time"
               value={time}
               onChange={(e) => setTime(e.target.value)}
+              step="300"
             />
           </div>
 
