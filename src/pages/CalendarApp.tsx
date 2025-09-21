@@ -2,28 +2,25 @@ import { useState, useEffect } from 'react';
 import { Calendar } from '@/components/Calendar';
 import { CalendarSidebar } from '@/components/CalendarSidebar';
 import { EventDetailsPanel } from '@/components/EventDetailsPanel';
+import { EventModal } from '@/components/EventModal';
+import { ShareCalendarModal } from '@/components/ShareCalendarModal';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Toaster } from '@/components/ui/toaster';
 import { useWakuSync } from '@/hooks/useWakuSync';
-import { EventSourceAction } from '@/lib/wakuSync';
+import { useCalendarStorage } from '@/hooks/useCalendarStorage';
+import { CalendarEvent, EventSourceAction } from '@/lib/wakuSync';
+import { CalendarData } from '@/lib/storage';
+import { isSameDay, format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 
-interface CalendarEvent {
-  id: string;
-  title: string;
-  date: Date;
-  time?: string;
-  calendarId: string;
-  description?: string;
-}
-
-interface CalendarData {
-  id: string;
-  name: string;
-  color: string;
-  isVisible: boolean;
-  isShared?: boolean;
-  isPrivate?: boolean;
-  shareUrl?: string;
-}
+const defaultCalendars: CalendarData[] = [
+  {
+    id: 'default',
+    name: 'Personal',
+    color: '#10b981',
+    isVisible: true
+  }
+];
 
 interface CalendarAppProps {
   sharedCalendarId?: string;
@@ -31,58 +28,65 @@ interface CalendarAppProps {
 }
 
 export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: CalendarAppProps = {}) {
-  const [calendars, setCalendars] = useState<CalendarData[]>([
-    {
-      id: 'default',
-      name: 'Personal',
-      color: '#10b981',
-      isVisible: true
-    },
-    {
-      id: 'work',
-      name: 'Work',
-      color: '#3b82f6',
-      isVisible: true
-    },
-    {
-      id: 'family',
-      name: 'Family',
-      color: '#f59e0b',
-      isVisible: false
-    }
-  ]);
+  const storage = useCalendarStorage();
+  const [calendars, setCalendars] = useState<CalendarData[]>(defaultCalendars);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
 
-  const [events, setEvents] = useState<CalendarEvent[]>([
-    {
-      id: '1',
-      title: 'Team Meeting',
-      date: new Date(), // Today
-      time: '10:00',
-      calendarId: 'work',
-      description: 'Weekly team sync'
-    },
-    {
-      id: '2',
-      title: 'Doctor Appointment',
-      date: new Date(Date.now() + 86400000), // Tomorrow
-      time: '14:30',
-      calendarId: 'default'
-    },
-    {
-      id: '3',
-      title: 'Birthday Party',
-      date: new Date(Date.now() + 2 * 86400000), // Day after tomorrow
-      calendarId: 'family',
-      description: 'Sarah\'s birthday celebration'
-    },
-    {
-      id: '4',
-      title: 'All Day Conference',
-      date: new Date(), // Today, no time = all day
-      calendarId: 'work',
-      description: 'Annual company conference'
-    }
-  ]);
+  // Load data from storage on component mount
+  useEffect(() => {
+    const loadStoredData = async () => {
+      if (!storage.isInitialized) return;
+      
+      try {
+        const [storedCalendars, storedEvents] = await Promise.all([
+          storage.loadCalendars(),
+          storage.loadEvents()
+        ]);
+        
+        // Use stored calendars if available, otherwise use defaults
+        if (storedCalendars.length > 0) {
+          setCalendars(storedCalendars);
+        } else {
+          // Save default calendars to storage
+          for (const calendar of defaultCalendars) {
+            await storage.saveCalendar(calendar);
+          }
+        }
+        
+        setEvents(storedEvents);
+      } catch (error) {
+        console.error('Failed to load stored data:', error);
+      }
+    };
+
+    loadStoredData();
+  }, [storage.isInitialized]);
+
+  // Auto-save calendars when they change
+  useEffect(() => {
+    if (!storage.isInitialized || calendars.length === 0) return;
+    
+    const saveCalendars = async () => {
+      for (const calendar of calendars) {
+        await storage.saveCalendar(calendar);
+      }
+    };
+    
+    saveCalendars();
+  }, [calendars, storage.isInitialized]);
+
+  // Auto-save events when they change  
+  useEffect(() => {
+    if (!storage.isInitialized || events.length === 0) return;
+    
+    const saveEvents = async () => {
+      for (const event of events) {
+        await storage.saveEvent(event);
+      }
+    };
+    
+    saveEvents();
+  }, [events, storage.isInitialized]);
 
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -156,35 +160,57 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     }
   }, [wakuError, clearError]);
 
-  const handleCalendarToggle = (calendarId: string) => {
-    setCalendars(prev => prev.map(cal => 
+  const handleCalendarToggle = async (calendarId: string) => {
+    const updatedCalendars = calendars.map(cal => 
       cal.id === calendarId ? { ...cal, isVisible: !cal.isVisible } : cal
-    ));
+    );
+    setCalendars(updatedCalendars);
+    
+    // Save updated calendar to storage
+    const updatedCalendar = updatedCalendars.find(cal => cal.id === calendarId);
+    if (updatedCalendar) {
+      await storage.saveCalendar(updatedCalendar);
+    }
   };
 
-  const handleCalendarCreate = (newCalendar: Omit<CalendarData, 'id'>) => {
-    const calendar: CalendarData = {
-      ...newCalendar,
+  const handleCalendarCreate = async (calendarData: Omit<CalendarData, 'id'>) => {
+    const newCalendar: CalendarData = {
+      ...calendarData,
       id: Date.now().toString()
     };
-    setCalendars(prev => [...prev, calendar]);
+    
+    setCalendars(prev => [...prev, newCalendar]);
+    await storage.saveCalendar(newCalendar);
   };
 
-  const handleCalendarEdit = (updatedCalendar: CalendarData) => {
+  const handleCalendarEdit = async (updatedCalendar: CalendarData) => {
     setCalendars(prev => prev.map(cal => 
       cal.id === updatedCalendar.id ? updatedCalendar : cal
     ));
+    await storage.saveCalendar(updatedCalendar);
   };
 
-  const handleCalendarDelete = (calendarId: string) => {
+  const handleCalendarUpdate = async (calendarId: string, updates: Partial<CalendarData>) => {
+    const updatedCalendars = calendars.map(cal => 
+      cal.id === calendarId ? { ...cal, ...updates } : cal
+    );
+    setCalendars(updatedCalendars);
+    
+    // Save updated calendar to storage
+    const updatedCalendar = updatedCalendars.find(cal => cal.id === calendarId);
+    if (updatedCalendar) {
+      await storage.saveCalendar(updatedCalendar);
+    }
+  };
+
+  const handleCalendarDelete = async (calendarId: string) => {
     setCalendars(prev => prev.filter(cal => cal.id !== calendarId));
     setEvents(prev => prev.filter(event => event.calendarId !== calendarId));
+    await storage.deleteCalendar(calendarId);
   };
 
-  const handleCalendarShare = (calendarId: string, isPrivate: boolean) => {
-    setCalendars(prev => prev.map(cal => 
-      cal.id === calendarId ? { ...cal, isShared: true, isPrivate } : cal
-    ));
+  const handleCalendarShare = async (calendarId: string, isPrivate: boolean) => {
+    await handleCalendarUpdate(calendarId, { isShared: true, isPrivate });
     setWakuCalendarId(calendarId);
   };
 
@@ -196,39 +222,36 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     
     // Add locally first
     setEvents(prev => [...prev, event]);
+    await storage.saveEvent(event);
     
-    // Sync via Waku if connected and this is a shared calendar
-    if (isWakuConnected && sharedCalendarId === event.calendarId) {
+    // Sync via Waku if connected
+    if (isWakuConnected) {
       await wakuCreateEvent(event);
     }
   };
 
-  const handleEventEdit = async (updatedEvent: CalendarEvent) => {
+  const handleEventUpdate = async (updatedEvent: CalendarEvent) => {
     // Update locally first
     setEvents(prev => prev.map(event => 
       event.id === updatedEvent.id ? updatedEvent : event
     ));
+    await storage.saveEvent(updatedEvent);
     
-    // Sync via Waku if connected and this is a shared calendar
-    if (isWakuConnected && sharedCalendarId === updatedEvent.calendarId) {
+    // Sync via Waku if connected
+    if (isWakuConnected) {
       await wakuUpdateEvent(updatedEvent);
     }
-    
-    setSelectedEvent(null);
   };
 
   const handleEventDelete = async (eventId: string) => {
-    const eventToDelete = events.find(e => e.id === eventId);
-    
     // Delete locally first
     setEvents(prev => prev.filter(event => event.id !== eventId));
+    await storage.deleteEvent(eventId);
     
-    // Sync via Waku if connected and this is a shared calendar
-    if (isWakuConnected && eventToDelete && sharedCalendarId === eventToDelete.calendarId) {
+    // Sync via Waku if connected
+    if (isWakuConnected) {
       await wakuDeleteEvent(eventId);
     }
-    
-    setSelectedEvent(null);
   };
 
   const handleEventClick = (event: CalendarEvent) => {
@@ -260,7 +283,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         selectedCalendars={selectedCalendars}
         events={events}
         onEventCreate={handleEventCreate}
-        onEventEdit={handleEventEdit}
+        onEventEdit={handleEventUpdate}
         onEventDelete={handleEventDelete}
         onEventClick={handleEventClick}
         isEditModalOpen={isEditModalOpen}
