@@ -6,6 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { ShareCalendarModal } from '@/components/ShareCalendarModal';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +21,7 @@ interface CalendarData {
   color: string;
   isVisible: boolean;
   isShared?: boolean;
+  isPrivate?: boolean;
   shareUrl?: string;
 }
 
@@ -30,7 +32,10 @@ interface CalendarSidebarProps {
   onCalendarCreate: (calendar: Omit<CalendarData, 'id'>) => void;
   onCalendarEdit: (calendar: CalendarData) => void;
   onCalendarDelete: (calendarId: string) => void;
-  onCalendarShare: (calendarId: string) => void;
+  onCalendarShare: (calendarId: string, isPrivate: boolean) => void;
+  connectionStatus?: 'connected' | 'disconnected' | 'minimal';
+  isWakuConnected?: boolean;
+  onInitializeWaku?: (calendarId: string, encryptionKey?: string) => void;
 }
 
 export function CalendarSidebar({
@@ -40,11 +45,16 @@ export function CalendarSidebar({
   onCalendarCreate,
   onCalendarEdit,
   onCalendarDelete,
-  onCalendarShare
+  onCalendarShare,
+  connectionStatus = 'disconnected',
+  isWakuConnected = false,
+  onInitializeWaku
 }: CalendarSidebarProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [editingCalendar, setEditingCalendar] = useState<CalendarData | null>(null);
+  const [sharingCalendar, setSharingCalendar] = useState<CalendarData | null>(null);
   const [newCalendarName, setNewCalendarName] = useState('');
 
   const handleCreateCalendar = () => {
@@ -80,17 +90,14 @@ export function CalendarSidebar({
   };
 
   const handleShare = (calendar: CalendarData) => {
-    // Mock sharing - generate a shareable URL
-    const shareUrl = `${window.location.origin}/shared/${calendar.id}?key=${btoa(calendar.id + Date.now())}`;
-    
-    navigator.clipboard.writeText(shareUrl).then(() => {
-      toast({
-        title: "Share link copied",
-        description: "Calendar share link has been copied to clipboard."
-      });
-    });
-    
-    onCalendarShare(calendar.id);
+    setSharingCalendar(calendar);
+    setIsShareDialogOpen(true);
+  };
+
+  const handleShareConfirm = (calendarId: string, isPrivate: boolean) => {
+    onCalendarShare(calendarId, isPrivate);
+    setIsShareDialogOpen(false);
+    setSharingCalendar(null);
   };
 
   const handleDelete = (calendar: CalendarData) => {
@@ -229,6 +236,30 @@ export function CalendarSidebar({
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Calendar</DialogTitle>
+          </DialogHeader>
+          {sharingCalendar && (
+            <ShareCalendarModal
+              calendarId={sharingCalendar.id}
+              calendarName={sharingCalendar.name}
+              isPrivate={sharingCalendar.isPrivate || false}
+              onPrivateToggle={(isPrivate) => {
+                setSharingCalendar(prev => prev ? { ...prev, isPrivate } : null);
+              }}
+              connectionStatus={connectionStatus}
+              isConnected={isWakuConnected}
+              onInitializeWaku={(calendarId, encryptionKey) => {
+                onInitializeWaku?.(calendarId, encryptionKey);
+                handleShareConfirm(calendarId, !!encryptionKey);
+              }}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

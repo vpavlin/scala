@@ -1,0 +1,256 @@
+import { createLightNode, ReliableChannel, HealthStatus } from '@waku/sdk';
+import protobuf from 'protobufjs';
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  date: Date;
+  time?: string;
+  calendarId: string;
+  description?: string;
+}
+
+export interface EventSourceAction {
+  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT';
+  eventId: string;
+  event?: CalendarEvent;
+  timestamp: number;
+  senderId: string;
+}
+
+// Protobuf message structure
+const EventActionMessage = new protobuf.Type("EventActionMessage")
+  .add(new protobuf.Field("type", 1, "string"))
+  .add(new protobuf.Field("eventId", 2, "string"))
+  .add(new protobuf.Field("eventData", 3, "string")) // JSON serialized event
+  .add(new protobuf.Field("timestamp", 4, "uint64"))
+  .add(new protobuf.Field("senderId", 5, "string"));
+
+export class WakuCalendarSync {
+  private node: any = null;
+  private reliableChannel: any = null;
+  private isConnected = false;
+  private senderId: string;
+  private channelId: string;
+  private encryptionKey?: string;
+  
+  private eventHandlers: {
+    onEventAction: (action: EventSourceAction) => void;
+    onConnectionStatus: (status: 'connected' | 'disconnected' | 'minimal') => void;
+    onError: (error: string) => void;
+  } = {
+    onEventAction: () => {},
+    onConnectionStatus: () => {},
+    onError: () => {}
+  };
+
+  constructor(channelId: string, encryptionKey?: string) {
+    this.channelId = channelId;
+    this.encryptionKey = encryptionKey;
+    this.senderId = this.generateSenderId();
+  }
+
+  private generateSenderId(): string {
+    return `calendar-user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  public setEventHandlers(handlers: Partial<typeof this.eventHandlers>) {
+    this.eventHandlers = { ...this.eventHandlers, ...handlers };
+  }
+
+  public async initialize(): Promise<boolean> {
+    try {
+      console.log('Initializing Waku node...');
+      
+      // Create Waku node
+      this.node = await createLightNode({ defaultBootstrap: true });
+      
+      // Create content topic for this calendar
+      const contentTopic = `/calendar-app/1/${this.channelId}/events`;
+      
+      // Create encoder and decoder
+      const encoder = this.node.createEncoder({ contentTopic });
+      const decoder = this.node.createDecoder({ contentTopic });
+      
+      // Create reliable channel
+      this.reliableChannel = await ReliableChannel.create(
+        this.node, 
+        this.channelId, 
+        this.senderId, 
+        encoder, 
+        decoder
+      );
+      
+      // Listen for connection status
+      this.node.events.addEventListener("waku:health", (event: any) => {
+        const health = event.detail;
+        
+        if (health === HealthStatus.SufficientlyHealthy) {
+          this.isConnected = true;
+          this.eventHandlers.onConnectionStatus('connected');
+        } else if (health === HealthStatus.MinimallyHealthy) {
+          this.isConnected = true;
+          this.eventHandlers.onConnectionStatus('minimal');
+        } else {
+          this.isConnected = false;
+          this.eventHandlers.onConnectionStatus('disconnected');
+        }
+      });
+      
+      // Listen for incoming messages
+      this.reliableChannel.addEventListener("message-received", (event: any) => {
+        this.handleIncomingMessage(event.detail);
+      });
+      
+      // Listen for message events
+      this.setupMessageEventListeners();
+      
+      console.log('Waku calendar sync initialized successfully');
+      return true;
+      
+    } catch (error) {
+      console.error('Failed to initialize Waku:', error);
+      this.eventHandlers.onError(`Failed to initialize: ${error}`);
+      return false;
+    }
+  }
+
+  private setupMessageEventListeners() {
+    this.reliableChannel.addEventListener("sending-message-irrecoverable-error", (event: any) => {
+      console.error('Failed to send message:', event.detail.error);
+      this.eventHandlers.onError(`Failed to send message: ${event.detail.error}`);
+    });
+
+    this.reliableChannel.addEventListener("message-sent", (event: any) => {
+      console.log('Message sent successfully:', event.detail);
+    });
+
+    this.reliableChannel.addEventListener("message-acknowledged", (event: any) => {
+      console.log('Message acknowledged by network:', event.detail);
+    });
+  }
+
+  private handleIncomingMessage(wakuMessage: any) {
+    try {
+      const decoded = EventActionMessage.decode(wakuMessage.payload) as any;
+      
+      // Skip our own messages
+      if (decoded.senderId === this.senderId) {
+        return;
+      }
+      
+      const action: EventSourceAction = {
+        type: decoded.type as EventSourceAction['type'],
+        eventId: decoded.eventId,
+        event: decoded.eventData ? JSON.parse(decoded.eventData) : undefined,
+        timestamp: Number(decoded.timestamp),
+        senderId: decoded.senderId
+      };
+      
+      // Apply the action
+      this.eventHandlers.onEventAction(action);
+      
+    } catch (error) {
+      console.error('Failed to decode incoming message:', error);
+      this.eventHandlers.onError(`Failed to decode message: ${error}`);
+    }
+  }
+
+  public async sendEventAction(action: Omit<EventSourceAction, 'senderId' | 'timestamp'>): Promise<boolean> {
+    if (!this.reliableChannel || !this.isConnected) {
+      this.eventHandlers.onError('Not connected to Waku network');
+      return false;
+    }
+
+    try {
+      const message = EventActionMessage.create({
+        type: action.type,
+        eventId: action.eventId,
+        eventData: action.event ? JSON.stringify(action.event) : '',
+        timestamp: Date.now(),
+        senderId: this.senderId
+      });
+
+      const serialized = EventActionMessage.encode(message).finish();
+      const messageId = this.reliableChannel.send(serialized);
+      
+      console.log('Sent event action:', action.type, messageId);
+      return true;
+      
+    } catch (error) {
+      console.error('Failed to send event action:', error);
+      this.eventHandlers.onError(`Failed to send action: ${error}`);
+      return false;
+    }
+  }
+
+  public async createEvent(event: CalendarEvent): Promise<boolean> {
+    return this.sendEventAction({
+      type: 'CREATE_EVENT',
+      eventId: event.id,
+      event
+    });
+  }
+
+  public async updateEvent(event: CalendarEvent): Promise<boolean> {
+    return this.sendEventAction({
+      type: 'UPDATE_EVENT',
+      eventId: event.id,
+      event
+    });
+  }
+
+  public async deleteEvent(eventId: string): Promise<boolean> {
+    return this.sendEventAction({
+      type: 'DELETE_EVENT',
+      eventId
+    });
+  }
+
+  public generateShareUrl(calendarId: string, encryptionKey?: string): string {
+    const baseUrl = window.location.origin;
+    const params = new URLSearchParams({
+      calendar: calendarId
+    });
+    
+    if (encryptionKey) {
+      params.set('key', encryptionKey);
+    }
+    
+    return `${baseUrl}/shared?${params.toString()}`;
+  }
+
+  public static parseShareUrl(url: string): { calendarId: string; encryptionKey?: string } | null {
+    try {
+      const urlObj = new URL(url);
+      const calendarId = urlObj.searchParams.get('calendar');
+      const encryptionKey = urlObj.searchParams.get('key') || undefined;
+      
+      if (!calendarId) {
+        return null;
+      }
+      
+      return { calendarId, encryptionKey };
+    } catch {
+      return null;
+    }
+  }
+
+  public getConnectionStatus(): boolean {
+    return this.isConnected;
+  }
+
+  public async disconnect(): Promise<void> {
+    try {
+      if (this.node) {
+        await this.node.stop();
+        this.node = null;
+        this.reliableChannel = null;
+        this.isConnected = false;
+        console.log('Waku node disconnected');
+      }
+    } catch (error) {
+      console.error('Error disconnecting Waku node:', error);
+    }
+  }
+}
