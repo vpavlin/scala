@@ -15,15 +15,6 @@ import { generateUUID } from '@/lib/uuid';
 import { isSameDay, format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 
-const defaultCalendars: CalendarData[] = [
-  {
-    id: generateUUID(),
-    name: 'Personal',
-    color: '#10b981',
-    isVisible: true
-  }
-];
-
 interface CalendarAppProps {
   sharedCalendarId?: string;
   sharedEncryptionKey?: string;
@@ -32,7 +23,7 @@ interface CalendarAppProps {
 export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: CalendarAppProps = {}) {
   const storage = useCalendarStorage();
   const multiWakuSync = useMultiWakuSync();
-  const [calendars, setCalendars] = useState<CalendarData[]>(defaultCalendars);
+  const [calendars, setCalendars] = useState<CalendarData[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
   // Load initial data and initialize Waku for shared calendars
@@ -45,17 +36,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         storage.loadEvents()
       ]);
 
-      // Use stored calendars if available, otherwise use defaults
-      if (loadedCalendars.length > 0) {
-        setCalendars(loadedCalendars);
-      } else {
-        // Save default calendars to storage
-        for (const calendar of defaultCalendars) {
-          await storage.saveCalendar(calendar);
-        }
-        setCalendars(defaultCalendars);
-      }
-
+      setCalendars(loadedCalendars);
       setEvents(loadedEvents);
 
       // Initialize Waku sync for all shared calendars
