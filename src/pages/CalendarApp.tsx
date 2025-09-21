@@ -76,6 +76,8 @@ export default function CalendarApp() {
   ]);
 
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
   const selectedCalendars = calendars.filter(cal => cal.isVisible).map(cal => cal.id);
 
@@ -135,9 +137,10 @@ export default function CalendarApp() {
   };
 
   const handleEventEditFromPanel = (event: CalendarEvent) => {
-    // This will open the edit modal
+    // Close the details panel and open edit modal
     setSelectedEvent(null);
-    // You could set up state to open the modal with this event
+    setEditingEvent(event);
+    setIsEditModalOpen(true);
   };
 
   return (
@@ -158,6 +161,12 @@ export default function CalendarApp() {
         onEventEdit={handleEventEdit}
         onEventDelete={handleEventDelete}
         onEventClick={handleEventClick}
+        isEditModalOpen={isEditModalOpen}
+        editingEvent={editingEvent}
+        onEditModalClose={() => {
+          setIsEditModalOpen(false);
+          setEditingEvent(null);
+        }}
       />
       {selectedEvent && (
         <EventDetailsPanel

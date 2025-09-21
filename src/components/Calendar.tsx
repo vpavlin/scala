@@ -25,6 +25,9 @@ interface CalendarProps {
   onEventEdit: (event: CalendarEvent) => void;
   onEventDelete: (eventId: string) => void;
   onEventClick: (event: CalendarEvent) => void;
+  isEditModalOpen?: boolean;
+  editingEvent?: CalendarEvent | null;
+  onEditModalClose?: () => void;
 }
 
 export function Calendar({ 
@@ -33,29 +36,32 @@ export function Calendar({
   onEventCreate, 
   onEventEdit, 
   onEventDelete,
-  onEventClick
+  onEventClick,
+  isEditModalOpen = false,
+  editingEvent = null,
+  onEditModalClose
 }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<CalendarView>('month');
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [modalEditingEvent, setModalEditingEvent] = useState<CalendarEvent | null>(null);
 
   const handleDayClick = (date: Date) => {
     setSelectedDate(date);
-    setEditingEvent(null);
+    setModalEditingEvent(null);
     setIsEventModalOpen(true);
   };
 
   const handleTimeSlotClick = (date: Date, time: string) => {
     setSelectedDate(date);
-    setEditingEvent(null);
+    setModalEditingEvent(null);
     // Pre-fill time when creating event from time slot
     setIsEventModalOpen(true);
   };
 
   const handleEventModalClick = (event: CalendarEvent) => {
-    setEditingEvent(event);
+    setModalEditingEvent(event);
     setSelectedDate(new Date(event.date));
     setIsEventModalOpen(true);
   };
@@ -109,7 +115,7 @@ export function Calendar({
           className="hover-lift"
           onClick={() => {
             setSelectedDate(new Date());
-            setEditingEvent(null);
+            setModalEditingEvent(null);
             setIsEventModalOpen(true);
           }}
         >
@@ -121,11 +127,14 @@ export function Calendar({
       {renderCurrentView()}
 
       <EventModal
-        isOpen={isEventModalOpen}
-        onClose={() => setIsEventModalOpen(false)}
-        selectedDate={selectedDate}
-        editingEvent={editingEvent}
-        onEventSave={editingEvent ? onEventEdit : onEventCreate}
+        isOpen={isEventModalOpen || isEditModalOpen}
+        onClose={() => {
+          setIsEventModalOpen(false);
+          onEditModalClose?.();
+        }}
+        selectedDate={selectedDate || (editingEvent ? new Date(editingEvent.date) : null)}
+        editingEvent={modalEditingEvent || editingEvent}
+        onEventSave={modalEditingEvent || editingEvent ? onEventEdit : onEventCreate}
         onEventDelete={onEventDelete}
       />
     </div>
