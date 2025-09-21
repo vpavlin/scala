@@ -249,9 +249,9 @@ export function useMultiWakuSync() {
     };
   };
 
-  const generateShareUrl = (calendarId: string): string => {
+  const generateShareUrl = (calendarId: string, calendarName: string): string => {
     const connection = connectionsRef.current.get(calendarId);
-    return connection?.sync.generateShareUrl(calendarId, connection.encryptionKey) ?? '';
+    return connection?.sync.generateShareUrl(calendarId, calendarName, connection.encryptionKey) ?? '';
   };
 
   // Cleanup on unmount

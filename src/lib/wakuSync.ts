@@ -317,10 +317,11 @@ export class WakuCalendarSync {
     }
   }
 
-  public generateShareUrl(calendarId: string, encryptionKey?: string): string {
+  public generateShareUrl(calendarId: string, calendarName: string, encryptionKey?: string): string {
     const baseUrl = window.location.origin;
     const params = new URLSearchParams({
-      calendar: calendarId
+      calendar: calendarId,
+      name: encodeURIComponent(calendarName)
     });
     
     if (encryptionKey) {
@@ -330,17 +331,22 @@ export class WakuCalendarSync {
     return `${baseUrl}/shared?${params.toString()}`;
   }
 
-  public static parseShareUrl(url: string): { calendarId: string; encryptionKey?: string } | null {
+  public static parseShareUrl(url: string): { calendarId: string; calendarName: string; encryptionKey?: string } | null {
     try {
       const urlObj = new URL(url);
       const calendarId = urlObj.searchParams.get('calendar');
+      const calendarName = urlObj.searchParams.get('name');
       const encryptionKey = urlObj.searchParams.get('key') || undefined;
       
-      if (!calendarId) {
+      if (!calendarId || !calendarName) {
         return null;
       }
       
-      return { calendarId, encryptionKey };
+      return { 
+        calendarId, 
+        calendarName: decodeURIComponent(calendarName), 
+        encryptionKey 
+      };
     } catch {
       return null;
     }

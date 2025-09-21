@@ -226,7 +226,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       ...calendar, 
       isShared: true, 
       isPrivate,
-      shareUrl: multiWakuSync.generateShareUrl(calendarId)
+      shareUrl: multiWakuSync.generateShareUrl(calendarId, calendar.name)
     };
 
     setCalendars(prev => prev.map(cal => 
