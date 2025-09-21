@@ -15,6 +15,7 @@ export function useMultiWakuSync() {
   const [globalConnectionStatus, setGlobalConnectionStatus] = useState<'disconnected' | 'connected' | 'minimal'>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [pendingCalendars, setPendingCalendars] = useState<{ calendars: CalendarData[]; events: CalendarEvent[] } | null>(null);
   
   const connectionsRef = useRef<Map<string, WakuConnection>>(new Map());
   const eventHandlerRef = useRef<(action: EventSourceAction) => void>();
@@ -36,7 +37,33 @@ export function useMultiWakuSync() {
     }
   }, []);
 
+  // Listen to the first Waku node's connection status to determine overall readiness
+  const [isWakuReady, setIsWakuReady] = useState(false);
+  
+  const updateWakuReadiness = useCallback(() => {
+    const connections = Array.from(connectionsRef.current.values());
+    if (connections.length > 0) {
+      // Consider Waku ready if at least one connection is healthy
+      const hasHealthyConnection = connections.some(conn => 
+        conn.connectionStatus === 'connected' || conn.connectionStatus === 'minimal'
+      );
+      setIsWakuReady(hasHealthyConnection);
+    }
+  }, []);
+
   const initializeSharedCalendars = async (sharedCalendars: CalendarData[], allEvents: CalendarEvent[]) => {
+    console.log(`Queuing ${sharedCalendars.length} shared calendars for initialization...`);
+    
+    // Store pending calendars to initialize once Waku is connected
+    setPendingCalendars({ calendars: sharedCalendars, events: allEvents });
+    
+    // If we're already connected, initialize immediately
+    if (globalConnectionStatus === 'connected' || globalConnectionStatus === 'minimal') {
+      await performInitialization(sharedCalendars, allEvents);
+    }
+  };
+
+  const performInitialization = async (sharedCalendars: CalendarData[], allEvents: CalendarEvent[]) => {
     setIsInitializing(true);
     setError(null);
 
@@ -109,6 +136,9 @@ export function useMultiWakuSync() {
       connectionsRef.current = newConnections;
       updateGlobalStatus();
       
+      // Clear pending calendars since we've processed them
+      setPendingCalendars(null);
+      
     } catch (err) {
       setError(`Multi-sync initialization error: ${err}`);
     } finally {
@@ -116,9 +146,33 @@ export function useMultiWakuSync() {
     }
   };
 
+  // Initialize pending calendars when Waku becomes connected
+  useEffect(() => {
+    if (pendingCalendars && (globalConnectionStatus === 'connected' || globalConnectionStatus === 'minimal')) {
+      console.log('Waku connected, initializing pending calendars...');
+      performInitialization(pendingCalendars.calendars, pendingCalendars.events);
+    }
+  }, [globalConnectionStatus, pendingCalendars]);
+
   const addSharedCalendar = async (calendar: CalendarData, events: CalendarEvent[]) => {
     if (connectionsRef.current.has(calendar.id)) {
       console.log(`Calendar ${calendar.id} already has a Waku connection`);
+      return;
+    }
+
+    // Check if Waku is connected before trying to add calendar
+    if (globalConnectionStatus === 'disconnected') {
+      console.log('Waku not connected, queuing calendar for later initialization...');
+      // Add to pending calendars
+      setPendingCalendars(prev => {
+        if (prev) {
+          return {
+            calendars: [...prev.calendars, calendar],
+            events: [...prev.events, ...events]
+          };
+        }
+        return { calendars: [calendar], events };
+      });
       return;
     }
 

@@ -26,7 +26,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [calendars, setCalendars] = useState<CalendarData[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
-  // Load initial data and initialize Waku for shared calendars
+  // Load initial data and defer Waku initialization
   useEffect(() => {
     const loadInitialData = async () => {
       if (!storage.isInitialized) return;
@@ -39,10 +39,10 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       setCalendars(loadedCalendars);
       setEvents(loadedEvents);
 
-      // Initialize Waku sync for all shared calendars
+      // Don't initialize Waku immediately - wait for connection readiness
       const sharedCalendars = loadedCalendars.filter(cal => cal.isShared);
       if (sharedCalendars.length > 0) {
-        console.log(`Found ${sharedCalendars.length} shared calendars, initializing Waku sync...`);
+        console.log(`Found ${sharedCalendars.length} shared calendars, queuing for Waku initialization...`);
         await multiWakuSync.initializeSharedCalendars(sharedCalendars, loadedEvents);
       }
 
@@ -51,7 +51,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         console.log('Loading shared calendar from URL:', sharedCalendarId);
         toast({
           title: "Joining shared calendar",
-          description: "Connecting to Waku network and loading calendar data..."
+          description: "Waiting for Waku network connection..."
         });
       }
     };
@@ -188,6 +188,13 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       });
     }
   }, [sharedCalendarId, multiWakuSync.globalConnectionStatus]);
+
+  // Show connection readiness
+  useEffect(() => {
+    if (multiWakuSync.globalConnectionStatus === 'connected' || multiWakuSync.globalConnectionStatus === 'minimal') {
+      console.log('Waku network is ready for reliable channels');
+    }
+  }, [multiWakuSync.globalConnectionStatus]);
 
   const handleCalendarToggle = async (calendarId: string) => {
     const updatedCalendars = calendars.map(cal => 
