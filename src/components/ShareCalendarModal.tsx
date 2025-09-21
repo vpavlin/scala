@@ -33,7 +33,7 @@ export function ShareCalendarModal({
     isPrivate ? btoa(`${calendarId}-${Date.now()}`).substring(0, 16) : undefined
   );
 
-  const shareUrl = new WakuCalendarSync(calendarId, encryptionKey).generateShareUrl(calendarId, encryptionKey);
+  const shareUrl = new WakuCalendarSync(calendarId, encryptionKey).generateShareUrl(calendarId, calendarName, encryptionKey);
 
   const handleCopyUrl = async () => {
     try {
