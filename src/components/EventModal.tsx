@@ -49,7 +49,7 @@ export function EventModal({
   const [time, setTime] = useState('');
   const [description, setDescription] = useState('');
   const [calendarId, setCalendarId] = useState(() => 
-    calendars.length > 0 ? calendars[0].id : 'default'
+    calendars.length > 0 ? calendars[0].id : ''
   );
 
   useEffect(() => {
@@ -63,7 +63,7 @@ export function EventModal({
       setTime('');
       setDescription('');
       // Set default calendar ID to first available calendar
-      setCalendarId(calendars.length > 0 ? calendars[0].id : 'default');
+      setCalendarId(calendars.length > 0 ? calendars[0].id : '');
     }
   }, [editingEvent, isOpen, calendars]);
 

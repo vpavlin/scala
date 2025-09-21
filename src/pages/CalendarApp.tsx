@@ -4,18 +4,20 @@ import { CalendarSidebar } from '@/components/CalendarSidebar';
 import { EventDetailsPanel } from '@/components/EventDetailsPanel';
 import { EventModal } from '@/components/EventModal';
 import { ShareCalendarModal } from '@/components/ShareCalendarModal';
+import { DevMenu } from '@/components/DevMenu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Toaster } from '@/components/ui/toaster';
 import { useWakuSync } from '@/hooks/useWakuSync';
 import { useCalendarStorage } from '@/hooks/useCalendarStorage';
 import { CalendarEvent, EventSourceAction } from '@/lib/wakuSync';
 import { CalendarData } from '@/lib/storage';
+import { generateUUID } from '@/lib/uuid';
 import { isSameDay, format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 
 const defaultCalendars: CalendarData[] = [
   {
-    id: 'default',
+    id: generateUUID(),
     name: 'Personal',
     color: '#10b981',
     isVisible: true
@@ -234,7 +236,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const handleCalendarCreate = async (calendarData: Omit<CalendarData, 'id'>) => {
     const newCalendar: CalendarData = {
       ...calendarData,
-      id: Date.now().toString()
+      id: generateUUID()
     };
     
     setCalendars(prev => [...prev, newCalendar]);
@@ -285,7 +287,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const handleEventCreate = async (eventData: Omit<CalendarEvent, 'id'>) => {
     const event: CalendarEvent = {
       ...eventData,
-      id: Date.now().toString()
+      id: generateUUID()
     };
     
     // Add locally first
@@ -324,6 +326,30 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
 
   const handleEventClick = (event: CalendarEvent) => {
     setSelectedEvent(event);
+  };
+
+  // Dev utilities
+  const handleClearDatabase = async () => {
+    await storage.clearAllData();
+    setCalendars([]);
+    setEvents([]);
+    setSelectedEvent(null);
+    setEditingEvent(null);
+    setIsEditModalOpen(false);
+  };
+
+  const handlePopulateExampleData = async (exampleCalendars: CalendarData[], exampleEvents: CalendarEvent[]) => {
+    // Add calendars
+    for (const calendar of exampleCalendars) {
+      await storage.saveCalendar(calendar);
+    }
+    setCalendars(prev => [...prev, ...exampleCalendars]);
+
+    // Add events
+    for (const event of exampleEvents) {
+      await storage.saveEvent(event);
+    }
+    setEvents(prev => [...prev, ...exampleEvents]);
   };
 
   const handleEventEditFromPanel = (event: CalendarEvent) => {
@@ -373,6 +399,12 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           onDelete={handleEventDelete}
         />
       )}
+      
+      {/* Development Menu */}
+      <DevMenu
+        onClearDatabase={handleClearDatabase}
+        onPopulateExampleData={handlePopulateExampleData}
+      />
     </div>
   );
 }
