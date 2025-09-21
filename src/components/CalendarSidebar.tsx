@@ -36,14 +36,15 @@ interface CalendarSidebarProps {
   onCalendarShare: (calendarId: string, isPrivate: boolean) => void;
   connectionStatus?: 'connected' | 'disconnected' | 'minimal';
   isWakuConnected?: boolean;
-  onInitializeWaku?: (calendarId: string, encryptionKey?: string) => void;
-  nodeStats?: {
-    peerCount: number;
-    isHealthy: boolean;
-    protocolsSupported: string[];
-    startTime: number;
+  connectionStats?: {
+    totalConnections: number;
+    connectedCount: number;
+    connections: {
+      calendarId: string;
+      isConnected: boolean;
+      status: 'disconnected' | 'connected' | 'minimal';
+    }[];
   };
-  onGetDetailedNodeInfo?: () => Promise<any>;
 }
 
 export function CalendarSidebar({
@@ -56,9 +57,7 @@ export function CalendarSidebar({
   onCalendarShare,
   connectionStatus = 'disconnected',
   isWakuConnected = false,
-  onInitializeWaku,
-  nodeStats = { peerCount: 0, isHealthy: false, protocolsSupported: [], startTime: Date.now() },
-  onGetDetailedNodeInfo = async () => null
+  connectionStats
 }: CalendarSidebarProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -265,7 +264,6 @@ export function CalendarSidebar({
               connectionStatus={connectionStatus}
               isConnected={isWakuConnected}
               onInitializeWaku={(calendarId, encryptionKey) => {
-                onInitializeWaku?.(calendarId, encryptionKey);
                 handleShareConfirm(calendarId, !!encryptionKey);
               }}
             />
@@ -277,8 +275,7 @@ export function CalendarSidebar({
         <WakuStatus
           connectionStatus={connectionStatus}
           isConnected={isWakuConnected}
-          nodeStats={nodeStats}
-          onGetDetailedInfo={onGetDetailedNodeInfo}
+          connectionStats={connectionStats}
         />
       </div>
   );

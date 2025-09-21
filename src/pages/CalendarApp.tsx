@@ -7,7 +7,7 @@ import { ShareCalendarModal } from '@/components/ShareCalendarModal';
 import { DevMenu } from '@/components/DevMenu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Toaster } from '@/components/ui/toaster';
-import { useWakuSync } from '@/hooks/useWakuSync';
+import { useMultiWakuSync } from '@/hooks/useMultiWakuSync';
 import { useCalendarStorage } from '@/hooks/useCalendarStorage';
 import { CalendarEvent, EventSourceAction } from '@/lib/wakuSync';
 import { CalendarData } from '@/lib/storage';
@@ -31,103 +31,62 @@ interface CalendarAppProps {
 
 export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: CalendarAppProps = {}) {
   const storage = useCalendarStorage();
+  const multiWakuSync = useMultiWakuSync();
   const [calendars, setCalendars] = useState<CalendarData[]>(defaultCalendars);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
-  // Load data from storage on component mount
+  // Load initial data and initialize Waku for shared calendars
   useEffect(() => {
-    const loadStoredData = async () => {
+    const loadInitialData = async () => {
       if (!storage.isInitialized) return;
-      
-      try {
-        const [storedCalendars, storedEvents] = await Promise.all([
-          storage.loadCalendars(),
-          storage.loadEvents()
-        ]);
-        
-        // Use stored calendars if available, otherwise use defaults
-        if (storedCalendars.length > 0) {
-          setCalendars(storedCalendars);
-        } else {
-          // Save default calendars to storage
-          for (const calendar of defaultCalendars) {
-            await storage.saveCalendar(calendar);
-          }
+
+      const [loadedCalendars, loadedEvents] = await Promise.all([
+        storage.loadCalendars(),
+        storage.loadEvents()
+      ]);
+
+      // Use stored calendars if available, otherwise use defaults
+      if (loadedCalendars.length > 0) {
+        setCalendars(loadedCalendars);
+      } else {
+        // Save default calendars to storage
+        for (const calendar of defaultCalendars) {
+          await storage.saveCalendar(calendar);
         }
-        
-        setEvents(storedEvents);
-      } catch (error) {
-        console.error('Failed to load stored data:', error);
+        setCalendars(defaultCalendars);
+      }
+
+      setEvents(loadedEvents);
+
+      // Initialize Waku sync for all shared calendars
+      const sharedCalendars = loadedCalendars.filter(cal => cal.isShared);
+      if (sharedCalendars.length > 0) {
+        console.log(`Found ${sharedCalendars.length} shared calendars, initializing Waku sync...`);
+        await multiWakuSync.initializeSharedCalendars(sharedCalendars, loadedEvents);
+      }
+
+      // Handle shared calendar from URL
+      if (sharedCalendarId && sharedEncryptionKey) {
+        console.log('Loading shared calendar from URL:', sharedCalendarId);
+        toast({
+          title: "Joining shared calendar",
+          description: "Connecting to Waku network and loading calendar data..."
+        });
       }
     };
 
-    loadStoredData();
-  }, [storage.isInitialized]);
-
-  // Auto-save calendars when they change
-  useEffect(() => {
-    if (!storage.isInitialized || calendars.length === 0) return;
-    
-    const saveCalendars = async () => {
-      for (const calendar of calendars) {
-        await storage.saveCalendar(calendar);
-      }
-    };
-    
-    saveCalendars();
-  }, [calendars, storage.isInitialized]);
-
-  // Auto-save events when they change  
-  useEffect(() => {
-    if (!storage.isInitialized || events.length === 0) return;
-    
-    const saveEvents = async () => {
-      for (const event of events) {
-        await storage.saveEvent(event);
-      }
-    };
-    
-    saveEvents();
-  }, [events, storage.isInitialized]);
+    loadInitialData();
+  }, [storage.isInitialized, sharedCalendarId, sharedEncryptionKey]);
 
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [wakuCalendarId, setWakuCalendarId] = useState<string | null>(sharedCalendarId || null);
-
-  // Show indication when we're in shared calendar mode
-  useEffect(() => {
-    if (sharedCalendarId) {
-      console.log('Loading shared calendar:', sharedCalendarId);
-      toast({
-        title: "Joining shared calendar",
-        description: "Connecting to Waku network and loading calendar data..."
-      });
-    }
-  }, [sharedCalendarId]);
-
-  // Initialize Waku sync - pass shared calendar parameters for auto-initialization
-  const {
-    isConnected: isWakuConnected,
-    connectionStatus,
-    isInitializing,
-    error: wakuError,
-    nodeStats,
-    setEventHandler,
-    createEvent: wakuCreateEvent,
-    updateEvent: wakuUpdateEvent,
-    deleteEvent: wakuDeleteEvent,
-    initializeSharing,
-    initializeWaku,
-    getDetailedNodeInfo,
-    clearError
-  } = useWakuSync(sharedCalendarId, sharedEncryptionKey);
 
   const selectedCalendars = calendars.filter(cal => cal.isVisible).map(cal => cal.id);
 
-  // Handle incoming Waku events
+  // Setup multi-Waku event handler
   useEffect(() => {
-    setEventHandler((action: EventSourceAction) => {
+    multiWakuSync.setEventHandler((action: EventSourceAction) => {
       console.log('Received Waku action:', action);
       
       switch (action.type) {
@@ -198,29 +157,29 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           break;
       }
     });
-  }, [setEventHandler]);
+  }, []);
 
   // Show Waku errors and connection status for shared calendars
   useEffect(() => {
-    if (wakuError) {
+    if (multiWakuSync.error) {
       toast({
         title: "Sync Error",
-        description: wakuError,
+        description: multiWakuSync.error,
         variant: "destructive"
       });
-      clearError();
+      multiWakuSync.clearError();
     }
-  }, [wakuError, clearError]);
+  }, [multiWakuSync.error]);
 
   // Show connection success for shared calendars
   useEffect(() => {
-    if (sharedCalendarId && isWakuConnected) {
+    if (sharedCalendarId && multiWakuSync.globalConnectionStatus !== 'disconnected') {
       toast({
         title: "Connected to shared calendar",
         description: "You are now receiving live updates from this calendar."
       });
     }
-  }, [sharedCalendarId, isWakuConnected]);
+  }, [sharedCalendarId, multiWakuSync.globalConnectionStatus]);
 
   const handleCalendarToggle = async (calendarId: string) => {
     const updatedCalendars = calendars.map(cal => 
@@ -266,24 +225,42 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   };
 
   const handleCalendarDelete = async (calendarId: string) => {
+    const calendarToDelete = calendars.find(cal => cal.id === calendarId);
+    
+    // Remove Waku sync if calendar is shared
+    if (calendarToDelete?.isShared) {
+      await multiWakuSync.removeSharedCalendar(calendarId);
+    }
+    
     setCalendars(prev => prev.filter(cal => cal.id !== calendarId));
     setEvents(prev => prev.filter(event => event.calendarId !== calendarId));
     await storage.deleteCalendar(calendarId);
   };
 
   const handleCalendarShare = async (calendarId: string, isPrivate: boolean) => {
-    await handleCalendarUpdate(calendarId, { isShared: true, isPrivate });
-    setWakuCalendarId(calendarId);
+    const calendar = calendars.find(cal => cal.id === calendarId);
+    if (!calendar) return;
+
+    const updatedCalendar = { 
+      ...calendar, 
+      isShared: true, 
+      isPrivate,
+      shareUrl: multiWakuSync.generateShareUrl(calendarId)
+    };
+
+    setCalendars(prev => prev.map(cal => 
+      cal.id === calendarId ? updatedCalendar : cal
+    ));
+    await storage.saveCalendar(updatedCalendar);
+
+    // Add Waku sync for this calendar
+    const calendarEvents = events.filter(event => event.calendarId === calendarId);
+    await multiWakuSync.addSharedCalendar(updatedCalendar, calendarEvents);
     
-    // Initialize sharing with historical data
-    const sharedCalendar = calendars.find(cal => cal.id === calendarId);
-    if (sharedCalendar && isWakuConnected) {
-      await initializeSharing(sharedCalendar, events);
-      toast({
-        title: "Calendar sharing enabled",
-        description: `Calendar "${sharedCalendar.name}" and all events have been synchronized.`
-      });
-    }
+    toast({
+      title: "Calendar shared",
+      description: `Calendar "${calendar.name}" is now being shared via Waku.`
+    });
   };
 
   const handleEventCreate = async (eventData: Omit<CalendarEvent, 'id'>) => {
@@ -296,9 +273,10 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     setEvents(prev => [...prev, event]);
     await storage.saveEvent(event);
     
-    // Sync via Waku if connected
-    if (isWakuConnected) {
-      await wakuCreateEvent(event);
+    // Sync via Waku if calendar is shared
+    const calendar = calendars.find(cal => cal.id === event.calendarId);
+    if (calendar?.isShared) {
+      await multiWakuSync.createEvent(event);
     }
   };
 
@@ -309,20 +287,25 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     ));
     await storage.saveEvent(updatedEvent);
     
-    // Sync via Waku if connected
-    if (isWakuConnected) {
-      await wakuUpdateEvent(updatedEvent);
+    // Sync via Waku if calendar is shared
+    const calendar = calendars.find(cal => cal.id === updatedEvent.calendarId);
+    if (calendar?.isShared) {
+      await multiWakuSync.updateEvent(updatedEvent);
     }
   };
 
   const handleEventDelete = async (eventId: string) => {
+    const eventToDelete = events.find(event => event.id === eventId);
+    if (!eventToDelete) return;
+
     // Delete locally first
     setEvents(prev => prev.filter(event => event.id !== eventId));
     await storage.deleteEvent(eventId);
     
-    // Sync via Waku if connected
-    if (isWakuConnected) {
-      await wakuDeleteEvent(eventId);
+    // Sync via Waku if calendar is shared
+    const calendar = calendars.find(cal => cal.id === eventToDelete.calendarId);
+    if (calendar?.isShared) {
+      await multiWakuSync.deleteEvent(eventId, eventToDelete.calendarId);
     }
   };
 
@@ -371,11 +354,9 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         onCalendarEdit={handleCalendarEdit}
         onCalendarDelete={handleCalendarDelete}
         onCalendarShare={handleCalendarShare}
-        connectionStatus={connectionStatus}
-        isWakuConnected={isWakuConnected}
-        onInitializeWaku={initializeWaku}
-        nodeStats={nodeStats}
-        onGetDetailedNodeInfo={getDetailedNodeInfo}
+        connectionStatus={multiWakuSync.globalConnectionStatus}
+        isWakuConnected={multiWakuSync.globalConnectionStatus !== 'disconnected'}
+        connectionStats={multiWakuSync.getConnectionStats()}
       />
       <Calendar
         calendars={calendars}

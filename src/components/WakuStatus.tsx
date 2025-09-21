@@ -10,23 +10,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 interface WakuStatusProps {
   connectionStatus: 'connected' | 'disconnected' | 'minimal';
   isConnected: boolean;
-  nodeStats: {
-    peerCount: number;
-    isHealthy: boolean;
-    protocolsSupported: string[];
-    startTime: number;
+  connectionStats?: {
+    totalConnections: number;
+    connectedCount: number;
+    connections: {
+      calendarId: string;
+      isConnected: boolean;
+      status: 'disconnected' | 'connected' | 'minimal';
+    }[];
   };
-  onGetDetailedInfo: () => Promise<any>;
 }
 
 export function WakuStatus({ 
   connectionStatus, 
   isConnected, 
-  nodeStats,
-  onGetDetailedInfo
+  connectionStats
 }: WakuStatusProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [detailedInfo, setDetailedInfo] = useState<any>(null);
 
   const getStatusIcon = () => {
     switch (connectionStatus) {
@@ -61,24 +61,7 @@ export function WakuStatus({
     }
   };
 
-  const formatUptime = (startTime: number) => {
-    const uptimeMs = Date.now() - startTime;
-    const seconds = Math.floor(uptimeMs / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    
-    if (hours > 0) {
-      return `${hours}h ${minutes % 60}m`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${seconds % 60}s`;
-    } else {
-      return `${seconds}s`;
-    }
-  };
-
-  const handleShowDetails = async () => {
-    const info = await onGetDetailedInfo();
-    setDetailedInfo(info);
+  const handleShowDetails = () => {
     setIsDetailsOpen(true);
   };
 
@@ -98,74 +81,40 @@ export function WakuStatus({
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Detailed Node Information</DialogTitle>
+                <DialogTitle>Connection Details</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                {detailedInfo ? (
+                {connectionStats ? (
                   <>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label className="text-sm font-medium">Peer ID</Label>
-                        <p className="text-xs font-mono text-muted-foreground break-all">
-                          {detailedInfo.peerId}
-                        </p>
+                        <Label className="text-sm font-medium">Total Connections</Label>
+                        <p className="text-2xl font-bold">{connectionStats.totalConnections}</p>
                       </div>
                       <div>
-                        <Label className="text-sm font-medium">Channel ID</Label>
-                        <p className="text-xs font-mono text-muted-foreground">
-                          {detailedInfo.channelId}
-                        </p>
+                        <Label className="text-sm font-medium">Active Connections</Label>
+                        <p className="text-2xl font-bold">{connectionStats.connectedCount}</p>
                       </div>
                     </div>
                     
                     <Separator />
                     
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <Label className="text-sm font-medium">Connected Peers</Label>
-                        <p className="text-2xl font-bold">{detailedInfo.peerCount}</p>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Connections</Label>
-                        <p className="text-2xl font-bold">{detailedInfo.connectionCount}</p>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Uptime</Label>
-                        <p className="text-2xl font-bold">{formatUptime(nodeStats.startTime)}</p>
-                      </div>
-                    </div>
-
-                    <Separator />
-
                     <div>
-                      <Label className="text-sm font-medium mb-2 block">Supported Protocols</Label>
-                      <div className="flex flex-wrap gap-1">
-                        {detailedInfo.protocols.map((protocol: string, index: number) => (
-                          <Badge key={index} variant="secondary" className="text-xs">
-                            {protocol}
-                          </Badge>
+                      <Label className="text-sm font-medium mb-2 block">Calendar Connections</Label>
+                      <div className="space-y-2">
+                        {connectionStats.connections.map((conn, index) => (
+                          <div key={index} className="flex items-center justify-between p-2 bg-muted rounded">
+                            <span className="text-sm font-mono">{conn.calendarId}</span>
+                            <Badge variant={conn.isConnected ? "default" : "secondary"}>
+                              {conn.status}
+                            </Badge>
+                          </div>
                         ))}
                       </div>
                     </div>
-
-                    {detailedInfo.connectedPeers.length > 0 && (
-                      <>
-                        <Separator />
-                        <div>
-                          <Label className="text-sm font-medium mb-2 block">Connected Peers</Label>
-                          <div className="max-h-32 overflow-y-auto space-y-1">
-                            {detailedInfo.connectedPeers.map((peer: string, index: number) => (
-                              <p key={index} className="text-xs font-mono text-muted-foreground break-all">
-                                {peer}
-                              </p>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
                   </>
                 ) : (
-                  <p className="text-muted-foreground">Loading node information...</p>
+                  <p className="text-muted-foreground">No connection statistics available.</p>
                 )}
               </div>
             </DialogContent>
@@ -179,24 +128,24 @@ export function WakuStatus({
             <span className="text-sm font-medium">{getStatusText()}</span>
             <div className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
           </div>
-          <Badge variant={nodeStats.isHealthy ? "default" : "secondary"}>
-            {nodeStats.isHealthy ? "Healthy" : "Unhealthy"}
+          <Badge variant={isConnected ? "default" : "secondary"}>
+            {connectionStats ? `${connectionStats.connectedCount}/${connectionStats.totalConnections}` : "No data"}
           </Badge>
         </div>
 
-        {isConnected && (
+        {isConnected && connectionStats && (
           <>
             <Separator />
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Peers:</span>
-                <span className="font-medium">{nodeStats.peerCount}</span>
+                <span className="text-muted-foreground">Calendars:</span>
+                <span className="font-medium">{connectionStats.totalConnections}</span>
               </div>
               <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Uptime:</span>
-                <span className="font-medium">{formatUptime(nodeStats.startTime)}</span>
+                <Activity className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Active:</span>
+                <span className="font-medium">{connectionStats.connectedCount}</span>
               </div>
             </div>
           </>
