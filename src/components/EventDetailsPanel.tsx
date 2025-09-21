@@ -1,4 +1,4 @@
-import { Edit2, X, Trash2, Share2 } from 'lucide-react';
+import { Edit2, X, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -119,14 +119,6 @@ export function EventDetailsPanel({
           >
             <Edit2 className="h-4 w-4 mr-2" />
             Edit Event
-          </Button>
-          
-          <Button
-            variant="outline"
-            className="w-full hover-lift"
-          >
-            <Share2 className="h-4 w-4 mr-2" />
-            Share Event
           </Button>
           
           <Button

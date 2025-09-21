@@ -119,7 +119,9 @@ export function WeekView({
                         onEventClick(event);
                       }}
                     >
-                      <div className="font-medium">{event.title}</div>
+                      <div className="font-medium truncate" title={event.title}>
+                        {event.title}
+                      </div>
                       {event.time && (
                         <div className="text-xs opacity-75">{event.time}</div>
                       )}

@@ -104,8 +104,9 @@ export function DayView({
                 key={event.id}
                 className="calendar-event hover-lift cursor-pointer p-2"
                 onClick={() => onEventClick(event)}
+                title={event.title}
               >
-                {event.title}
+                <span className="truncate block">{event.title}</span>
               </div>
             ))}
             {dayEvents.filter(event => !event.time).length === 0 && (
@@ -143,8 +144,9 @@ export function DayView({
                               e.stopPropagation();
                               onEventClick(event);
                             }}
+                            title={event.title}
                           >
-                            <div className="font-medium">{event.title}</div>
+                            <div className="font-medium truncate">{event.title}</div>
                             <div className="opacity-75">{event.time}</div>
                           </div>
                         ))}
@@ -168,8 +170,9 @@ export function DayView({
                 key={event.id}
                 className="p-2 rounded-md border border-border/50 hover:bg-muted/50 cursor-pointer hover-lift transition-colors"
                 onClick={() => onEventClick(event)}
+                title={event.title}
               >
-                <div className="text-sm font-medium">{event.title}</div>
+                <div className="text-sm font-medium truncate">{event.title}</div>
                 <div className="text-xs text-muted-foreground">
                   {event.time || 'All day'}
                 </div>
