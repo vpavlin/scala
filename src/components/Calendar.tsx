@@ -18,7 +18,18 @@ interface CalendarEvent {
   description?: string;
 }
 
+interface CalendarData {
+  id: string;
+  name: string;
+  color: string;
+  isVisible: boolean;
+  isShared?: boolean;
+  isPrivate?: boolean;
+  shareUrl?: string;
+}
+
 interface CalendarProps {
+  calendars: CalendarData[];
   selectedCalendars: string[];
   events: CalendarEvent[];
   onEventCreate: (event: Omit<CalendarEvent, 'id'>) => void;
@@ -31,6 +42,7 @@ interface CalendarProps {
 }
 
 export function Calendar({ 
+  calendars,
   selectedCalendars, 
   events, 
   onEventCreate, 
@@ -132,6 +144,7 @@ export function Calendar({
           setIsEventModalOpen(false);
           onEditModalClose?.();
         }}
+        calendars={calendars}
         selectedDate={selectedDate || (editingEvent ? new Date(editingEvent.date) : null)}
         editingEvent={modalEditingEvent || editingEvent}
         onEventSave={modalEditingEvent || editingEvent ? onEventEdit : onEventCreate}

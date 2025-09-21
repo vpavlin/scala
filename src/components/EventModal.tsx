@@ -16,9 +16,20 @@ interface CalendarEvent {
   description?: string;
 }
 
+interface CalendarData {
+  id: string;
+  name: string;
+  color: string;
+  isVisible: boolean;
+  isShared?: boolean;
+  isPrivate?: boolean;
+  shareUrl?: string;
+}
+
 interface EventModalProps {
   isOpen: boolean;
   onClose: () => void;
+  calendars: CalendarData[];
   selectedDate: Date | null;
   editingEvent: CalendarEvent | null;
   onEventSave: (event: CalendarEvent | Omit<CalendarEvent, 'id'>) => void;
@@ -28,6 +39,7 @@ interface EventModalProps {
 export function EventModal({
   isOpen,
   onClose,
+  calendars,
   selectedDate,
   editingEvent,
   onEventSave,
@@ -36,14 +48,9 @@ export function EventModal({
   const [title, setTitle] = useState('');
   const [time, setTime] = useState('');
   const [description, setDescription] = useState('');
-  const [calendarId, setCalendarId] = useState('default');
-
-  // Mock calendars - in real app this would come from props
-  const mockCalendars = [
-    { id: 'default', name: 'Personal', color: '#10b981' },
-    { id: 'work', name: 'Work', color: '#3b82f6' },
-    { id: 'family', name: 'Family', color: '#f59e0b' }
-  ];
+  const [calendarId, setCalendarId] = useState(() => 
+    calendars.length > 0 ? calendars[0].id : 'default'
+  );
 
   useEffect(() => {
     if (editingEvent) {
@@ -55,9 +62,10 @@ export function EventModal({
       setTitle('');
       setTime('');
       setDescription('');
-      setCalendarId('default');
+      // Set default calendar ID to first available calendar
+      setCalendarId(calendars.length > 0 ? calendars[0].id : 'default');
     }
-  }, [editingEvent, isOpen]);
+  }, [editingEvent, isOpen, calendars]);
 
   const handleSave = () => {
     if (!title.trim() || !selectedDate) return;
@@ -141,7 +149,7 @@ export function EventModal({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {mockCalendars.map((calendar) => (
+                {calendars.map((calendar) => (
                   <SelectItem key={calendar.id} value={calendar.id}>
                     <div className="flex items-center space-x-2">
                       <div

@@ -280,6 +280,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         onInitializeWaku={initializeWaku}
       />
       <Calendar
+        calendars={calendars}
         selectedCalendars={selectedCalendars}
         events={events}
         onEventCreate={handleEventCreate}
