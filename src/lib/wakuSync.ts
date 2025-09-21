@@ -191,10 +191,13 @@ export class WakuCalendarSync {
 
   private handleIncomingMessage(wakuMessage: any) {
     try {
+      console.log('Processing incoming Waku message:', wakuMessage);
+      
       const decoded = EventActionMessage.decode(wakuMessage.payload) as any;
       
       // Skip our own messages
       if (decoded.senderId === this.senderId) {
+        console.log('Skipping own message');
         return;
       }
       

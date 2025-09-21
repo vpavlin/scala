@@ -183,14 +183,16 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           if (action.events && action.events.length > 0) {
             console.log('Received events sync:', action.events.length, 'events');
             setEvents(prev => {
-              const newEvents = action.events!.filter(syncEvent => 
-                !prev.some(existingEvent => existingEvent.id === syncEvent.id)
-              );
-              return [...prev, ...newEvents];
-            });
-            toast({
-              title: "Events synchronized",
-              description: `${action.events.length} historical events were synchronized.`
+              const existingIds = new Set(prev.map(e => e.id));
+              const newEvents = action.events!.filter(syncEvent => !existingIds.has(syncEvent.id));
+              if (newEvents.length > 0) {
+                toast({
+                  title: "Events synchronized",
+                  description: `${newEvents.length} historical events were loaded.`
+                });
+                return [...prev, ...newEvents];
+              }
+              return prev;
             });
           }
           break;
