@@ -47,7 +47,7 @@ export default function CalendarApp() {
     {
       id: '1',
       title: 'Team Meeting',
-      date: new Date(2024, 11, 15),
+      date: new Date(), // Today
       time: '10:00',
       calendarId: 'work',
       description: 'Weekly team sync'
@@ -55,16 +55,23 @@ export default function CalendarApp() {
     {
       id: '2',
       title: 'Doctor Appointment',
-      date: new Date(2024, 11, 18),
+      date: new Date(Date.now() + 86400000), // Tomorrow
       time: '14:30',
       calendarId: 'default'
     },
     {
       id: '3',
       title: 'Birthday Party',
-      date: new Date(2024, 11, 20),
+      date: new Date(Date.now() + 2 * 86400000), // Day after tomorrow
       calendarId: 'family',
       description: 'Sarah\'s birthday celebration'
+    },
+    {
+      id: '4',
+      title: 'All Day Conference',
+      date: new Date(), // Today, no time = all day
+      calendarId: 'work',
+      description: 'Annual company conference'
     }
   ]);
 
