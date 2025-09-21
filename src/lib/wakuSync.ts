@@ -33,11 +33,19 @@ export class WakuCalendarSync {
   private senderId: string;
   private channelId: string;
   private encryptionKey?: string;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private nodeStats = {
+    peerCount: 0,
+    isHealthy: false,
+    protocolsSupported: [] as string[],
+    startTime: Date.now()
+  };
   
   private eventHandlers: {
     onEventAction: (action: EventSourceAction) => void;
     onConnectionStatus: (status: 'connected' | 'disconnected' | 'minimal') => void;
     onError: (error: string) => void;
+    onNodeStats?: (stats: typeof this.nodeStats) => void;
   } = {
     onEventAction: () => {},
     onConnectionStatus: () => {},
@@ -105,6 +113,9 @@ export class WakuCalendarSync {
       // Listen for message events
       this.setupMessageEventListeners();
       
+      // Start health monitoring
+      this.startHealthMonitoring();
+      
       console.log('Waku calendar sync initialized successfully');
       return true;
       
@@ -112,6 +123,43 @@ export class WakuCalendarSync {
       console.error('Failed to initialize Waku:', error);
       this.eventHandlers.onError(`Failed to initialize: ${error}`);
       return false;
+    }
+  }
+
+  private startHealthMonitoring() {
+    // Initial stats collection
+    this.updateNodeStats();
+    
+    // Set up periodic health checks every 10 seconds
+    this.healthCheckInterval = setInterval(() => {
+      this.updateNodeStats();
+    }, 10000);
+  }
+
+  private async updateNodeStats() {
+    if (!this.node) return;
+
+    try {
+      // Get peer count
+      const peers = await this.node.libp2p?.getPeers() || [];
+      
+      // Get supported protocols
+      const protocols = this.node.libp2p?.getProtocols() || [];
+      
+      // Update stats
+      this.nodeStats = {
+        peerCount: peers.length,
+        isHealthy: this.isConnected && peers.length > 0,
+        protocolsSupported: protocols,
+        startTime: this.nodeStats.startTime
+      };
+
+      // Notify listeners
+      this.eventHandlers.onNodeStats?.(this.nodeStats);
+      
+      console.log('Waku node stats:', this.nodeStats);
+    } catch (error) {
+      console.warn('Failed to update node stats:', error);
     }
   }
 
@@ -240,8 +288,42 @@ export class WakuCalendarSync {
     return this.isConnected;
   }
 
+  public getNodeStats() {
+    return { ...this.nodeStats };
+  }
+
+  public async getDetailedNodeInfo() {
+    if (!this.node) return null;
+
+    try {
+      const peers = await this.node.libp2p?.getPeers() || [];
+      const protocols = this.node.libp2p?.getProtocols() || [];
+      const connections = this.node.libp2p?.getConnections() || [];
+      
+      return {
+        peerId: this.node.libp2p?.peerId?.toString() || 'Unknown',
+        peerCount: peers.length,
+        connectedPeers: peers.map((peer: any) => peer.toString()),
+        protocols: protocols,
+        connectionCount: connections.length,
+        uptime: Date.now() - this.nodeStats.startTime,
+        isConnected: this.isConnected,
+        channelId: this.channelId
+      };
+    } catch (error) {
+      console.error('Failed to get detailed node info:', error);
+      return null;
+    }
+  }
+
   public async disconnect(): Promise<void> {
     try {
+      // Stop health monitoring
+      if (this.healthCheckInterval) {
+        clearInterval(this.healthCheckInterval);
+        this.healthCheckInterval = null;
+      }
+      
       if (this.node) {
         await this.node.stop();
         this.node = null;

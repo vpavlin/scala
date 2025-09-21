@@ -6,6 +6,12 @@ export function useWakuSync(calendarId?: string, encryptionKey?: string) {
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connected' | 'minimal'>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [nodeStats, setNodeStats] = useState({
+    peerCount: 0,
+    isHealthy: false,
+    protocolsSupported: [] as string[],
+    startTime: Date.now()
+  });
   
   const wakuSyncRef = useRef<WakuCalendarSync | null>(null);
   const eventHandlerRef = useRef<(action: EventSourceAction) => void>();
@@ -31,6 +37,9 @@ export function useWakuSync(calendarId?: string, encryptionKey?: string) {
         },
         onError: (errorMsg) => {
           setError(errorMsg);
+        },
+        onNodeStats: (stats) => {
+          setNodeStats(stats);
         }
       });
 
@@ -73,6 +82,14 @@ export function useWakuSync(calendarId?: string, encryptionKey?: string) {
     return wakuSyncRef.current?.deleteEvent(eventId) ?? false;
   };
 
+  const getNodeStats = (): typeof nodeStats => {
+    return wakuSyncRef.current?.getNodeStats() || nodeStats;
+  };
+
+  const getDetailedNodeInfo = async () => {
+    return wakuSyncRef.current?.getDetailedNodeInfo() || null;
+  };
+
   const generateShareUrl = (calendarId: string, encryptionKey?: string): string => {
     return wakuSyncRef.current?.generateShareUrl(calendarId, encryptionKey) ?? '';
   };
@@ -93,6 +110,7 @@ export function useWakuSync(calendarId?: string, encryptionKey?: string) {
     connectionStatus,
     isInitializing,
     error,
+    nodeStats,
     initializeWaku,
     disconnect,
     setEventHandler,
@@ -100,6 +118,8 @@ export function useWakuSync(calendarId?: string, encryptionKey?: string) {
     updateEvent,
     deleteEvent,
     generateShareUrl,
+    getNodeStats,
+    getDetailedNodeInfo,
     clearError: () => setError(null)
   };
 }

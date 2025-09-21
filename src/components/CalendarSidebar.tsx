@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ShareCalendarModal } from '@/components/ShareCalendarModal';
+import { WakuStatus } from '@/components/WakuStatus';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,13 @@ interface CalendarSidebarProps {
   connectionStatus?: 'connected' | 'disconnected' | 'minimal';
   isWakuConnected?: boolean;
   onInitializeWaku?: (calendarId: string, encryptionKey?: string) => void;
+  nodeStats?: {
+    peerCount: number;
+    isHealthy: boolean;
+    protocolsSupported: string[];
+    startTime: number;
+  };
+  onGetDetailedNodeInfo?: () => Promise<any>;
 }
 
 export function CalendarSidebar({
@@ -48,7 +56,9 @@ export function CalendarSidebar({
   onCalendarShare,
   connectionStatus = 'disconnected',
   isWakuConnected = false,
-  onInitializeWaku
+  onInitializeWaku,
+  nodeStats = { peerCount: 0, isHealthy: false, protocolsSupported: [], startTime: Date.now() },
+  onGetDetailedNodeInfo = async () => null
 }: CalendarSidebarProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -262,6 +272,14 @@ export function CalendarSidebar({
           )}
         </DialogContent>
       </Dialog>
-    </div>
+        
+        {/* Waku Network Status */}
+        <WakuStatus
+          connectionStatus={connectionStatus}
+          isConnected={isWakuConnected}
+          nodeStats={nodeStats}
+          onGetDetailedInfo={onGetDetailedNodeInfo}
+        />
+      </div>
   );
 }

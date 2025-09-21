@@ -99,11 +99,13 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     connectionStatus,
     isInitializing,
     error: wakuError,
+    nodeStats,
     setEventHandler,
     createEvent: wakuCreateEvent,
     updateEvent: wakuUpdateEvent,
     deleteEvent: wakuDeleteEvent,
     initializeWaku,
+    getDetailedNodeInfo,
     clearError
   } = useWakuSync();
 
@@ -278,6 +280,8 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         connectionStatus={connectionStatus}
         isWakuConnected={isWakuConnected}
         onInitializeWaku={initializeWaku}
+        nodeStats={nodeStats}
+        onGetDetailedNodeInfo={getDetailedNodeInfo}
       />
       <Calendar
         calendars={calendars}
