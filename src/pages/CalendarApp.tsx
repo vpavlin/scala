@@ -222,11 +222,26 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     const calendar = calendars.find(cal => cal.id === calendarId);
     if (!calendar) return;
 
+    // Generate share URL manually
+    const baseUrl = window.location.origin;
+    const params = new URLSearchParams({
+      calendar: calendarId,
+      name: encodeURIComponent(calendar.name)
+    });
+    
+    if (isPrivate) {
+      // Generate a simple encryption key for private calendars
+      const encryptionKey = btoa(calendarId + Date.now()).slice(0, 16);
+      params.set('key', encryptionKey);
+    }
+    
+    const shareUrl = `${baseUrl}/shared?${params.toString()}`;
+
     const updatedCalendar = { 
       ...calendar, 
       isShared: true, 
       isPrivate,
-      shareUrl: multiWakuSync.generateShareUrl(calendarId, calendar.name)
+      shareUrl
     };
 
     setCalendars(prev => prev.map(cal => 
