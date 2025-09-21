@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { calendarStorage, CalendarData } from '@/lib/storage';
-import { CalendarEvent } from '@/lib/wakuSync';
+import { CalendarEvent } from '@/lib/wakuSingleNode';
 
 export function useCalendarStorage() {
   const [isInitialized, setIsInitialized] = useState(false);

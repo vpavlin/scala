@@ -1,4 +1,4 @@
-import { CalendarEvent } from './wakuSync';
+import { CalendarEvent } from './wakuSingleNode';
 
 export interface CalendarData {
   id: string;

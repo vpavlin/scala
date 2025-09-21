@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
 import { CalendarData } from '@/lib/storage';
-import { CalendarEvent } from '@/lib/wakuSync';
+import { CalendarEvent } from '@/lib/wakuSingleNode';
 import { generateUUID } from '@/lib/uuid';
 
 interface DevMenuProps {

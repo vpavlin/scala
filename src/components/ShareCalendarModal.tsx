@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from '@/hooks/use-toast';
-import { WakuCalendarSync } from '@/lib/wakuSync';
+import { WakuSingleNodeManager } from '@/lib/wakuSingleNode';
 
 interface ShareCalendarModalProps {
   calendarId: string;
@@ -33,7 +33,7 @@ export function ShareCalendarModal({
     isPrivate ? btoa(`${calendarId}-${Date.now()}`).substring(0, 16) : undefined
   );
 
-  const shareUrl = new WakuCalendarSync(calendarId, encryptionKey).generateShareUrl(calendarId, calendarName, encryptionKey);
+  const shareUrl = new WakuSingleNodeManager().generateShareUrl(calendarId, calendarName, encryptionKey);
 
   const handleCopyUrl = async () => {
     try {

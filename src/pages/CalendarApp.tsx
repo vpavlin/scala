@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Toaster } from '@/components/ui/toaster';
 import { useMultiWakuSync } from '@/hooks/useMultiWakuSync';
 import { useCalendarStorage } from '@/hooks/useCalendarStorage';
-import { CalendarEvent, EventSourceAction } from '@/lib/wakuSync';
+import { CalendarEvent, EventSourceAction } from '@/lib/wakuSingleNode';
 import { CalendarData } from '@/lib/storage';
 import { generateUUID } from '@/lib/uuid';
 import { isSameDay, format } from 'date-fns';

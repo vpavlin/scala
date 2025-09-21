@@ -37,13 +37,19 @@ const EventActionMessage = new protobuf.Type("EventActionMessage")
   .add(new protobuf.Field("timestamp", 6, "uint64"))
   .add(new protobuf.Field("senderId", 7, "string"));
 
-export class WakuCalendarSync {
+interface CalendarChannel {
+  calendarId: string;
+  encryptionKey?: string;
+  reliableChannel: any;
+  encoder: any;
+  decoder: any;
+}
+
+export class WakuSingleNodeManager {
   private node: any = null;
-  private reliableChannel: any = null;
+  private channels: Map<string, CalendarChannel> = new Map();
   private isConnected = false;
   private senderId: string;
-  private channelId: string;
-  private encryptionKey?: string;
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private nodeStats = {
     peerCount: 0,
@@ -63,9 +69,7 @@ export class WakuCalendarSync {
     onError: () => {}
   };
 
-  constructor(channelId: string, encryptionKey?: string) {
-    this.channelId = channelId;
-    this.encryptionKey = encryptionKey;
+  constructor() {
     this.senderId = this.generateSenderId();
   }
 
@@ -78,27 +82,16 @@ export class WakuCalendarSync {
   }
 
   public async initialize(): Promise<boolean> {
+    if (this.node) {
+      console.log('Waku node already initialized');
+      return true;
+    }
+
     try {
-      console.log('Initializing Waku node...');
+      console.log('Initializing single Waku node...');
       
       // Create Waku node
       this.node = await createLightNode({ defaultBootstrap: true });
-      
-      // Create content topic for this calendar
-      const contentTopic = `/calendar-app/1/${this.channelId}/events`;
-      
-      // Create encoder and decoder
-      const encoder = this.node.createEncoder({ contentTopic });
-      const decoder = this.node.createDecoder({ contentTopic });
-      
-      // Create reliable channel
-      this.reliableChannel = await ReliableChannel.create(
-        this.node, 
-        this.channelId, 
-        this.senderId, 
-        encoder, 
-        decoder
-      );
       
       // Listen for connection status
       this.node.events.addEventListener("waku:health", (event: any) => {
@@ -116,24 +109,85 @@ export class WakuCalendarSync {
         }
       });
       
-      // Listen for incoming messages
-      this.reliableChannel.addEventListener("message-received", (event: any) => {
-        this.handleIncomingMessage(event.detail);
-      });
-      
-      // Listen for message events
-      this.setupMessageEventListeners();
-      
       // Start health monitoring
       this.startHealthMonitoring();
       
-      console.log('Waku calendar sync initialized successfully');
+      console.log('Single Waku node initialized successfully');
       return true;
       
     } catch (error) {
-      console.error('Failed to initialize Waku:', error);
+      console.error('Failed to initialize Waku node:', error);
       this.eventHandlers.onError(`Failed to initialize: ${error}`);
       return false;
+    }
+  }
+
+  public async addCalendarChannel(calendarId: string, encryptionKey?: string): Promise<boolean> {
+    if (!this.node) {
+      this.eventHandlers.onError('Waku node not initialized');
+      return false;
+    }
+
+    if (this.channels.has(calendarId)) {
+      console.log(`Calendar ${calendarId} already has a channel`);
+      return true;
+    }
+
+    try {
+      console.log(`Adding calendar channel for: ${calendarId}`);
+      
+      // Create content topic for this calendar
+      const contentTopic = `/calendar-app/1/${calendarId}/events`;
+      
+      // Create encoder and decoder
+      const encoder = this.node.createEncoder({ contentTopic });
+      const decoder = this.node.createDecoder({ contentTopic });
+      
+      // Create reliable channel
+      const reliableChannel = await ReliableChannel.create(
+        this.node, 
+        calendarId, 
+        this.senderId, 
+        encoder, 
+        decoder
+      );
+      
+      // Listen for incoming messages on this channel
+      reliableChannel.addEventListener("message-received", (event: any) => {
+        this.handleIncomingMessage(event.detail, calendarId);
+      });
+      
+      // Listen for message events
+      this.setupChannelEventListeners(reliableChannel, calendarId);
+      
+      // Store the channel
+      const channel: CalendarChannel = {
+        calendarId,
+        encryptionKey,
+        reliableChannel,
+        encoder,
+        decoder
+      };
+      
+      this.channels.set(calendarId, channel);
+      console.log(`Calendar channel added for: ${calendarId}`);
+      
+      return true;
+      
+    } catch (error) {
+      console.error(`Failed to add calendar channel for ${calendarId}:`, error);
+      this.eventHandlers.onError(`Failed to add channel for calendar: ${error}`);
+      return false;
+    }
+  }
+
+  public async removeCalendarChannel(calendarId: string): Promise<void> {
+    const channel = this.channels.get(calendarId);
+    if (channel) {
+      // Note: ReliableChannel doesn't have a direct close method, but removing from our map
+      // and letting it go out of scope should be sufficient
+      this.channels.delete(calendarId);
+      console.log(`Removed calendar channel for: ${calendarId}`);
     }
   }
 
@@ -174,24 +228,24 @@ export class WakuCalendarSync {
     }
   }
 
-  private setupMessageEventListeners() {
-    this.reliableChannel.addEventListener("sending-message-irrecoverable-error", (event: any) => {
-      console.error('Failed to send message:', event.detail.error);
-      this.eventHandlers.onError(`Failed to send message: ${event.detail.error}`);
+  private setupChannelEventListeners(reliableChannel: any, calendarId: string) {
+    reliableChannel.addEventListener("sending-message-irrecoverable-error", (event: any) => {
+      console.error(`Failed to send message for calendar ${calendarId}:`, event.detail.error);
+      this.eventHandlers.onError(`Failed to send message for calendar ${calendarId}: ${event.detail.error}`);
     });
 
-    this.reliableChannel.addEventListener("message-sent", (event: any) => {
-      console.log('Message sent successfully:', event.detail);
+    reliableChannel.addEventListener("message-sent", (event: any) => {
+      console.log(`Message sent successfully for calendar ${calendarId}:`, event.detail);
     });
 
-    this.reliableChannel.addEventListener("message-acknowledged", (event: any) => {
-      console.log('Message acknowledged by network:', event.detail);
+    reliableChannel.addEventListener("message-acknowledged", (event: any) => {
+      console.log(`Message acknowledged by network for calendar ${calendarId}:`, event.detail);
     });
   }
 
-  private handleIncomingMessage(wakuMessage: any) {
+  private handleIncomingMessage(wakuMessage: any, calendarId: string) {
     try {
-      console.log('Processing incoming Waku message:', wakuMessage);
+      console.log(`Processing incoming Waku message for calendar ${calendarId}:`, wakuMessage);
       
       const decoded = EventActionMessage.decode(wakuMessage.payload) as any;
       
@@ -215,14 +269,15 @@ export class WakuCalendarSync {
       this.eventHandlers.onEventAction(action);
       
     } catch (error) {
-      console.error('Failed to decode incoming message:', error);
-      this.eventHandlers.onError(`Failed to decode message: ${error}`);
+      console.error(`Failed to decode incoming message for calendar ${calendarId}:`, error);
+      this.eventHandlers.onError(`Failed to decode message for calendar ${calendarId}: ${error}`);
     }
   }
 
-  public async sendEventAction(action: Omit<EventSourceAction, 'senderId' | 'timestamp'>): Promise<boolean> {
-    if (!this.reliableChannel || !this.isConnected) {
-      this.eventHandlers.onError('Not connected to Waku network');
+  public async sendEventAction(calendarId: string, action: Omit<EventSourceAction, 'senderId' | 'timestamp'>): Promise<boolean> {
+    const channel = this.channels.get(calendarId);
+    if (!channel || !this.isConnected) {
+      this.eventHandlers.onError(`Not connected to Waku network or channel not found for calendar ${calendarId}`);
       return false;
     }
 
@@ -238,81 +293,81 @@ export class WakuCalendarSync {
       });
 
       const serialized = EventActionMessage.encode(message).finish();
-      const messageId = this.reliableChannel.send(serialized);
+      const messageId = channel.reliableChannel.send(serialized);
       
-      console.log('Sent event action:', action.type, messageId);
+      console.log(`Sent event action for calendar ${calendarId}:`, action.type, messageId);
       return true;
       
     } catch (error) {
-      console.error('Failed to send event action:', error);
-      this.eventHandlers.onError(`Failed to send action: ${error}`);
+      console.error(`Failed to send event action for calendar ${calendarId}:`, error);
+      this.eventHandlers.onError(`Failed to send action for calendar ${calendarId}: ${error}`);
       return false;
     }
   }
 
-  public async createEvent(event: CalendarEvent): Promise<boolean> {
-    return this.sendEventAction({
+  public async createEvent(calendarId: string, event: CalendarEvent): Promise<boolean> {
+    return this.sendEventAction(calendarId, {
       type: 'CREATE_EVENT',
       eventId: event.id,
       event
     });
   }
 
-  public async updateEvent(event: CalendarEvent): Promise<boolean> {
-    return this.sendEventAction({
+  public async updateEvent(calendarId: string, event: CalendarEvent): Promise<boolean> {
+    return this.sendEventAction(calendarId, {
       type: 'UPDATE_EVENT',
       eventId: event.id,
       event
     });
   }
 
-  public async deleteEvent(eventId: string): Promise<boolean> {
-    return this.sendEventAction({
+  public async deleteEvent(calendarId: string, eventId: string): Promise<boolean> {
+    return this.sendEventAction(calendarId, {
       type: 'DELETE_EVENT',
       eventId
     });
   }
 
-  public async syncCalendar(calendar: any): Promise<boolean> {
-    console.log('Syncing calendar metadata:', calendar);
-    return this.sendEventAction({
+  public async syncCalendar(calendarId: string, calendar: any): Promise<boolean> {
+    console.log(`Syncing calendar metadata for ${calendarId}:`, calendar);
+    return this.sendEventAction(calendarId, {
       type: 'SYNC_CALENDAR',
       calendar
     });
   }
 
-  public async syncEvents(events: CalendarEvent[]): Promise<boolean> {
-    console.log('Syncing historical events:', events.length, 'events');
-    return this.sendEventAction({
+  public async syncEvents(calendarId: string, events: CalendarEvent[]): Promise<boolean> {
+    console.log(`Syncing historical events for ${calendarId}:`, events.length, 'events');
+    return this.sendEventAction(calendarId, {
       type: 'SYNC_EVENTS',
       events
     });
   }
 
-  public async initializeSharing(calendar: any, events: CalendarEvent[]): Promise<boolean> {
+  public async initializeSharing(calendarId: string, calendar: any, events: CalendarEvent[]): Promise<boolean> {
     if (!this.isConnected) {
       this.eventHandlers.onError('Not connected to Waku network');
       return false;
     }
 
     try {
-      console.log('Initializing sharing with historical data...');
+      console.log(`Initializing sharing for calendar ${calendarId} with historical data...`);
       
       // First sync calendar metadata
-      await this.syncCalendar(calendar);
+      await this.syncCalendar(calendarId, calendar);
       
       // Then sync all historical events for this calendar
-      const calendarEvents = events.filter(event => event.calendarId === calendar.id);
+      const calendarEvents = events.filter(event => event.calendarId === calendarId);
       if (calendarEvents.length > 0) {
-        await this.syncEvents(calendarEvents);
+        await this.syncEvents(calendarId, calendarEvents);
       }
       
-      console.log(`Sharing initialized: synced calendar + ${calendarEvents.length} events`);
+      console.log(`Sharing initialized for calendar ${calendarId}: synced calendar + ${calendarEvents.length} events`);
       return true;
       
     } catch (error) {
-      console.error('Failed to initialize sharing:', error);
-      this.eventHandlers.onError(`Failed to initialize sharing: ${error}`);
+      console.error(`Failed to initialize sharing for calendar ${calendarId}:`, error);
+      this.eventHandlers.onError(`Failed to initialize sharing for calendar ${calendarId}: ${error}`);
       return false;
     }
   }
@@ -360,6 +415,14 @@ export class WakuCalendarSync {
     return { ...this.nodeStats };
   }
 
+  public getChannelCount(): number {
+    return this.channels.size;
+  }
+
+  public getChannelIds(): string[] {
+    return Array.from(this.channels.keys());
+  }
+
   public async getDetailedNodeInfo() {
     if (!this.node) return null;
 
@@ -376,7 +439,8 @@ export class WakuCalendarSync {
         connectionCount: connections.length,
         uptime: Date.now() - this.nodeStats.startTime,
         isConnected: this.isConnected,
-        channelId: this.channelId
+        channelCount: this.channels.size,
+        channels: Array.from(this.channels.keys())
       };
     } catch (error) {
       console.error('Failed to get detailed node info:', error);
@@ -392,10 +456,12 @@ export class WakuCalendarSync {
         this.healthCheckInterval = null;
       }
       
+      // Clear all channels
+      this.channels.clear();
+      
       if (this.node) {
         await this.node.stop();
         this.node = null;
-        this.reliableChannel = null;
         this.isConnected = false;
         console.log('Waku node disconnected');
       }
