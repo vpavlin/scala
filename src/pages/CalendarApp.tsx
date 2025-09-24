@@ -147,33 +147,6 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
             });
           }
           break;
-        case 'SYNC_CALENDAR':
-          if (action.calendar) {
-            console.log('Received calendar sync:', action.calendar);
-            setCalendars(prev => {
-              const exists = prev.some(cal => cal.id === action.calendar!.id);
-              if (exists) {
-                const updated = prev.map(cal => cal.id === action.calendar!.id ? { ...cal, ...action.calendar } : cal);
-                // Save updated calendar to storage
-                storage.saveCalendar(action.calendar as CalendarData).catch(err => 
-                  console.error('Failed to save updated calendar to storage:', err)
-                );
-                return updated;
-              } else {
-                // Save new calendar to storage
-                storage.saveCalendar(action.calendar as CalendarData).catch(err => 
-                  console.error('Failed to save new calendar to storage:', err)
-                );
-                console.log('Added new shared calendar:', action.calendar.name);
-                return [...prev, action.calendar as CalendarData];
-              }
-            });
-            toast({
-              title: "Calendar synchronized",
-              description: `Calendar "${action.calendar.name}" was shared with you.`
-            });
-          }
-          break;
         case 'SYNC_EVENTS':
           if (action.events && action.events.length > 0) {
             console.log('Received events sync:', action.events.length, 'events');

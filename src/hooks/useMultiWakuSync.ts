@@ -276,9 +276,8 @@ export function useMultiWakuSync() {
     return wakuManagerRef.current?.deleteEvent(calendarId, eventId) ?? false;
   };
 
-  const syncCalendar = async (calendar: CalendarData): Promise<boolean> => {
-    return wakuManagerRef.current?.syncCalendar(calendar.id, calendar) ?? false;
-  };
+  // Removed syncCalendar - we no longer sync calendar metadata
+  // Users can rename, recolor, and toggle shared calendars locally
 
   const getConnectionStats = () => {
     const connections = Array.from(connectionsRef.current.values());
@@ -328,7 +327,6 @@ export function useMultiWakuSync() {
     createEvent,
     updateEvent,
     deleteEvent,
-    syncCalendar,
     getConnectionStats,
     generateShareUrl,
     forceFullSync,

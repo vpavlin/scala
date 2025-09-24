@@ -11,28 +11,19 @@ export interface CalendarEvent {
 }
 
 export interface EventSourceAction {
-  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_CALENDAR' | 'SYNC_EVENTS';
+  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_EVENTS';
   eventId?: string;
   event?: CalendarEvent;
-  calendar?: {
-    id: string;
-    name: string;
-    color: string;
-    isVisible: boolean;
-    isShared?: boolean;
-    isPrivate?: boolean;
-  };
   events?: CalendarEvent[];
   timestamp: number;
   senderId: string;
 }
 
-// Protobuf message structure
+// Protobuf message structure - only for events, no calendar metadata
 const EventActionMessage = new protobuf.Type("EventActionMessage")
   .add(new protobuf.Field("type", 1, "string"))
   .add(new protobuf.Field("eventId", 2, "string"))
   .add(new protobuf.Field("eventData", 3, "string")) // JSON serialized event
-  .add(new protobuf.Field("calendarData", 4, "string")) // JSON serialized calendar
   .add(new protobuf.Field("eventsData", 5, "string")) // JSON serialized events array
   .add(new protobuf.Field("timestamp", 6, "uint64"))
   .add(new protobuf.Field("senderId", 7, "string"));
@@ -271,7 +262,7 @@ export class WakuSingleNodeManager {
       
       // Check if this message is older than our last processed timestamp for this calendar
       const lastTimestamp = this.lastProcessedTimestamp.get(calendarId) || 0;
-      if (decoded.timestamp <= lastTimestamp && decoded.type !== 'SYNC_CALENDAR' && decoded.type !== 'SYNC_EVENTS') {
+      if (decoded.timestamp <= lastTimestamp && decoded.type !== 'SYNC_EVENTS') {
         console.log(`Skipping old message (timestamp: ${decoded.timestamp}, last: ${lastTimestamp})`);
         return;
       }
@@ -280,7 +271,6 @@ export class WakuSingleNodeManager {
         type: decoded.type as EventSourceAction['type'],
         eventId: decoded.eventId || undefined,
         event: decoded.eventData ? this.parseEventData(decoded.eventData) : undefined,
-        calendar: decoded.calendarData ? JSON.parse(decoded.calendarData) : undefined,
         events: decoded.eventsData ? this.parseEventsData(decoded.eventsData) : undefined,
         timestamp: Number(decoded.timestamp),
         senderId: decoded.senderId
@@ -354,7 +344,6 @@ export class WakuSingleNodeManager {
         type: action.type,
         eventId: action.eventId || '',
         eventData: action.event ? JSON.stringify(action.event) : '',
-        calendarData: action.calendar ? JSON.stringify(action.calendar) : '',
         eventsData: action.events ? JSON.stringify(action.events) : '',
         timestamp: Date.now(),
         senderId: this.senderId
@@ -396,13 +385,8 @@ export class WakuSingleNodeManager {
     });
   }
 
-  public async syncCalendar(calendarId: string, calendar: any): Promise<boolean> {
-    console.log(`Syncing calendar metadata for ${calendarId}:`, calendar);
-    return this.sendEventAction(calendarId, {
-      type: 'SYNC_CALENDAR',
-      calendar
-    });
-  }
+  // Removed syncCalendar - we no longer sync calendar metadata
+  // Only events are synced, allowing users to customize calendar names/colors locally
 
   public async syncEvents(calendarId: string, events: CalendarEvent[]): Promise<boolean> {
     console.log(`Syncing historical events for ${calendarId}:`, events.length, 'events');
@@ -419,10 +403,7 @@ export class WakuSingleNodeManager {
     }
 
     try {
-      console.log(`Initializing sharing for calendar ${calendarId}...`);
-      
-      // Always sync calendar metadata
-      await this.syncCalendar(calendarId, calendar);
+      console.log(`Initializing sharing for calendar ${calendarId} - syncing events only (not metadata)...`);
       
       const calendarEvents = events.filter(event => event.calendarId === calendarId);
       
