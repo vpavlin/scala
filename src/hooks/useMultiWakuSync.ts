@@ -271,14 +271,34 @@ export function useMultiWakuSync() {
   const updateEvent = async (event: CalendarEvent, originalEvent?: CalendarEvent): Promise<boolean> => {
     // Handle cross-calendar moves
     if (originalEvent && originalEvent.calendarId !== event.calendarId) {
-      // Delete from old calendar and create in new calendar
-      const deleteSuccess = await wakuManagerRef.current?.deleteEvent(originalEvent.calendarId, event.id) ?? false;
-      const createSuccess = await wakuManagerRef.current?.createEvent(event.calendarId, event) ?? false;
-      return deleteSuccess && createSuccess;
+      // Check if calendars are shared before syncing
+      const originalCalendarConnection = connectionsRef.current.get(originalEvent.calendarId);
+      const newCalendarConnection = connectionsRef.current.get(event.calendarId);
+      
+      let success = true;
+      
+      // Delete from old calendar if it's shared
+      if (originalCalendarConnection) {
+        const deleteSuccess = await wakuManagerRef.current?.deleteEvent(originalEvent.calendarId, event.id) ?? false;
+        success = success && deleteSuccess;
+      }
+      
+      // Create in new calendar if it's shared
+      if (newCalendarConnection) {
+        const createSuccess = await wakuManagerRef.current?.createEvent(event.calendarId, event) ?? false;
+        success = success && createSuccess;
+      }
+      
+      return success;
     }
     
-    // Regular update within same calendar
-    return wakuManagerRef.current?.updateEvent(event.calendarId, event) ?? false;
+    // Regular update within same calendar (only if shared)
+    const calendarConnection = connectionsRef.current.get(event.calendarId);
+    if (calendarConnection) {
+      return wakuManagerRef.current?.updateEvent(event.calendarId, event) ?? false;
+    }
+    
+    return true; // Non-shared calendar, consider it successful
   };
 
   const deleteEvent = async (eventId: string, calendarId: string): Promise<boolean> => {
