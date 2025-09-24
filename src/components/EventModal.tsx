@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, CalendarIcon, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,6 +7,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { TimeSelector } from './TimeSelector';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
 
 interface CalendarEvent {
   id: string;
@@ -42,6 +47,7 @@ interface EventModalProps {
   calendars: CalendarData[];
   selectedDate: Date | null;
   editingEvent: CalendarEvent | null;
+  initialTime?: string; // New prop for pre-filling time
   onEventSave: (event: CalendarEvent | Omit<CalendarEvent, 'id'>) => void;
   onEventDelete?: (eventId: string) => void;
 }
@@ -52,10 +58,12 @@ export function EventModal({
   calendars,
   selectedDate,
   editingEvent,
+  initialTime,
   onEventSave,
   onEventDelete
 }: EventModalProps) {
   const [title, setTitle] = useState('');
+  const [eventDate, setEventDate] = useState<Date | undefined>(undefined);
   const [time, setTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [description, setDescription] = useState('');
@@ -78,6 +86,7 @@ export function EventModal({
     
     if (editingEvent) {
       setTitle(editingEvent.title);
+      setEventDate(new Date(editingEvent.date));
       setTime(editingEvent.time || '');
       setEndTime(editingEvent.endTime || '');
       setDescription(editingEvent.description || '');
@@ -94,7 +103,8 @@ export function EventModal({
       const wasFormEmpty = !title && !time && !description && !location;
       if (wasFormEmpty || !isOpen) {
         setTitle('');
-        setTime('');
+        setEventDate(selectedDate ? new Date(selectedDate) : new Date());
+        setTime(initialTime || '');
         setEndTime('');
         setDescription('');
         setLocation('');
@@ -121,11 +131,11 @@ export function EventModal({
   }, [calendars, isOpen, editingEvent, calendarId]);
 
   const handleSave = () => {
-    if (!title.trim() || !selectedDate) return;
+    if (!title.trim() || !eventDate) return;
 
     const eventData = {
       title: title.trim(),
-      date: selectedDate,
+      date: eventDate,
       time: time || undefined,
       endTime: endTime || undefined,
       calendarId,
@@ -215,31 +225,49 @@ export function EventModal({
           </div>
 
           <div>
-            <Label>Date</Label>
-            <div className="text-sm text-muted-foreground p-2 bg-muted rounded-md">
-              {formatDate(selectedDate)}
-            </div>
+            <Label>Date *</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !eventDate && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {eventDate ? format(eventDate, "PPP") : <span>Pick a date</span>}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={eventDate}
+                  onSelect={setEventDate}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="event-time">Start Time</Label>
-              <Input
+              <TimeSelector
                 id="event-time"
-                type="time"
                 value={time}
-                onChange={(e) => setTime(e.target.value)}
-                step="300"
+                onChange={setTime}
+                placeholder="Select start time"
               />
             </div>
             <div>
               <Label htmlFor="event-end-time">End Time</Label>
-              <Input
+              <TimeSelector
                 id="event-end-time"
-                type="time"
                 value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                step="300"
+                onChange={setEndTime}
+                placeholder="Select end time"
               />
             </div>
           </div>

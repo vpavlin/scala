@@ -797,6 +797,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         calendars={calendars}
         selectedDate={editingEvent ? editingEvent.date : selectedDateForNewEvent}
         editingEvent={editingEvent}
+        initialTime={timeForNewEvent}
         onEventSave={editingEvent ? handleEventUpdate : handleEventCreate}
         onEventDelete={handleEventDelete}
       />
