@@ -76,6 +76,8 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [selectedDateForNewEvent, setSelectedDateForNewEvent] = useState<Date | null>(null);
+  const [timeForNewEvent, setTimeForNewEvent] = useState<string | undefined>(undefined);
   const [viewingCalendarEvents, setViewingCalendarEvents] = useState<CalendarData | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -671,6 +673,14 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     setIsEditModalOpen(true);
   };
 
+  const handleNewEventRequest = (date: Date, time?: string) => {
+    // Open modal for creating new event
+    setEditingEvent(null);
+    setSelectedDateForNewEvent(date);
+    setTimeForNewEvent(time);
+    setIsEditModalOpen(true);
+  };
+
   const handleCalendarNameClick = (calendar: CalendarData) => {
     setViewingCalendarEvents(calendar);
   };
@@ -747,12 +757,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
                     onEventEdit={handleEventUpdate}
                     onEventDelete={handleEventDelete}
                     onEventClick={handleEventClick}
-                    isEditModalOpen={isEditModalOpen}
-                    editingEvent={editingEvent}
-                    onEditModalClose={() => {
-                      setIsEditModalOpen(false);
-                      setEditingEvent(null);
-                    }}
+                    onNewEventRequest={handleNewEventRequest}
                     onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
                     isSidebarOpen={isSidebarOpen}
                   />
@@ -778,6 +783,22 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       <DevMenu
         onClearDatabase={handleClearDatabase}
         onPopulateExampleData={handlePopulateExampleData}
+      />
+      
+      {/* Global Event Modal */}
+      <EventModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingEvent(null);
+          setSelectedDateForNewEvent(null);
+          setTimeForNewEvent(undefined);
+        }}
+        calendars={calendars}
+        selectedDate={editingEvent ? editingEvent.date : selectedDateForNewEvent}
+        editingEvent={editingEvent}
+        onEventSave={editingEvent ? handleEventUpdate : handleEventCreate}
+        onEventDelete={handleEventDelete}
       />
     </div>
   );

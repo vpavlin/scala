@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { EventModal } from './EventModal';
 import { ViewSelector } from './ViewSelector';
 import { WeekView } from './WeekView';
 import { DayView } from './DayView';
@@ -36,9 +35,7 @@ interface CalendarProps {
   onEventEdit: (event: CalendarEvent) => void;
   onEventDelete: (eventId: string) => void;
   onEventClick: (event: CalendarEvent) => void;
-  isEditModalOpen?: boolean;
-  editingEvent?: CalendarEvent | null;
-  onEditModalClose?: () => void;
+  onNewEventRequest: (date: Date, time?: string) => void; // New prop for opening modal
   onSidebarToggle?: () => void;
   isSidebarOpen?: boolean;
 }
@@ -51,40 +48,26 @@ export function Calendar({
   onEventEdit, 
   onEventDelete,
   onEventClick,
-  isEditModalOpen = false,
-  editingEvent = null,
-  onEditModalClose,
+  onNewEventRequest,
   onSidebarToggle,
   isSidebarOpen = false
 }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<CalendarView>('month');
-  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [modalEditingEvent, setModalEditingEvent] = useState<CalendarEvent | null>(null);
 
   const handleDayClick = (date: Date) => {
-    setSelectedDate(date);
-    setModalEditingEvent(null);
-    setIsEventModalOpen(true);
+    // Request to open modal for creating new event on this date
+    onNewEventRequest(date);
+  };
+
+  const handleTimeSlotClick = (date: Date, time: string) => {
+    // Request to open modal for creating new event with pre-filled time
+    onNewEventRequest(date, time);
   };
 
   const handleDayViewSwitch = (date: Date) => {
     setCurrentDate(date);
     setCurrentView('day');
-  };
-
-  const handleTimeSlotClick = (date: Date, time: string) => {
-    setSelectedDate(date);
-    setModalEditingEvent(null);
-    // Pre-fill time when creating event from time slot
-    setIsEventModalOpen(true);
-  };
-
-  const handleEventModalClick = (event: CalendarEvent) => {
-    setModalEditingEvent(event);
-    setSelectedDate(new Date(event.date));
-    setIsEventModalOpen(true);
   };
 
   const renderCurrentView = () => {
@@ -154,9 +137,7 @@ export function Calendar({
         <Button
           className="hover-lift"
           onClick={() => {
-            setSelectedDate(new Date());
-            setModalEditingEvent(null);
-            setIsEventModalOpen(true);
+            handleDayClick(new Date());
           }}
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -166,19 +147,6 @@ export function Calendar({
       </div>
 
       {renderCurrentView()}
-
-      <EventModal
-        isOpen={isEventModalOpen || isEditModalOpen}
-        onClose={() => {
-          setIsEventModalOpen(false);
-          onEditModalClose?.();
-        }}
-        calendars={calendars}
-        selectedDate={selectedDate || (editingEvent ? new Date(editingEvent.date) : null)}
-        editingEvent={modalEditingEvent || editingEvent}
-        onEventSave={modalEditingEvent || editingEvent ? onEventEdit : onEventCreate}
-        onEventDelete={onEventDelete}
-      />
     </div>
   );
 }
