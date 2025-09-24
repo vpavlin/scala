@@ -64,15 +64,15 @@ export function EventDetailsPanel({
   };
 
   return (
-    <div className="fixed inset-0 z-50 lg:relative lg:inset-auto lg:z-auto lg:w-80 lg:border-l lg:border-border lg:bg-card lg:sidebar-transition">
-      {/* Mobile backdrop */}
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-black/50 lg:hidden"
+        className="fixed inset-0 bg-black/50"
         onClick={onClose}
       />
       
       {/* Content container */}
-      <div className="fixed bottom-0 left-0 right-0 bg-card rounded-t-xl lg:relative lg:bottom-auto lg:left-auto lg:right-auto lg:bg-transparent lg:rounded-none max-h-[85vh] lg:max-h-none overflow-y-auto lg:overflow-visible">
+      <div className="fixed bottom-0 left-0 right-0 lg:top-0 lg:right-0 lg:left-auto lg:w-80 bg-card rounded-t-xl lg:rounded-none border-l-0 lg:border-l border-border max-h-[85vh] lg:max-h-none overflow-y-auto shadow-lg lg:shadow-none">
         {/* Header */}
         <div className="p-4 border-b border-border sticky top-0 bg-card lg:bg-transparent z-10">
           <div className="flex items-center justify-between">
