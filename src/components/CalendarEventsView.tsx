@@ -1,4 +1,4 @@
-import { ArrowLeft, Calendar as CalendarIcon, Clock } from 'lucide-react';
+import { ArrowLeft, Calendar as CalendarIcon, Clock, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -26,13 +26,15 @@ interface CalendarEventsViewProps {
   events: CalendarEvent[];
   onBack: () => void;
   onEventClick: (event: CalendarEvent) => void;
+  onNewEventRequest: (date: Date, calendarId: string) => void; // New prop for creating events
 }
 
 export function CalendarEventsView({ 
   calendar, 
   events, 
   onBack, 
-  onEventClick 
+  onEventClick,
+  onNewEventRequest 
 }: CalendarEventsViewProps) {
   const calendarEvents = events
     .filter(event => event.calendarId === calendar.id)
@@ -108,6 +110,15 @@ export function CalendarEventsView({
             </div>
           </div>
         </div>
+
+        <Button
+          className="hover-lift shrink-0"
+          onClick={() => onNewEventRequest(new Date(), calendar.id)}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          <span className="hidden sm:inline">New Event</span>
+          <span className="sm:hidden">New</span>
+        </Button>
       </div>
 
       {/* Events List */}

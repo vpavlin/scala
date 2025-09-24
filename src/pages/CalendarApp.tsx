@@ -739,6 +739,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
                     events={filteredEvents.filter(e => e.calendarId === viewingCalendarEvents.id)}
                     onBack={() => setViewingCalendarEvents(null)}
                     onEventClick={handleEventClick}
+                    onNewEventRequest={(date, calendarId) => handleNewEventRequest(date, undefined, calendarId)}
                   />
                 </div>
               </div>
