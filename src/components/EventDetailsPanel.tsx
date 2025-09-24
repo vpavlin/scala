@@ -282,7 +282,10 @@ export function EventDetailsPanel({
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={() => onDelete(event.id)}
+                    onClick={() => {
+                      onDelete(event.id);
+                      onClose();
+                    }}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >
                     Delete Event
