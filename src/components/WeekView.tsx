@@ -114,13 +114,21 @@ export function WeekView({
                   isToday ? 'bg-accent/5' : ''
                 } ${index === 6 ? 'lg:border-r-0' : ''} ${index >= 4 ? 'border-r-0 sm:border-r' : ''} ${index >= 2 ? 'sm:border-r-0 lg:border-r' : ''}`}
                 onClick={() => onDayClick(date)}
+                title="Click in empty area to create event"
               >
                 <div className="mb-1 sm:mb-2">
                   <div className="text-xs text-muted-foreground">
                     <span className="sm:hidden">{(date instanceof Date ? date : new Date(date)).toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
                     <span className="hidden sm:inline">{(date instanceof Date ? date : new Date(date)).toLocaleDateString('en-US', { weekday: 'short' })}</span>
                   </div>
-                  <div className={`text-sm sm:text-lg font-medium ${isToday ? 'text-accent' : ''}`}>
+                  <div 
+                    className={`text-sm sm:text-lg font-medium cursor-pointer hover:text-accent transition-colors w-fit px-1 py-0.5 rounded ${isToday ? 'text-accent' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDayViewSwitch(date);
+                    }}
+                    title="Click to switch to day view"
+                  >
                     {date.getDate()}
                   </div>
                 </div>

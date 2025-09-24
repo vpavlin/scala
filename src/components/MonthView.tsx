@@ -70,7 +70,7 @@ export function MonthView({
 
   const handleDayClick = (day: number) => {
     const clickedDate = new Date(year, month, day);
-    onDayClick(clickedDate);
+    onDayViewSwitch(clickedDate);
   };
 
   const handleEventClick = (event: CalendarEvent, e: React.MouseEvent) => {
@@ -94,15 +94,21 @@ export function MonthView({
       days.push(
         <div
           key={day}
-          className={`h-16 md:h-24 border-r border-b border-border/50 p-1 cursor-pointer hover:bg-muted/50 transition-colors ${
+          className={`h-16 md:h-24 border-r border-b border-border/50 p-1 hover:bg-muted/50 transition-colors ${
             isToday ? 'bg-accent/5' : ''
           }`}
-          onClick={() => handleDayClick(day)}
         >
-          <div className={`text-xs md:text-sm font-medium mb-1 ${isToday ? 'text-accent' : 'text-foreground'}`}>
+          <div 
+            className={`text-xs md:text-sm font-medium mb-1 cursor-pointer hover:text-accent transition-colors w-fit px-1 py-0.5 rounded ${isToday ? 'text-accent' : 'text-foreground'}`}
+            onClick={() => handleDayClick(day)}
+            title="Click to switch to day view"
+          >
             {day}
           </div>
-          <div className="space-y-1">
+          <div 
+            className="space-y-1 cursor-pointer flex-1" 
+            onClick={() => onDayClick(new Date(year, month, day))}
+          >
             {dayEvents.length > 0 && (
               <>
                 {/* Show only the first event */}
