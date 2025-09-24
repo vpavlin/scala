@@ -388,7 +388,13 @@ export function CalendarSidebar({
                           className="w-3 h-3 rounded-full"
                           style={{ backgroundColor: calendar.color }}
                         />
-                        <span className="text-sm font-medium truncate">{calendar.name}</span>
+                        <span 
+                          className="text-sm font-medium truncate cursor-pointer hover:text-accent transition-colors"
+                          onClick={() => onCalendarNameClick(calendar)}
+                          title="Click to view all events in this calendar"
+                        >
+                          {calendar.name}
+                        </span>
                         {eventCounts[calendar.id] > 0 && (
                           <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">
                             {eventCounts[calendar.id]}
@@ -406,12 +412,13 @@ export function CalendarSidebar({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => {
-                            setEditingCalendar(calendar);
-                            setNewCalendarName(calendar.name);
-                            setNewCalendarColor(calendar.color);
-                            setIsEditDialogOpen(true);
-                          }}>
+                            <DropdownMenuItem onClick={() => {
+                              setEditingCalendar(calendar);
+                              setNewCalendarName(calendar.name);
+                              setNewCalendarDescription(calendar.description || '');
+                              setNewCalendarColor(calendar.color);
+                              setIsEditDialogOpen(true);
+                            }}>
                             <Edit2 className="h-3 w-3 mr-2" />
                             Edit
                           </DropdownMenuItem>
@@ -470,19 +477,27 @@ export function CalendarSidebar({
               <div>
                 <Label>Calendar Color</Label>
                 <div className="grid grid-cols-6 gap-2 mt-2">
-                  {getAvailableColors(editingCalendar?.id).concat(editingCalendar?.color ? [editingCalendar.color] : []).map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      className={`w-8 h-8 rounded-full border-2 transition-all ${
-                        newCalendarColor === color 
-                          ? 'border-foreground shadow-md scale-110' 
-                          : 'border-border hover:scale-105'
-                      }`}
-                      style={{ backgroundColor: color }}
-                      onClick={() => setNewCalendarColor(color)}
-                    />
-                  ))}
+                  {(() => {
+                    const availableColors = getAvailableColors(editingCalendar?.id);
+                    const currentColor = editingCalendar?.color;
+                    const allColors = currentColor && !availableColors.includes(currentColor) 
+                      ? [...availableColors, currentColor] 
+                      : availableColors;
+                    
+                    return allColors.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        className={`w-8 h-8 rounded-full border-2 transition-all ${
+                          newCalendarColor === color 
+                            ? 'border-foreground shadow-md scale-110' 
+                            : 'border-border hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: color }}
+                        onClick={() => setNewCalendarColor(color)}
+                      />
+                    ));
+                  })()}
                 </div>
               </div>
               <div className="flex justify-end space-x-2">
