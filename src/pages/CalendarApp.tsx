@@ -325,10 +325,24 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       shareUrl
     };
 
+    // Update state first
     setCalendars(prev => prev.map(cal => 
       cal.id === calendarId ? updatedCalendar : cal
     ));
-    await storage.saveCalendar(updatedCalendar);
+    
+    // Save to storage
+    try {
+      await storage.saveCalendar(updatedCalendar);
+      console.log('Calendar updated successfully:', updatedCalendar);
+    } catch (error) {
+      console.error('Failed to save calendar:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save calendar sharing settings.",
+        variant: "destructive"
+      });
+      return;
+    }
 
     // Add Waku sync for this calendar
     const calendarEvents = events.filter(event => event.calendarId === calendarId);
