@@ -6,8 +6,17 @@ export interface CalendarEvent {
   title: string;
   date: Date;
   time?: string;
+  endTime?: string;
   calendarId: string;
   description?: string;
+  location?: string;
+  attendees?: string[];
+  priority?: 'low' | 'medium' | 'high';
+  status?: 'confirmed' | 'tentative' | 'cancelled';
+  category?: string;
+  url?: string;
+  reminders?: number[]; // minutes before event
+  customFields?: Record<string, string>; // key/value pairs for custom metadata
 }
 
 export interface EventSourceAction {

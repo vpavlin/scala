@@ -8,8 +8,17 @@ interface CalendarEvent {
   title: string;
   date: Date;
   time?: string;
+  endTime?: string;
   calendarId: string;
   description?: string;
+  location?: string;
+  attendees?: string[];
+  priority?: 'low' | 'medium' | 'high';
+  status?: 'confirmed' | 'tentative' | 'cancelled';
+  category?: string;
+  url?: string;
+  reminders?: number[];
+  customFields?: Record<string, string>;
 }
 
 interface CalendarData {
@@ -115,8 +124,80 @@ export function EventDetailsPanel({
 
             {event.time && (
               <div>
-                <label className="text-sm font-medium text-muted-foreground">Time</label>
+                <label className="text-sm font-medium text-muted-foreground">Start Time</label>
                 <p className="text-sm">{formatTime(event.time)}</p>
+              </div>
+            )}
+
+            {event.endTime && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">End Time</label>
+                <p className="text-sm">{formatTime(event.endTime)}</p>
+              </div>
+            )}
+
+            {event.location && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Location</label>
+                <p className="text-sm text-foreground/80">{event.location}</p>
+              </div>
+            )}
+
+            {event.attendees && event.attendees.length > 0 && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Attendees</label>
+                <div className="text-sm text-foreground/80">
+                  {event.attendees.map((attendee, index) => (
+                    <span key={index} className="inline-block bg-muted px-2 py-1 rounded mr-1 mb-1">
+                      {attendee}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {event.priority && event.priority !== 'medium' && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Priority</label>
+                <p className={`text-sm font-medium ${
+                  event.priority === 'high' ? 'text-red-600' : 
+                  event.priority === 'low' ? 'text-gray-500' : 'text-foreground'
+                }`}>
+                  {event.priority.charAt(0).toUpperCase() + event.priority.slice(1)}
+                </p>
+              </div>
+            )}
+
+            {event.status && event.status !== 'confirmed' && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Status</label>
+                <p className={`text-sm font-medium ${
+                  event.status === 'cancelled' ? 'text-red-600' : 
+                  event.status === 'tentative' ? 'text-yellow-600' : 'text-foreground'
+                }`}>
+                  {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
+                </p>
+              </div>
+            )}
+
+            {event.category && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Category</label>
+                <p className="text-sm text-foreground/80">{event.category}</p>
+              </div>
+            )}
+
+            {event.url && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">URL</label>
+                <a 
+                  href={event.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-sm text-primary hover:underline break-all"
+                >
+                  {event.url}
+                </a>
               </div>
             )}
 
@@ -126,6 +207,20 @@ export function EventDetailsPanel({
                 <p className="text-sm text-foreground/80 whitespace-pre-wrap">
                   {event.description}
                 </p>
+              </div>
+            )}
+
+            {event.customFields && Object.keys(event.customFields).length > 0 && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Custom Fields</label>
+                <div className="space-y-2">
+                  {Object.entries(event.customFields).map(([key, value]) => (
+                    <div key={key} className="flex justify-between items-start bg-muted p-2 rounded text-sm">
+                      <span className="font-medium text-muted-foreground">{key}:</span>
+                      <span className="text-foreground/80 text-right ml-2 break-all">{value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
