@@ -213,6 +213,16 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
             });
           }
           break;
+        case 'UNSHARE_CALENDAR':
+          if (action.calendarId && action.calendarName) {
+            console.log('Calendar unshared:', action.calendarName);
+            toast({
+              title: "Calendar no longer shared",
+              description: `"${action.calendarName}" is no longer being shared. You will not receive further updates unless it's shared again.`,
+              variant: "default"
+            });
+          }
+          break;
       }
     });
   }, []);

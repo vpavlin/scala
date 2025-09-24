@@ -424,6 +424,14 @@ export class WakuSingleNodeManager {
     });
   }
 
+  public async unshareCalendar(calendarId: string, calendarName: string): Promise<boolean> {
+    return this.sendEventAction(calendarId, {
+      type: 'UNSHARE_CALENDAR',
+      calendarId,
+      calendarName
+    });
+  }
+
   public async initializeSharing(calendarId: string, calendar: any, events: CalendarEvent[], forceFullSync: boolean = false): Promise<boolean> {
     if (!this.isConnected) {
       this.eventHandlers.onError('Not connected to Waku network');
