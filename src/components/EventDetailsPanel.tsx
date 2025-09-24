@@ -10,6 +10,7 @@ interface CalendarEvent {
   date: Date;
   time?: string;
   endTime?: string;
+  allDay?: boolean;
   calendarId: string;
   description?: string;
   location?: string;
@@ -123,18 +124,27 @@ export function EventDetailsPanel({
               <p className="text-sm">{formatDate(event.date)}</p>
             </div>
 
-            {event.time && (
+            {event.allDay ? (
               <div>
-                <label className="text-sm font-medium text-muted-foreground">Start Time</label>
-                <p className="text-sm">{formatTime(event.time)}</p>
+                <label className="text-sm font-medium text-muted-foreground">Duration</label>
+                <p className="text-sm">All day</p>
               </div>
-            )}
+            ) : (
+              <>
+                {event.time && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Start Time</label>
+                    <p className="text-sm">{formatTime(event.time)}</p>
+                  </div>
+                )}
 
-            {event.endTime && (
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">End Time</label>
-                <p className="text-sm">{formatTime(event.endTime)}</p>
-              </div>
+                {event.endTime && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">End Time</label>
+                    <p className="text-sm">{formatTime(event.endTime)}</p>
+                  </div>
+                )}
+              </>
             )}
 
             {event.location && (

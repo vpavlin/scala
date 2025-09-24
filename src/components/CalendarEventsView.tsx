@@ -8,6 +8,7 @@ interface CalendarEvent {
   title: string;
   date: Date;
   time?: string;
+  allDay?: boolean;
   calendarId: string;
   description?: string;
 }
@@ -160,7 +161,11 @@ export function CalendarEventsView({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <h4 className="font-medium truncate">{event.title}</h4>
-                            {event.time && (
+                            {event.allDay ? (
+                              <div className="text-sm text-muted-foreground shrink-0">
+                                All day
+                              </div>
+                            ) : event.time && (
                               <div className="flex items-center gap-1 text-sm text-muted-foreground shrink-0">
                                 <Clock className="h-3 w-3" />
                                 <span>{event.time}</span>

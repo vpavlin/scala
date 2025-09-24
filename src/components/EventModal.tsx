@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Switch } from '@/components/ui/switch';
 import { TimeSelector } from './TimeSelector';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -19,6 +20,7 @@ interface CalendarEvent {
   date: Date;
   time?: string;
   endTime?: string;
+  allDay?: boolean;
   calendarId: string;
   description?: string;
   location?: string;
@@ -64,6 +66,7 @@ export function EventModal({
 }: EventModalProps) {
   const [title, setTitle] = useState('');
   const [eventDate, setEventDate] = useState<Date | undefined>(undefined);
+  const [allDay, setAllDay] = useState(false);
   const [time, setTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [description, setDescription] = useState('');
@@ -87,6 +90,7 @@ export function EventModal({
     if (editingEvent) {
       setTitle(editingEvent.title);
       setEventDate(new Date(editingEvent.date));
+      setAllDay(editingEvent.allDay || false);
       setTime(editingEvent.time || '');
       setEndTime(editingEvent.endTime || '');
       setDescription(editingEvent.description || '');
@@ -104,6 +108,7 @@ export function EventModal({
       if (wasFormEmpty || !isOpen) {
         setTitle('');
         setEventDate(selectedDate ? new Date(selectedDate) : new Date());
+        setAllDay(false);
         setTime(initialTime || '');
         setEndTime('');
         setDescription('');
@@ -136,8 +141,9 @@ export function EventModal({
     const eventData = {
       title: title.trim(),
       date: eventDate,
-      time: time || undefined,
-      endTime: endTime || undefined,
+      allDay: allDay,
+      time: allDay ? undefined : (time || undefined),
+      endTime: allDay ? undefined : (endTime || undefined),
       calendarId,
       description: description || undefined,
       location: location || undefined,
@@ -251,26 +257,44 @@ export function EventModal({
             </Popover>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="event-time">Start Time</Label>
-              <TimeSelector
-                id="event-time"
-                value={time}
-                onChange={setTime}
-                placeholder="Select start time"
-              />
-            </div>
-            <div>
-              <Label htmlFor="event-end-time">End Time</Label>
-              <TimeSelector
-                id="event-end-time"
-                value={endTime}
-                onChange={setEndTime}
-                placeholder="Select end time"
-              />
-            </div>
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="all-day"
+              checked={allDay}
+              onCheckedChange={(checked) => {
+                setAllDay(checked);
+                if (checked) {
+                  // Clear time values when switching to all-day
+                  setTime('');
+                  setEndTime('');
+                }
+              }}
+            />
+            <Label htmlFor="all-day">All day event</Label>
           </div>
+
+          {!allDay && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="event-time">Start Time</Label>
+                <TimeSelector
+                  id="event-time"
+                  value={time}
+                  onChange={setTime}
+                  placeholder="Select start time"
+                />
+              </div>
+              <div>
+                <Label htmlFor="event-end-time">End Time</Label>
+                <TimeSelector
+                  id="event-end-time"
+                  value={endTime}
+                  onChange={setEndTime}
+                  placeholder="Select end time"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="event-location">Location</Label>

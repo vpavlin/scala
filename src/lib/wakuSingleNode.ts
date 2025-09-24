@@ -7,6 +7,7 @@ export interface CalendarEvent {
   date: Date;
   time?: string;
   endTime?: string;
+  allDay?: boolean; // New field for all-day events
   calendarId: string;
   description?: string;
   location?: string;

@@ -13,6 +13,7 @@ interface CalendarEvent {
   title: string;
   date: Date;
   time?: string;
+  allDay?: boolean;
   calendarId: string;
   description?: string;
 }
