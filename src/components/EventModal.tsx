@@ -72,6 +72,9 @@ export function EventModal({
   );
 
   useEffect(() => {
+    // Only reset form when modal opens/closes or editing event changes
+    if (!isOpen) return; // Don't reset when modal is closed
+    
     if (editingEvent) {
       setTitle(editingEvent.title);
       setTime(editingEvent.time || '');
@@ -86,23 +89,35 @@ export function EventModal({
       setCustomFields(editingEvent.customFields || {});
       setCalendarId(editingEvent.calendarId);
     } else {
-      setTitle('');
-      setTime('');
-      setEndTime('');
-      setDescription('');
-      setLocation('');
-      setAttendees('');
-      setPriority('medium');
-      setStatus('confirmed');
-      setCategory('');
-      setUrl('');
-      setCustomFields({});
-      setNewFieldKey('');
-      setNewFieldValue('');
-      // Set default calendar ID to first available calendar
+      // Only reset form when opening modal for new event, not on every calendars change
+      const wasFormEmpty = !title && !time && !description && !location;
+      if (wasFormEmpty || !isOpen) {
+        setTitle('');
+        setTime('');
+        setEndTime('');
+        setDescription('');
+        setLocation('');
+        setAttendees('');
+        setPriority('medium');
+        setStatus('confirmed');
+        setCategory('');
+        setUrl('');
+        setCustomFields({});
+        setNewFieldKey('');
+        setNewFieldValue('');
+        // Set default calendar ID to first available calendar
+        setCalendarId(calendars.length > 0 ? calendars[0].id : '');
+      }
+    }
+  }, [editingEvent, isOpen]); // Removed 'calendars' from dependencies to prevent form clearing
+
+  // Separate effect to handle calendar ID when calendars change but preserve other form data
+  useEffect(() => {
+    if (isOpen && !editingEvent && (!calendarId || !calendars.find(cal => cal.id === calendarId))) {
+      // Only update calendar ID if current one is invalid
       setCalendarId(calendars.length > 0 ? calendars[0].id : '');
     }
-  }, [editingEvent, isOpen, calendars]);
+  }, [calendars, isOpen, editingEvent, calendarId]);
 
   const handleSave = () => {
     if (!title.trim() || !selectedDate) return;
