@@ -73,6 +73,11 @@ export function MonthView({
     onDayViewSwitch(clickedDate);
   };
 
+  const handleNewEventClick = (day: number) => {
+    const clickedDate = new Date(year, month, day);
+    onDayClick(clickedDate);
+  };
+
   const handleEventClick = (event: CalendarEvent, e: React.MouseEvent) => {
     e.stopPropagation();
     onEventClick(event);
@@ -100,14 +105,21 @@ export function MonthView({
         >
           <div 
             className={`text-xs md:text-sm font-medium mb-1 cursor-pointer hover:text-accent transition-colors w-fit px-1 py-0.5 rounded ${isToday ? 'text-accent' : 'text-foreground'}`}
-            onClick={() => handleDayClick(day)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDayClick(day);
+            }}
             title="Click to switch to day view"
           >
             {day}
           </div>
           <div 
-            className="space-y-1 cursor-pointer flex-1" 
-            onClick={() => onDayClick(new Date(year, month, day))}
+            className="space-y-1 flex-1 h-full cursor-pointer" 
+            onClick={(e) => {
+              e.stopPropagation();
+              handleNewEventClick(day);
+            }}
+            title="Click to create new event"
           >
             {dayEvents.length > 0 && (
               <>
