@@ -213,15 +213,16 @@ export function EventDetailsPanel({
             {event.url && (
               <div>
                 <label className="text-sm font-medium text-muted-foreground">URL</label>
-                <a 
-                  href={event.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-sm text-primary hover:underline inline-flex items-center gap-1"
-                  title={event.url}
-                >
-                  View Event →
-                </a>
+                <div className="mt-1">
+                  <a 
+                    href={event.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary hover:underline break-all"
+                  >
+                    {event.url}
+                  </a>
+                </div>
               </div>
             )}
 
