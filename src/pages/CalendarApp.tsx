@@ -561,46 +561,72 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     setIsEditModalOpen(true);
   };
 
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
   return (
-    <div className="min-h-screen bg-background flex">
-      <CalendarSidebar
-        calendars={calendars}
-        selectedCalendars={selectedCalendars}
-        eventCounts={eventCounts}
-        onCalendarToggle={handleCalendarToggle}
-        onCalendarCreate={handleCalendarCreate}
-        onCalendarEdit={handleCalendarEdit}
-        onCalendarDelete={handleCalendarDelete}
-        onCalendarShare={handleCalendarShare}
-        onCalendarShareToggle={handleCalendarShareToggle}
-        connectionStatus={multiWakuSync.globalConnectionStatus}
-        isWakuConnected={multiWakuSync.globalConnectionStatus !== 'disconnected'}
-        connectionStats={multiWakuSync.getConnectionStats()}
+    <div className="min-h-screen bg-background">
+      {/* Mobile sidebar backdrop */}
+      <div 
+        className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 lg:hidden ${
+          isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={() => setIsSidebarOpen(false)}
       />
-      <Calendar
-        calendars={calendars}
-        selectedCalendars={selectedCalendars}
-        events={events}
-        onEventCreate={handleEventCreate}
-        onEventEdit={handleEventUpdate}
-        onEventDelete={handleEventDelete}
-        onEventClick={handleEventClick}
-        isEditModalOpen={isEditModalOpen}
-        editingEvent={editingEvent}
-        onEditModalClose={() => {
-          setIsEditModalOpen(false);
-          setEditingEvent(null);
-        }}
-      />
-      {selectedEvent && (
-        <EventDetailsPanel
-          event={selectedEvent}
-          calendars={calendars}
-          onClose={() => setSelectedEvent(null)}
-          onEdit={handleEventEditFromPanel}
-          onDelete={handleEventDelete}
-        />
-      )}
+      
+      <div className="flex min-h-screen">
+        {/* Mobile sidebar */}
+        <div className={`fixed inset-y-0 left-0 z-50 w-80 bg-card border-r border-border transform transition-transform duration-300 lg:relative lg:transform-none lg:z-auto ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}>
+          <CalendarSidebar
+            calendars={calendars}
+            selectedCalendars={selectedCalendars}
+            eventCounts={eventCounts}
+            onCalendarToggle={handleCalendarToggle}
+            onCalendarCreate={handleCalendarCreate}
+            onCalendarEdit={handleCalendarEdit}
+            onCalendarDelete={handleCalendarDelete}
+            onCalendarShare={handleCalendarShare}
+            onCalendarShareToggle={handleCalendarShareToggle}
+            connectionStatus={multiWakuSync.globalConnectionStatus}
+            isWakuConnected={multiWakuSync.globalConnectionStatus !== 'disconnected'}
+            connectionStats={multiWakuSync.getConnectionStats()}
+            onClose={() => setIsSidebarOpen(false)}
+            isMobile={true}
+          />
+        </div>
+
+        {/* Main content */}
+        <div className="flex-1 flex flex-col lg:ml-0">
+          <Calendar
+            calendars={calendars}
+            selectedCalendars={selectedCalendars}
+            events={events}
+            onEventCreate={handleEventCreate}
+            onEventEdit={handleEventUpdate}
+            onEventDelete={handleEventDelete}
+            onEventClick={handleEventClick}
+            isEditModalOpen={isEditModalOpen}
+            editingEvent={editingEvent}
+            onEditModalClose={() => {
+              setIsEditModalOpen(false);
+              setEditingEvent(null);
+            }}
+            onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+            isSidebarOpen={isSidebarOpen}
+          />
+          
+          {selectedEvent && (
+            <EventDetailsPanel
+              event={selectedEvent}
+              calendars={calendars}
+              onClose={() => setSelectedEvent(null)}
+              onEdit={handleEventEditFromPanel}
+              onDelete={handleEventDelete}
+            />
+          )}
+        </div>
+      </div>
       
       {/* Development Menu */}
       <DevMenu

@@ -64,82 +64,93 @@ export function EventDetailsPanel({
   };
 
   return (
-    <div className="w-80 border-l border-border bg-card sidebar-transition">
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Event Details</h3>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="h-6 w-6"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="p-4 space-y-4">
-        <div>
-          <div className="flex items-center space-x-2 mb-2">
-            {calendar && (
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: calendar.color }}
-              />
-            )}
-            <span className="text-sm text-muted-foreground">
-              {calendar?.name || 'Unknown Calendar'}
-            </span>
+    <div className="fixed inset-0 z-50 lg:relative lg:inset-auto lg:z-auto lg:w-80 lg:border-l lg:border-border lg:bg-card lg:sidebar-transition">
+      {/* Mobile backdrop */}
+      <div 
+        className="fixed inset-0 bg-black/50 lg:hidden"
+        onClick={onClose}
+      />
+      
+      {/* Content container */}
+      <div className="fixed bottom-0 left-0 right-0 bg-card rounded-t-xl lg:relative lg:bottom-auto lg:left-auto lg:right-auto lg:bg-transparent lg:rounded-none max-h-[85vh] lg:max-h-none overflow-y-auto lg:overflow-visible">
+        {/* Header */}
+        <div className="p-4 border-b border-border sticky top-0 bg-card lg:bg-transparent z-10">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Event Details</h3>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              className="h-6 w-6"
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </div>
-          <h2 className="text-xl font-semibold mb-3">{event.title}</h2>
         </div>
 
-        <Separator />
-
-        <div className="space-y-3">
+        {/* Content */}
+        <div className="p-4 space-y-4">
           <div>
-            <label className="text-sm font-medium text-muted-foreground">Date</label>
-            <p className="text-sm">{formatDate(event.date)}</p>
+            <div className="flex items-center space-x-2 mb-2">
+              {calendar && (
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: calendar.color }}
+                />
+              )}
+              <span className="text-sm text-muted-foreground">
+                {calendar?.name || 'Unknown Calendar'}
+              </span>
+            </div>
+            <h2 className="text-xl font-semibold mb-3">{event.title}</h2>
           </div>
 
-          {event.time && (
+          <Separator />
+
+          <div className="space-y-3">
             <div>
-              <label className="text-sm font-medium text-muted-foreground">Time</label>
-              <p className="text-sm">{formatTime(event.time)}</p>
+              <label className="text-sm font-medium text-muted-foreground">Date</label>
+              <p className="text-sm">{formatDate(event.date)}</p>
             </div>
-          )}
 
-          {event.description && (
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Description</label>
-              <p className="text-sm text-foreground/80 whitespace-pre-wrap">
-                {event.description}
-              </p>
-            </div>
-          )}
-        </div>
+            {event.time && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Time</label>
+                <p className="text-sm">{formatTime(event.time)}</p>
+              </div>
+            )}
 
-        <Separator />
+            {event.description && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Description</label>
+                <p className="text-sm text-foreground/80 whitespace-pre-wrap">
+                  {event.description}
+                </p>
+              </div>
+            )}
+          </div>
 
-        <div className="flex flex-col space-y-2">
-          <Button
-            variant="outline"
-            onClick={() => onEdit(event)}
-            className="w-full hover-lift"
-          >
-            <Edit2 className="h-4 w-4 mr-2" />
-            Edit Event
-          </Button>
-          
-          <Button
-            variant="outline"
-            onClick={() => onDelete(event.id)}
-            className="w-full text-destructive hover:text-destructive hover-lift"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete Event
-          </Button>
+          <Separator />
+
+          <div className="flex flex-col sm:flex-row lg:flex-col space-y-2 sm:space-y-0 sm:space-x-2 lg:space-x-0 lg:space-y-2 pb-safe">
+            <Button
+              variant="outline"
+              onClick={() => onEdit(event)}
+              className="flex-1 hover-lift"
+            >
+              <Edit2 className="h-4 w-4 mr-2" />
+              Edit Event
+            </Button>
+            
+            <Button
+              variant="outline"
+              onClick={() => onDelete(event.id)}
+              className="flex-1 text-destructive hover:text-destructive hover-lift"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Event
+            </Button>
+          </div>
         </div>
       </div>
     </div>

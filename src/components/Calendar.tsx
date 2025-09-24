@@ -39,6 +39,8 @@ interface CalendarProps {
   isEditModalOpen?: boolean;
   editingEvent?: CalendarEvent | null;
   onEditModalClose?: () => void;
+  onSidebarToggle?: () => void;
+  isSidebarOpen?: boolean;
 }
 
 export function Calendar({ 
@@ -51,7 +53,9 @@ export function Calendar({
   onEventClick,
   isEditModalOpen = false,
   editingEvent = null,
-  onEditModalClose
+  onEditModalClose,
+  onSidebarToggle,
+  isSidebarOpen = false
 }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<CalendarView>('month');
@@ -120,12 +124,26 @@ export function Calendar({
   };
 
   return (
-    <div className="flex-1 p-6">
+    <div className="flex-1 p-3 sm:p-6">
       <div className="flex items-center justify-between mb-6">
-        <ViewSelector 
-          currentView={currentView}
-          onViewChange={setCurrentView}
-        />
+        <div className="flex items-center gap-3">
+          {onSidebarToggle && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onSidebarToggle}
+              className="lg:hidden"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </Button>
+          )}
+          <ViewSelector 
+            currentView={currentView}
+            onViewChange={setCurrentView}
+          />
+        </div>
         <Button
           className="hover-lift"
           onClick={() => {
@@ -135,7 +153,8 @@ export function Calendar({
           }}
         >
           <Plus className="h-4 w-4 mr-2" />
-          New Event
+          <span className="hidden sm:inline">New Event</span>
+          <span className="sm:hidden">New</span>
         </Button>
       </div>
 

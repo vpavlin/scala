@@ -108,7 +108,7 @@ export function DayView({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* All Day Events */}
-        <Card className="p-4 lg:col-span-3">
+        <Card className="p-3 sm:p-4 lg:col-span-3">
           <h3 className="text-sm font-medium text-muted-foreground mb-3">All Day Events</h3>
           <div className="space-y-2">
             {dayEvents.filter(event => !event.time).map(event => {
@@ -138,8 +138,8 @@ export function DayView({
         </Card>
 
         {/* Time Grid */}
-        <Card className="lg:col-span-2 max-h-[600px] overflow-y-auto">
-          <div className="p-4">
+        <Card className="lg:col-span-2 max-h-[400px] sm:max-h-[600px] overflow-y-auto">
+          <div className="p-3 sm:p-4">
             <h3 className="text-sm font-medium text-muted-foreground mb-4">Schedule</h3>
             <div className="space-y-0">
               {hours.map(hour => {
@@ -153,10 +153,11 @@ export function DayView({
                     className="flex border-b border-border/50 hover:bg-muted/30 cursor-pointer transition-colors"
                     onClick={() => onTimeSlotClick(currentDate, hour)}
                   >
-                    <div className="w-16 p-2 text-xs text-muted-foreground border-r border-border/50">
-                      {hour}
+                    <div className="w-12 sm:w-16 p-1 sm:p-2 text-xs text-muted-foreground border-r border-border/50">
+                      <span className="sm:hidden">{hour.split(':')[0]}</span>
+                      <span className="hidden sm:inline">{hour}</span>
                     </div>
-                    <div className="flex-1 p-2 min-h-[50px]">
+                    <div className="flex-1 p-1 sm:p-2 min-h-[40px] sm:min-h-[50px]">
                       <div className="space-y-1">
                         {hourEvents.map(event => {
                           const calendar = calendars.find(cal => cal.id === event.calendarId);
@@ -192,7 +193,7 @@ export function DayView({
         </Card>
 
         {/* Events Summary */}
-        <Card className="p-4">
+        <Card className="p-3 sm:p-4">
           <h3 className="text-sm font-medium text-muted-foreground mb-3">
             Events Today ({dayEvents.length})
           </h3>

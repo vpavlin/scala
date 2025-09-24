@@ -99,7 +99,7 @@ export function WeekView({
       </div>
 
       <Card className="overflow-hidden">
-        <div className="grid grid-cols-7 gap-0">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-0">
           {weekDays.map((date, index) => {
             const dayEvents = getDayEvents(date);
             const isToday = today.toDateString() === date.toDateString();
@@ -107,16 +107,17 @@ export function WeekView({
             return (
               <div
                 key={index}
-                className={`border-r border-b border-border/50 min-h-[200px] p-2 cursor-pointer hover:bg-muted/50 transition-colors ${
+                className={`border-r border-b border-border/50 min-h-[120px] sm:min-h-[150px] lg:min-h-[200px] p-1 sm:p-2 cursor-pointer hover:bg-muted/50 transition-colors ${
                   isToday ? 'bg-accent/5' : ''
-                } ${index === 6 ? 'border-r-0' : ''}`}
+                } ${index === 6 ? 'lg:border-r-0' : ''} ${index >= 4 ? 'border-r-0 sm:border-r' : ''} ${index >= 2 ? 'sm:border-r-0 lg:border-r' : ''}`}
                 onClick={() => onDayClick(date)}
               >
-                <div className="mb-2">
+                <div className="mb-1 sm:mb-2">
                   <div className="text-xs text-muted-foreground">
-                    {(date instanceof Date ? date : new Date(date)).toLocaleDateString('en-US', { weekday: 'short' })}
+                    <span className="sm:hidden">{(date instanceof Date ? date : new Date(date)).toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
+                    <span className="hidden sm:inline">{(date instanceof Date ? date : new Date(date)).toLocaleDateString('en-US', { weekday: 'short' })}</span>
                   </div>
-                  <div className={`text-lg font-medium ${isToday ? 'text-accent' : ''}`}>
+                  <div className={`text-sm sm:text-lg font-medium ${isToday ? 'text-accent' : ''}`}>
                     {date.getDate()}
                   </div>
                 </div>

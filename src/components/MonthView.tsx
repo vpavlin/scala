@@ -80,7 +80,7 @@ export function MonthView({
     
     // Empty cells for days before the first day of the month
     for (let i = 0; i < firstDayWeekday; i++) {
-      days.push(<div key={`empty-${i}`} className="h-24 border-r border-b border-border/50"></div>);
+      days.push(<div key={`empty-${i}`} className="h-16 md:h-24 border-r border-b border-border/50"></div>);
     }
 
     // Days of the month
@@ -91,12 +91,12 @@ export function MonthView({
       days.push(
         <div
           key={day}
-          className={`h-24 border-r border-b border-border/50 p-1 cursor-pointer hover:bg-muted/50 transition-colors ${
+          className={`h-16 md:h-24 border-r border-b border-border/50 p-1 cursor-pointer hover:bg-muted/50 transition-colors ${
             isToday ? 'bg-accent/5' : ''
           }`}
           onClick={() => handleDayClick(day)}
         >
-          <div className={`text-sm font-medium mb-1 ${isToday ? 'text-accent' : 'text-foreground'}`}>
+          <div className={`text-xs md:text-sm font-medium mb-1 ${isToday ? 'text-accent' : 'text-foreground'}`}>
             {day}
           </div>
           <div className="space-y-1">
@@ -179,8 +179,11 @@ export function MonthView({
       <Card className="overflow-hidden">
         <div className="calendar-grid">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-            <div key={day} className="h-12 border-r border-b border-border/50 flex items-center justify-center bg-muted/30">
-              <span className="text-sm font-medium text-muted-foreground">{day}</span>
+            <div key={day} className="h-8 md:h-12 border-r border-b border-border/50 flex items-center justify-center bg-muted/30">
+              <span className="text-xs md:text-sm font-medium text-muted-foreground">
+                <span className="hidden sm:inline">{day}</span>
+                <span className="sm:hidden">{day.charAt(0)}</span>
+              </span>
             </div>
           ))}
           {renderCalendarDays()}

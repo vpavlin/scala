@@ -111,7 +111,7 @@ All colors MUST be HSL.
   }
   
   .calendar-event {
-    @apply text-xs px-2 py-1.5 rounded-md border mb-1.5 block min-h-[24px] font-medium shadow-sm backdrop-blur-sm;
+    @apply text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-md border mb-1.5 block min-h-[20px] sm:min-h-[24px] font-medium shadow-sm backdrop-blur-sm;
     transition: all 0.2s ease-in-out;
   }
   

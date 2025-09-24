@@ -48,6 +48,8 @@ interface CalendarSidebarProps {
       status: 'disconnected' | 'connected' | 'minimal';
     }[];
   };
+  onClose?: () => void;
+  isMobile?: boolean;
 }
 
 export function CalendarSidebar({
@@ -62,7 +64,9 @@ export function CalendarSidebar({
   onCalendarShareToggle,
   connectionStatus = 'disconnected',
   isWakuConnected = false,
-  connectionStats
+  connectionStats,
+  onClose,
+  isMobile = false
 }: CalendarSidebarProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -165,9 +169,14 @@ export function CalendarSidebar({
   };
 
   return (
-    <div className="w-80 border-r border-border bg-card p-4 sidebar-transition">
+    <div className="w-full h-full bg-card p-4 sidebar-transition overflow-y-auto">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold">Calendars</h2>
+        {isMobile && onClose && (
+          <Button variant="ghost" size="sm" onClick={onClose} className="lg:hidden">
+            ✕
+          </Button>
+        )}
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="hover-lift">
