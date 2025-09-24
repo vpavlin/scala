@@ -31,5 +31,15 @@ export function openLocationInMap(location: string): void {
   }
   
   const mapUrl = createMapUrl(location);
-  window.open(mapUrl, '_blank', 'noopener,noreferrer');
+  
+  // Create a temporary anchor element to avoid popup blockers
+  const link = document.createElement('a');
+  link.href = mapUrl;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  
+  // Temporarily add to DOM and click
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
