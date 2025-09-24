@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Toaster } from '@/components/ui/toaster';
 import { useMultiWakuSync } from '@/hooks/useMultiWakuSync';
 import { useCalendarStorage } from '@/hooks/useCalendarStorage';
+import { useEventNotifications } from '@/hooks/useEventNotifications';
 import { CalendarEvent, EventSourceAction } from '@/lib/wakuSingleNode';
 import { CalendarData } from '@/lib/storage';
 import { generateUUID } from '@/lib/uuid';
@@ -28,6 +29,9 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [calendars, setCalendars] = useState<CalendarData[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [filteredEvents, setFilteredEvents] = useState<CalendarEvent[]>([]);
+
+  // Initialize event notifications
+  useEventNotifications({ events, enabled: true });
 
   // Calculate event counts for each calendar (use filtered events for display)
   const eventCounts = filteredEvents.reduce((counts, event) => {
