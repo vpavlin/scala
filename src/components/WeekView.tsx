@@ -62,7 +62,10 @@ export function WeekView({
   };
 
   const today = new Date();
-  const weekTitle = `${weekDays[0].toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${weekDays[6].toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+  
+  // Ensure weekDays elements are proper Date objects
+  const safeWeekDays = weekDays.map(day => day instanceof Date ? day : new Date(day));
+  const weekTitle = `${safeWeekDays[0].toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${safeWeekDays[6].toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
 
   return (
     <div className="space-y-4">
@@ -111,7 +114,7 @@ export function WeekView({
               >
                 <div className="mb-2">
                   <div className="text-xs text-muted-foreground">
-                    {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                    {(date instanceof Date ? date : new Date(date)).toLocaleDateString('en-US', { weekday: 'short' })}
                   </div>
                   <div className={`text-lg font-medium ${isToday ? 'text-accent' : ''}`}>
                     {date.getDate()}

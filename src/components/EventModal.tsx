@@ -94,9 +94,19 @@ export function EventModal({
     }
   };
 
-  const formatDate = (date: Date | null) => {
+  const formatDate = (date: Date | string | null | undefined) => {
     if (!date) return '';
-    return date.toLocaleDateString('en-US', { 
+    
+    // Ensure we have a proper Date object
+    const dateObj = date instanceof Date ? date : new Date(date);
+    
+    // Check if the date is valid
+    if (isNaN(dateObj.getTime())) {
+      console.error('Invalid date provided to formatDate:', date);
+      return 'Invalid date';
+    }
+    
+    return dateObj.toLocaleDateString('en-US', { 
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 

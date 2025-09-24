@@ -63,7 +63,10 @@ export function DayView({
 
   const today = new Date();
   const isToday = today.toDateString() === currentDate.toDateString();
-  const dayTitle = currentDate.toLocaleDateString('en-US', { 
+  
+  // Ensure currentDate is a proper Date object
+  const dateObj = currentDate instanceof Date ? currentDate : new Date(currentDate);
+  const dayTitle = dateObj.toLocaleDateString('en-US', { 
     weekday: 'long', 
     year: 'numeric', 
     month: 'long', 

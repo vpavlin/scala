@@ -46,7 +46,9 @@ export function MonthView({
   const firstDayWeekday = firstDayOfMonth.getDay();
   const daysInMonth = lastDayOfMonth.getDate();
 
-  const monthName = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  // Ensure currentDate is a proper Date object
+  const dateObj = currentDate instanceof Date ? currentDate : new Date(currentDate);
+  const monthName = dateObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     const newDate = new Date(currentDate);

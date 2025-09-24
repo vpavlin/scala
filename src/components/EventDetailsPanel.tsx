@@ -37,8 +37,19 @@ export function EventDetailsPanel({
 
   const calendar = calendars.find(cal => cal.id === event.calendarId);
   
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
+  const formatDate = (date: Date | string | null | undefined) => {
+    if (!date) return 'No date';
+    
+    // Ensure we have a proper Date object
+    const dateObj = date instanceof Date ? date : new Date(date);
+    
+    // Check if the date is valid
+    if (isNaN(dateObj.getTime())) {
+      console.error('Invalid date provided to formatDate:', date);
+      return 'Invalid date';
+    }
+    
+    return dateObj.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
