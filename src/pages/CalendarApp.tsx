@@ -611,37 +611,41 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           />
         </div>
 
-        {/* Main content */}
-        <div className="flex-1 flex flex-col lg:ml-0">
-          {viewingCalendarEvents ? (
-            <div className="p-6">
-              <CalendarEventsView
-                calendar={viewingCalendarEvents}
+        {/* Main content area - flex row to accommodate sidebar */}
+        <div className="flex-1 flex">
+          {/* Primary content */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {viewingCalendarEvents ? (
+              <div className="p-6">
+                <CalendarEventsView
+                  calendar={viewingCalendarEvents}
+                  events={events}
+                  onBack={() => setViewingCalendarEvents(null)}
+                  onEventClick={handleEventClick}
+                />
+              </div>
+            ) : (
+              <Calendar
+                calendars={calendars}
+                selectedCalendars={selectedCalendars}
                 events={events}
-                onBack={() => setViewingCalendarEvents(null)}
+                onEventCreate={handleEventCreate}
+                onEventEdit={handleEventUpdate}
+                onEventDelete={handleEventDelete}
                 onEventClick={handleEventClick}
+                isEditModalOpen={isEditModalOpen}
+                editingEvent={editingEvent}
+                onEditModalClose={() => {
+                  setIsEditModalOpen(false);
+                  setEditingEvent(null);
+                }}
+                onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+                isSidebarOpen={isSidebarOpen}
               />
-            </div>
-          ) : (
-            <Calendar
-              calendars={calendars}
-              selectedCalendars={selectedCalendars}
-              events={events}
-              onEventCreate={handleEventCreate}
-              onEventEdit={handleEventUpdate}
-              onEventDelete={handleEventDelete}
-              onEventClick={handleEventClick}
-              isEditModalOpen={isEditModalOpen}
-              editingEvent={editingEvent}
-              onEditModalClose={() => {
-                setIsEditModalOpen(false);
-                setEditingEvent(null);
-              }}
-              onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-              isSidebarOpen={isSidebarOpen}
-            />
-          )}
+            )}
+          </div>
           
+          {/* Event details panel - desktop sidebar, mobile overlay */}
           {selectedEvent && (
             <EventDetailsPanel
               event={selectedEvent}
