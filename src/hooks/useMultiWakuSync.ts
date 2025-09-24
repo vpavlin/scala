@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { WakuSingleNodeManager, EventSourceAction, CalendarEvent } from '@/lib/wakuSingleNode';
-import { CalendarData } from '@/lib/storage';
 
 interface CalendarConnection {
   calendarId: string;
@@ -9,35 +8,45 @@ interface CalendarConnection {
   connectionStatus: 'disconnected' | 'connected' | 'minimal';
 }
 
+interface CalendarData {
+  id: string;
+  name: string;
+  color: string;
+  isVisible: boolean;
+  isShared?: boolean;
+  isPrivate?: boolean;
+  shareUrl?: string;
+  description?: string;
+}
+
 export function useMultiWakuSync() {
   const [connections, setConnections] = useState<Map<string, CalendarConnection>>(new Map());
-  const [globalConnectionStatus, setGlobalConnectionStatus] = useState<'disconnected' | 'connected' | 'minimal'>('disconnected');
-  const [error, setError] = useState<string | null>(null);
+  const [globalConnectionStatus, setGlobalConnectionStatus] = useState<'connected' | 'disconnected' | 'minimal'>('disconnected');
   const [isInitializing, setIsInitializing] = useState(false);
-  const [pendingCalendars, setPendingCalendars] = useState<{ calendars: CalendarData[]; events: CalendarEvent[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   
-  const connectionsRef = useRef<Map<string, CalendarConnection>>(new Map());
   const wakuManagerRef = useRef<WakuSingleNodeManager | null>(null);
-  const eventHandlerRef = useRef<(action: EventSourceAction) => void>();
+  const eventHandlerRef = useRef<((action: EventSourceAction) => void) | null>(null);
+  const connectionsRef = useRef<Map<string, CalendarConnection>>(new Map());
 
-  const updateGlobalStatus = useCallback(() => {
-    const connections = Array.from(connectionsRef.current.values());
-    if (connections.length === 0) {
+  // Update global connection status based on individual connections
+  const updateGlobalStatus = () => {
+    const connectionArray = Array.from(connectionsRef.current.values());
+    if (connectionArray.length === 0) {
       setGlobalConnectionStatus('disconnected');
       return;
     }
-
-    const connectedCount = connections.filter(conn => conn.isConnected).length;
-    if (connectedCount === 0) {
-      setGlobalConnectionStatus('disconnected');
-    } else if (connectedCount === connections.length) {
+    
+    const connectedCount = connectionArray.filter(conn => conn.isConnected).length;
+    if (connectedCount === connectionArray.length) {
       setGlobalConnectionStatus('connected');
-    } else {
+    } else if (connectedCount > 0) {
       setGlobalConnectionStatus('minimal');
+    } else {
+      setGlobalConnectionStatus('disconnected');
     }
-  }, []);
+  };
 
-  // Initialize the single Waku node when needed
   const initializeWakuNode = async (): Promise<boolean> => {
     if (wakuManagerRef.current) {
       return wakuManagerRef.current.getConnectionStatus();
@@ -57,159 +66,78 @@ export function useMultiWakuSync() {
           const updated = new Map(prev);
           updated.forEach((conn, calendarId) => {
             conn.connectionStatus = status;
-            conn.isConnected = status !== 'disconnected';
+            conn.isConnected = status === 'connected';
           });
           connectionsRef.current = updated;
           return updated;
         });
       },
-      onError: (errorMsg) => {
-        console.error('Waku node error:', errorMsg);
-        setError(errorMsg);
+      onError: (error) => {
+        console.error('Waku error:', error);
+        setError(error);
       }
     });
 
-    const success = await manager.initialize();
-    if (success) {
-      wakuManagerRef.current = manager;
-    }
-    
-    return success;
-  };
-
-  const initializeSharedCalendars = async (sharedCalendars: CalendarData[], allEvents: CalendarEvent[]) => {
-    console.log(`Queuing ${sharedCalendars.length} shared calendars for initialization...`);
-    
-    // Store pending calendars to initialize once Waku is connected
-    setPendingCalendars({ calendars: sharedCalendars, events: allEvents });
-    
-    // Initialize Waku node first
-    const nodeReady = await initializeWakuNode();
-    
-    // If node is ready and connected, initialize immediately
-    if (nodeReady && (globalConnectionStatus === 'connected' || globalConnectionStatus === 'minimal')) {
-      await performInitialization(sharedCalendars, allEvents);
-    }
-  };
-
-  const performInitialization = async (sharedCalendars: CalendarData[], allEvents: CalendarEvent[]) => {
     setIsInitializing(true);
-    setError(null);
-
     try {
-      console.log(`Initializing calendar channels for ${sharedCalendars.length} shared calendars`);
-      
-      if (!wakuManagerRef.current) {
-        throw new Error('Waku node manager not initialized');
-      }
-
-      const newConnections = new Map<string, CalendarConnection>();
-
-      for (const calendar of sharedCalendars) {
-        try {
-          // Extract encryption key from share URL if available
-          let encryptionKey: string | undefined;
-          if (calendar.shareUrl) {
-            const urlObj = new URL(calendar.shareUrl);
-            encryptionKey = urlObj.searchParams.get('key') || undefined;
-          }
-
-          // Add calendar channel to the single Waku node
-          const success = await wakuManagerRef.current.addCalendarChannel(calendar.id, encryptionKey);
-          
-          if (success) {
-            const connection: CalendarConnection = {
-              calendarId: calendar.id,
-              encryptionKey,
-              isConnected: globalConnectionStatus === 'connected' || globalConnectionStatus === 'minimal',
-              connectionStatus: globalConnectionStatus
-            };
-            
-            newConnections.set(calendar.id, connection);
-
-            // Initialize sharing with historical data - use incremental sync if possible
-            const calendarEvents = allEvents.filter(event => event.calendarId === calendar.id);
-            const forceFullSync = !wakuManagerRef.current.canUseIncrementalSync(calendar.id);
-            await wakuManagerRef.current.initializeSharing(calendar.id, calendar, calendarEvents, forceFullSync);
-            
-            console.log(`Initialized calendar channel: ${calendar.name} (${calendarEvents.length} events)`);
-          } else {
-            console.warn(`Failed to initialize channel for calendar: ${calendar.name}`);
-          }
-        } catch (err) {
-          console.error(`Error initializing calendar ${calendar.name}:`, err);
-        }
-      }
-
-      setConnections(newConnections);
-      connectionsRef.current = newConnections;
-      updateGlobalStatus();
-      
-      // Clear pending calendars since we've processed them
-      setPendingCalendars(null);
-      
+      const success = await manager.initialize();
+      wakuManagerRef.current = manager;
+      setError(null);
+      return success;
     } catch (err) {
-      setError(`Multi-sync initialization error: ${err}`);
+      console.error('Failed to initialize Waku node:', err);
+      setError(`Failed to initialize Waku: ${err}`);
+      return false;
     } finally {
       setIsInitializing(false);
     }
   };
 
-  // Initialize pending calendars when Waku becomes connected
-  useEffect(() => {
-    if (pendingCalendars && (globalConnectionStatus === 'connected' || globalConnectionStatus === 'minimal')) {
-      console.log('Waku connected, initializing pending calendars...');
-      performInitialization(pendingCalendars.calendars, pendingCalendars.events);
+  const initializeSharedCalendars = async (sharedCalendars: CalendarData[], allEvents: CalendarEvent[]) => {
+    if (sharedCalendars.length === 0) return;
+
+    console.log('Initializing shared calendars:', sharedCalendars.map(cal => cal.name));
+    
+    // Ensure Waku node is initialized
+    const nodeReady = wakuManagerRef.current || await initializeWakuNode();
+    if (!nodeReady) {
+      console.error('Failed to initialize Waku node for shared calendars');
+      return;
     }
-  }, [globalConnectionStatus, pendingCalendars]);
+
+    // Small delay to ensure node is fully ready
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    await performInitialization(sharedCalendars, allEvents);
+  };
+
+  const performInitialization = async (sharedCalendars: CalendarData[], allEvents: CalendarEvent[]) => {
+    for (const calendar of sharedCalendars) {
+      const calendarEvents = allEvents.filter(event => event.calendarId === calendar.id);
+      await addSharedCalendar(calendar, calendarEvents);
+    }
+  };
 
   const addSharedCalendar = async (calendar: CalendarData, events: CalendarEvent[]) => {
-    if (connectionsRef.current.has(calendar.id)) {
-      console.log(`Calendar ${calendar.id} already has a connection`);
-      return;
-    }
-
-    // Ensure Waku node is initialized
-    const nodeReady = await initializeWakuNode();
-    if (!nodeReady) {
-      setError('Failed to initialize Waku node');
-      return;
-    }
-
-    // Check if Waku is connected before trying to add calendar
-    if (globalConnectionStatus === 'disconnected') {
-      console.log('Waku not connected, queuing calendar for later initialization...');
-      // Add to pending calendars
-      setPendingCalendars(prev => {
-        if (prev) {
-          return {
-            calendars: [...prev.calendars, calendar],
-            events: [...prev.events, ...events]
-          };
-        }
-        return { calendars: [calendar], events };
-      });
+    if (!wakuManagerRef.current) {
+      console.error('Waku manager not initialized');
       return;
     }
 
     try {
-      let encryptionKey: string | undefined;
-      if (calendar.shareUrl) {
-        const urlObj = new URL(calendar.shareUrl);
-        encryptionKey = urlObj.searchParams.get('key') || undefined;
-      }
-
-      // Add calendar channel to the single Waku node
-      const success = await wakuManagerRef.current!.addCalendarChannel(calendar.id, encryptionKey);
+      // Add the calendar channel
+      const encryptionKey = calendar.isPrivate ? btoa(`${calendar.id}-${Date.now()}`).substring(0, 16) : undefined;
+      const success = await wakuManagerRef.current.addCalendarChannel(calendar.id, encryptionKey);
       
       if (success) {
+        // Create connection entry
         const connection: CalendarConnection = {
           calendarId: calendar.id,
           encryptionKey,
-          isConnected: globalConnectionStatus === 'connected' || globalConnectionStatus === 'minimal',
-          connectionStatus: globalConnectionStatus
+          isConnected: true,
+          connectionStatus: 'connected'
         };
-        
+
         setConnections(prev => {
           const updated = new Map(prev);
           updated.set(calendar.id, connection);
@@ -218,10 +146,8 @@ export function useMultiWakuSync() {
           return updated;
         });
 
-        // Initialize sharing with historical data - use incremental sync if possible
-        const calendarEvents = events.filter(event => event.calendarId === calendar.id);
-        const forceFullSync = !wakuManagerRef.current!.canUseIncrementalSync(calendar.id);
-        await wakuManagerRef.current!.initializeSharing(calendar.id, calendar, calendarEvents, forceFullSync);
+        // Initialize sharing with historical data
+        await wakuManagerRef.current.initializeSharing(calendar.id, calendar, events);
         
         console.log(`Added calendar channel: ${calendar.name}`);
       }
@@ -244,7 +170,7 @@ export function useMultiWakuSync() {
       return updated;
     });
     
-    console.log(`Removed calendar channel: ${calendarId}`);
+    console.log(`Removed shared calendar: ${calendarId}`);
   };
 
   const disconnectAll = async () => {
@@ -309,6 +235,10 @@ export function useMultiWakuSync() {
     return wakuManagerRef.current?.syncCalendarDescription(calendarId, description) ?? false;
   };
 
+  const unshareCalendar = async (calendarId: string, calendarName: string): Promise<boolean> => {
+    return wakuManagerRef.current?.unshareCalendar(calendarId, calendarName) ?? false;
+  };
+
   // Removed syncCalendar - we no longer sync calendar metadata
   // Users can rename, recolor, and toggle shared calendars locally
 
@@ -361,6 +291,7 @@ export function useMultiWakuSync() {
     updateEvent,
     deleteEvent,
     syncCalendarDescription,
+    unshareCalendar,
     getConnectionStats,
     generateShareUrl,
     forceFullSync,

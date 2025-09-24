@@ -20,12 +20,13 @@ export interface CalendarEvent {
 }
 
 export interface EventSourceAction {
-  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_EVENTS' | 'SYNC_CALENDAR_DESCRIPTION';
+  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_EVENTS' | 'SYNC_CALENDAR_DESCRIPTION' | 'UNSHARE_CALENDAR';
   eventId?: string;
   event?: CalendarEvent;
   events?: CalendarEvent[];
   calendarId?: string;
   description?: string;
+  calendarName?: string; // For unshare notifications
   timestamp: number;
   senderId: string;
 }
@@ -39,7 +40,8 @@ const EventActionMessage = new protobuf.Type("EventActionMessage")
   .add(new protobuf.Field("timestamp", 6, "uint64"))
   .add(new protobuf.Field("senderId", 7, "string"))
   .add(new protobuf.Field("calendarId", 8, "string"))
-  .add(new protobuf.Field("description", 9, "string"));
+  .add(new protobuf.Field("description", 9, "string"))
+  .add(new protobuf.Field("calendarName", 10, "string")); // For unshare notifications
 
 interface CalendarChannel {
   calendarId: string;
@@ -287,6 +289,7 @@ export class WakuSingleNodeManager {
         events: decoded.eventsData ? this.parseEventsData(decoded.eventsData) : undefined,
         calendarId: decoded.calendarId || undefined,
         description: decoded.description || undefined,
+        calendarName: decoded.calendarName || undefined,
         timestamp: Number(decoded.timestamp),
         senderId: decoded.senderId
       };
