@@ -365,6 +365,7 @@ export class WakuSingleNodeManager {
         eventsData: action.events ? JSON.stringify(action.events) : '',
         calendarId: action.calendarId || '',
         description: action.description || '',
+        calendarName: action.calendarName || '',
         timestamp: Date.now(),
         senderId: this.senderId
       });

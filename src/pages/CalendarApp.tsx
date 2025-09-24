@@ -214,11 +214,26 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           }
           break;
         case 'UNSHARE_CALENDAR':
+          console.log('Processing UNSHARE_CALENDAR action:', action);
+          console.log('Calendar ID:', action.calendarId);
+          console.log('Calendar Name:', action.calendarName);
+          
           if (action.calendarId && action.calendarName) {
-            console.log('Calendar unshared:', action.calendarName);
+            console.log('Showing toast for calendar unshared:', action.calendarName);
             toast({
               title: "Calendar no longer shared",
               description: `"${action.calendarName}" is no longer being shared. You will not receive further updates unless it's shared again.`,
+              variant: "default"
+            });
+          } else {
+            console.log('Missing calendarId or calendarName:', {
+              calendarId: action.calendarId,
+              calendarName: action.calendarName
+            });
+            // Fallback toast if name is missing
+            toast({
+              title: "Calendar no longer shared",
+              description: "A shared calendar is no longer being shared. You will not receive further updates unless it's shared again.",
               variant: "default"
             });
           }
