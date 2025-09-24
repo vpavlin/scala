@@ -259,9 +259,45 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
             console.log('Missing calendarId in UNSHARE_CALENDAR action');
           }
           break;
+        case 'CALENDAR_RECONNECTED':
+          if (action.calendarId && action.calendarName) {
+            console.log('Calendar reconnected:', action.calendarName);
+            // Clear the wasUnshared flag
+            setCalendars(prev => prev.map(cal => 
+              cal.id === action.calendarId 
+                ? { ...cal, wasUnshared: false, isShared: true }
+                : cal
+            ));
+            
+            // Save updated calendar to storage
+            const reconnectedCalendar = calendars.find(cal => cal.id === action.calendarId);
+            if (reconnectedCalendar) {
+              const calendarWithSharedFlag = { 
+                ...reconnectedCalendar, 
+                wasUnshared: false, 
+                isShared: true 
+              };
+              storage.saveCalendar(calendarWithSharedFlag).catch(err => 
+                console.error('Failed to save reconnected calendar state:', err)
+              );
+            }
+            
+            toast({
+              title: "Calendar available again!",
+              description: `"${action.calendarName}" is now being shared again. You'll receive updates.`,
+              variant: "default"
+            });
+          }
+          break;
       }
     });
   }, []);
+
+  // Start periodic checking for unshared calendars
+  useEffect(() => {
+    const unsharedCalendars = calendars.filter(cal => cal.wasUnshared);
+    multiWakuSync.startPeriodicReconnectCheck(unsharedCalendars);
+  }, [calendars]);
 
   // Show Waku errors and connection status for shared calendars
   useEffect(() => {

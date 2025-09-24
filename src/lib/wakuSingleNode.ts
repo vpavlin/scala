@@ -20,7 +20,7 @@ export interface CalendarEvent {
 }
 
 export interface EventSourceAction {
-  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_EVENTS' | 'SYNC_CALENDAR_DESCRIPTION' | 'UNSHARE_CALENDAR';
+  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_EVENTS' | 'SYNC_CALENDAR_DESCRIPTION' | 'UNSHARE_CALENDAR' | 'CALENDAR_RECONNECTED';
   eventId?: string;
   event?: CalendarEvent;
   events?: CalendarEvent[];
@@ -431,6 +431,10 @@ export class WakuSingleNodeManager {
       calendarId,
       calendarName
     });
+  }
+
+  public getSenderId(): string {
+    return this.senderId;
   }
 
   public async initializeSharing(calendarId: string, calendar: any, events: CalendarEvent[], forceFullSync: boolean = false): Promise<boolean> {

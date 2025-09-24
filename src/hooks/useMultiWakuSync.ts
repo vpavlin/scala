@@ -29,6 +29,8 @@ export function useMultiWakuSync() {
   const wakuManagerRef = useRef<WakuSingleNodeManager | null>(null);
   const eventHandlerRef = useRef<((action: EventSourceAction) => void) | null>(null);
   const connectionsRef = useRef<Map<string, CalendarConnection>>(new Map());
+  const reconnectIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const unsharedCalendarsRef = useRef<CalendarData[]>([]);
 
   // Update global connection status based on individual connections
   const updateGlobalStatus = () => {
@@ -271,9 +273,98 @@ export function useMultiWakuSync() {
     return wakuManagerRef.current.initializeSharing(calendarId, calendar, calendarEvents, true);
   };
 
+  // Set up periodic checking for unshared calendars
+  const startPeriodicReconnectCheck = (unsharedCalendars: CalendarData[]) => {
+    unsharedCalendarsRef.current = unsharedCalendars;
+    
+    if (unsharedCalendars.length === 0) {
+      stopPeriodicReconnectCheck();
+      return;
+    }
+
+    // Don't start multiple intervals
+    if (reconnectIntervalRef.current) return;
+
+    console.log(`Starting periodic reconnect check for ${unsharedCalendars.length} unshared calendars`);
+    
+    reconnectIntervalRef.current = setInterval(async () => {
+      await checkUnsharedCalendars();
+    }, 30000); // Check every 30 seconds
+  };
+
+  const stopPeriodicReconnectCheck = () => {
+    if (reconnectIntervalRef.current) {
+      clearInterval(reconnectIntervalRef.current);
+      reconnectIntervalRef.current = null;
+      console.log('Stopped periodic reconnect check');
+    }
+  };
+
+  const checkUnsharedCalendars = async () => {
+    const unsharedCalendars = unsharedCalendarsRef.current;
+    if (!wakuManagerRef.current || unsharedCalendars.length === 0) return;
+
+    console.log(`Checking ${unsharedCalendars.length} unshared calendars for availability...`);
+
+    for (const calendar of unsharedCalendars) {
+      try {
+        // Extract encryption key from share URL if it exists
+        let encryptionKey: string | undefined;
+        if (calendar.shareUrl && calendar.isPrivate) {
+          const url = new URL(calendar.shareUrl);
+          encryptionKey = url.searchParams.get('key') || undefined;
+        }
+
+        // Try to reconnect to the calendar channel
+        const success = await wakuManagerRef.current.addCalendarChannel(calendar.id, encryptionKey);
+        
+        if (success) {
+          console.log(`Successfully reconnected to calendar: ${calendar.name}`);
+          
+          // Create connection entry
+          const connection: CalendarConnection = {
+            calendarId: calendar.id,
+            encryptionKey,
+            isConnected: true,
+            connectionStatus: 'connected'
+          };
+
+          setConnections(prev => {
+            const updated = new Map(prev);
+            updated.set(calendar.id, connection);
+            connectionsRef.current = updated;
+            updateGlobalStatus();
+            return updated;
+          });
+
+          // Notify that the calendar is available again
+          eventHandlerRef.current?.({
+            type: 'CALENDAR_RECONNECTED' as any,
+            calendarId: calendar.id,
+            calendarName: calendar.name,
+            timestamp: Date.now(),
+            senderId: wakuManagerRef.current.getSenderId()
+          });
+
+          // Remove from unshared list
+          unsharedCalendarsRef.current = unsharedCalendarsRef.current.filter(cal => cal.id !== calendar.id);
+        }
+      } catch (error) {
+        // Silently continue - calendar is still not available
+        console.debug(`Calendar ${calendar.name} still not available:`, error);
+      }
+    }
+
+    // Stop checking if no more unshared calendars
+    if (unsharedCalendarsRef.current.length === 0) {
+      stopPeriodicReconnectCheck();
+    }
+  };
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      stopPeriodicReconnectCheck();
       disconnectAll();
     };
   }, []);
@@ -296,6 +387,8 @@ export function useMultiWakuSync() {
     getConnectionStats,
     generateShareUrl,
     forceFullSync,
+    startPeriodicReconnectCheck,
+    stopPeriodicReconnectCheck,
     clearError: () => setError(null)
   };
 }
