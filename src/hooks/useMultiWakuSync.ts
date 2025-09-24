@@ -268,7 +268,16 @@ export function useMultiWakuSync() {
     return wakuManagerRef.current?.createEvent(event.calendarId, event) ?? false;
   };
 
-  const updateEvent = async (event: CalendarEvent): Promise<boolean> => {
+  const updateEvent = async (event: CalendarEvent, originalEvent?: CalendarEvent): Promise<boolean> => {
+    // Handle cross-calendar moves
+    if (originalEvent && originalEvent.calendarId !== event.calendarId) {
+      // Delete from old calendar and create in new calendar
+      const deleteSuccess = await wakuManagerRef.current?.deleteEvent(originalEvent.calendarId, event.id) ?? false;
+      const createSuccess = await wakuManagerRef.current?.createEvent(event.calendarId, event) ?? false;
+      return deleteSuccess && createSuccess;
+    }
+    
+    // Regular update within same calendar
     return wakuManagerRef.current?.updateEvent(event.calendarId, event) ?? false;
   };
 

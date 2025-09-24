@@ -478,6 +478,9 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   };
 
   const handleEventUpdate = async (updatedEvent: CalendarEvent) => {
+    // Get the original event before updating
+    const originalEvent = events.find(event => event.id === updatedEvent.id);
+    
     // Update locally first
     setEvents(prev => prev.map(event => 
       event.id === updatedEvent.id ? updatedEvent : event
@@ -485,9 +488,9 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     await storage.saveEvent(updatedEvent);
     
     // Sync via Waku if calendar is shared
-    const calendar = calendars.find(cal => cal.id === updatedEvent.calendarId);
-    if (calendar?.isShared) {
-      await multiWakuSync.updateEvent(updatedEvent);
+    const updatedCalendar = calendars.find(cal => cal.id === updatedEvent.calendarId);
+    if (updatedCalendar?.isShared || (originalEvent && calendars.find(cal => cal.id === originalEvent.calendarId)?.isShared)) {
+      await multiWakuSync.updateEvent(updatedEvent, originalEvent);
     }
   };
 
