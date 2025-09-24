@@ -86,6 +86,7 @@ export function Calendar({
             currentDate={currentDate}
             selectedCalendars={selectedCalendars}
             events={events}
+            calendars={calendars}
             onDateChange={setCurrentDate}
             onDayClick={handleDayClick}
             onEventClick={onEventClick}
@@ -97,6 +98,7 @@ export function Calendar({
             currentDate={currentDate}
             selectedCalendars={selectedCalendars}
             events={events}
+            calendars={calendars}
             onDateChange={setCurrentDate}
             onEventClick={onEventClick}
             onTimeSlotClick={handleTimeSlotClick}
@@ -108,6 +110,7 @@ export function Calendar({
             currentDate={currentDate}
             selectedCalendars={selectedCalendars}
             events={events}
+            calendars={calendars}
             onDateChange={setCurrentDate}
             onDayClick={handleDayClick}
             onEventClick={onEventClick}

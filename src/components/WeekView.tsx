@@ -11,10 +11,18 @@ interface CalendarEvent {
   description?: string;
 }
 
+interface CalendarData {
+  id: string;
+  name: string;
+  color: string;
+  isVisible: boolean;
+}
+
 interface WeekViewProps {
   currentDate: Date;
   selectedCalendars: string[];
   events: CalendarEvent[];
+  calendars: CalendarData[];
   onDateChange: (date: Date) => void;
   onDayClick: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
@@ -24,6 +32,7 @@ export function WeekView({
   currentDate,
   selectedCalendars,
   events,
+  calendars,
   onDateChange,
   onDayClick,
   onEventClick
@@ -110,23 +119,33 @@ export function WeekView({
                 </div>
                 
                 <div className="space-y-1">
-                  {dayEvents.map(event => (
-                    <div
-                      key={event.id}
-                      className="calendar-event hover-lift cursor-pointer text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEventClick(event);
-                      }}
-                    >
-                      <div className="font-medium truncate" title={event.title}>
-                        {event.title}
+                  {dayEvents.map(event => {
+                    const calendar = calendars.find(cal => cal.id === event.calendarId);
+                    const calendarColor = calendar?.color || '#10b981';
+                    
+                    return (
+                      <div
+                        key={event.id}
+                        className="calendar-event hover-lift cursor-pointer text-xs"
+                        style={{
+                          backgroundColor: `${calendarColor}15`,
+                          color: calendarColor,
+                          borderColor: `${calendarColor}40`
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEventClick(event);
+                        }}
+                      >
+                        <div className="font-medium truncate" title={event.title}>
+                          {event.title}
+                        </div>
+                        {event.time && (
+                          <div className="text-xs opacity-75">{event.time}</div>
+                        )}
                       </div>
-                      {event.time && (
-                        <div className="text-xs opacity-75">{event.time}</div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );

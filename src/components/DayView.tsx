@@ -11,10 +11,18 @@ interface CalendarEvent {
   description?: string;
 }
 
+interface CalendarData {
+  id: string;
+  name: string;
+  color: string;
+  isVisible: boolean;
+}
+
 interface DayViewProps {
   currentDate: Date;
   selectedCalendars: string[];
   events: CalendarEvent[];
+  calendars: CalendarData[];
   onDateChange: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
   onTimeSlotClick: (date: Date, time: string) => void;
@@ -24,6 +32,7 @@ export function DayView({
   currentDate,
   selectedCalendars,
   events,
+  calendars,
   onDateChange,
   onEventClick,
   onTimeSlotClick
@@ -99,16 +108,26 @@ export function DayView({
         <Card className="p-4 lg:col-span-3">
           <h3 className="text-sm font-medium text-muted-foreground mb-3">All Day Events</h3>
           <div className="space-y-2">
-            {dayEvents.filter(event => !event.time).map(event => (
-              <div
-                key={event.id}
-                className="calendar-event hover-lift cursor-pointer p-2"
-                onClick={() => onEventClick(event)}
-                title={event.title}
-              >
-                <span className="truncate block">{event.title}</span>
-              </div>
-            ))}
+            {dayEvents.filter(event => !event.time).map(event => {
+              const calendar = calendars.find(cal => cal.id === event.calendarId);
+              const calendarColor = calendar?.color || '#10b981';
+              
+              return (
+                <div
+                  key={event.id}
+                  className="calendar-event hover-lift cursor-pointer p-2"
+                  style={{
+                    backgroundColor: `${calendarColor}15`,
+                    color: calendarColor,
+                    borderColor: `${calendarColor}40`
+                  }}
+                  onClick={() => onEventClick(event)}
+                  title={event.title}
+                >
+                  <span className="truncate block">{event.title}</span>
+                </div>
+              );
+            })}
             {dayEvents.filter(event => !event.time).length === 0 && (
               <div className="text-sm text-muted-foreground italic">No all-day events</div>
             )}
@@ -136,20 +155,30 @@ export function DayView({
                     </div>
                     <div className="flex-1 p-2 min-h-[50px]">
                       <div className="space-y-1">
-                        {hourEvents.map(event => (
-                          <div
-                            key={event.id}
-                            className="calendar-event hover-lift cursor-pointer text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEventClick(event);
-                            }}
-                            title={event.title}
-                          >
-                            <div className="font-medium truncate">{event.title}</div>
-                            <div className="opacity-75">{event.time}</div>
-                          </div>
-                        ))}
+                        {hourEvents.map(event => {
+                          const calendar = calendars.find(cal => cal.id === event.calendarId);
+                          const calendarColor = calendar?.color || '#10b981';
+                          
+                          return (
+                            <div
+                              key={event.id}
+                              className="calendar-event hover-lift cursor-pointer text-xs"
+                              style={{
+                                backgroundColor: `${calendarColor}15`,
+                                color: calendarColor,
+                                borderColor: `${calendarColor}40`
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEventClick(event);
+                              }}
+                              title={event.title}
+                            >
+                              <div className="font-medium truncate">{event.title}</div>
+                              <div className="opacity-75">{event.time}</div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

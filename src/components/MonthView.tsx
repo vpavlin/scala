@@ -11,10 +11,18 @@ interface CalendarEvent {
   description?: string;
 }
 
+interface CalendarData {
+  id: string;
+  name: string;
+  color: string;
+  isVisible: boolean;
+}
+
 interface MonthViewProps {
   currentDate: Date;
   selectedCalendars: string[];
   events: CalendarEvent[];
+  calendars: CalendarData[];
   onDateChange: (date: Date) => void;
   onDayClick: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
@@ -24,6 +32,7 @@ export function MonthView({
   currentDate,
   selectedCalendars,
   events,
+  calendars,
   onDateChange,
   onDayClick,
   onEventClick
@@ -89,15 +98,25 @@ export function MonthView({
             {day}
           </div>
           <div className="space-y-1">
-            {dayEvents.slice(0, 3).map(event => (
-              <div
-                key={event.id}
-                className="calendar-event hover-lift cursor-pointer"
-                onClick={(e) => handleEventClick(event, e)}
-              >
-                {event.title}
-              </div>
-            ))}
+            {dayEvents.slice(0, 3).map(event => {
+              const calendar = calendars.find(cal => cal.id === event.calendarId);
+              const calendarColor = calendar?.color || '#10b981';
+              
+              return (
+                <div
+                  key={event.id}
+                  className="calendar-event hover-lift cursor-pointer"
+                  style={{
+                    backgroundColor: `${calendarColor}15`,
+                    color: calendarColor,
+                    borderColor: `${calendarColor}40`
+                  }}
+                  onClick={(e) => handleEventClick(event, e)}
+                >
+                  {event.title}
+                </div>
+              );
+            })}
             {dayEvents.length > 3 && (
               <div className="text-xs text-muted-foreground">
                 +{dayEvents.length - 3} more

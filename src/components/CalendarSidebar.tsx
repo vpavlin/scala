@@ -67,15 +67,46 @@ export function CalendarSidebar({
   const [editingCalendar, setEditingCalendar] = useState<CalendarData | null>(null);
   const [sharingCalendar, setSharingCalendar] = useState<CalendarData | null>(null);
   const [newCalendarName, setNewCalendarName] = useState('');
+  const [newCalendarColor, setNewCalendarColor] = useState('#10b981');
+
+  // Predefined color palette
+  const colorPalette = [
+    '#10b981', // emerald
+    '#3b82f6', // blue
+    '#8b5cf6', // purple
+    '#f59e0b', // amber
+    '#ef4444', // red
+    '#06b6d4', // cyan
+    '#84cc16', // lime
+    '#f97316', // orange
+    '#ec4899', // pink
+    '#6366f1', // indigo
+    '#14b8a6', // teal
+    '#a855f7'  // violet
+  ];
+
+  // Get available colors (not used by other calendars)
+  const getAvailableColors = (excludeCalendarId?: string) => {
+    const usedColors = calendars
+      .filter(cal => cal.id !== excludeCalendarId)
+      .map(cal => cal.color);
+    return colorPalette.filter(color => !usedColors.includes(color));
+  };
 
   const handleCreateCalendar = () => {
     if (newCalendarName.trim()) {
+      const availableColors = getAvailableColors();
+      const selectedColor = availableColors.includes(newCalendarColor) 
+        ? newCalendarColor 
+        : availableColors[0] || colorPalette[0];
+        
       onCalendarCreate({
         name: newCalendarName.trim(),
-        color: '#10b981', // emerald-500
+        color: selectedColor,
         isVisible: true
       });
       setNewCalendarName('');
+      setNewCalendarColor('#10b981');
       setIsCreateDialogOpen(false);
       toast({
         title: "Calendar created",
@@ -86,16 +117,23 @@ export function CalendarSidebar({
 
   const handleEditCalendar = () => {
     if (editingCalendar && newCalendarName.trim()) {
+      const availableColors = getAvailableColors(editingCalendar.id);
+      const selectedColor = availableColors.includes(newCalendarColor) 
+        ? newCalendarColor 
+        : editingCalendar.color; // Keep current color if new one is unavailable
+        
       onCalendarEdit({
         ...editingCalendar,
-        name: newCalendarName.trim()
+        name: newCalendarName.trim(),
+        color: selectedColor
       });
       setNewCalendarName('');
+      setNewCalendarColor('#10b981');
       setIsEditDialogOpen(false);
       setEditingCalendar(null);
       toast({
         title: "Calendar updated",
-        description: `Calendar has been updated successfully.`
+        description: "Calendar has been updated successfully."
       });
     }
   };
@@ -149,11 +187,35 @@ export function CalendarSidebar({
                   }}
                 />
               </div>
+              <div>
+                <Label>Calendar Color</Label>
+                <div className="grid grid-cols-6 gap-2 mt-2">
+                  {getAvailableColors().map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      className={`w-8 h-8 rounded-full border-2 transition-all ${
+                        newCalendarColor === color 
+                          ? 'border-foreground shadow-md scale-110' 
+                          : 'border-border hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color }}
+                      onClick={() => setNewCalendarColor(color)}
+                    />
+                  ))}
+                </div>
+                {getAvailableColors().length === 0 && (
+                  <p className="text-sm text-muted-foreground mt-2">All colors are in use</p>
+                )}
+              </div>
               <div className="flex justify-end space-x-2">
                 <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button onClick={handleCreateCalendar} disabled={!newCalendarName.trim()}>
+                <Button 
+                  onClick={handleCreateCalendar} 
+                  disabled={!newCalendarName.trim() || getAvailableColors().length === 0}
+                >
                   Create
                 </Button>
               </div>
@@ -201,6 +263,7 @@ export function CalendarSidebar({
                           <DropdownMenuItem onClick={() => {
                             setEditingCalendar(calendar);
                             setNewCalendarName(calendar.name);
+                            setNewCalendarColor(calendar.color);
                             setIsEditDialogOpen(true);
                           }}>
                             <Edit2 className="h-3 w-3 mr-2" />
@@ -266,6 +329,7 @@ export function CalendarSidebar({
                           <DropdownMenuItem onClick={() => {
                             setEditingCalendar(calendar);
                             setNewCalendarName(calendar.name);
+                            setNewCalendarColor(calendar.color);
                             setIsEditDialogOpen(true);
                           }}>
                             <Edit2 className="h-3 w-3 mr-2" />
@@ -312,14 +376,32 @@ export function CalendarSidebar({
                   }
                 }}
               />
-            </div>
-            <div className="flex justify-end space-x-2">
-              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleEditCalendar} disabled={!newCalendarName.trim()}>
-                Save
-              </Button>
+              </div>
+              <div>
+                <Label>Calendar Color</Label>
+                <div className="grid grid-cols-6 gap-2 mt-2">
+                  {getAvailableColors(editingCalendar?.id).concat(editingCalendar?.color ? [editingCalendar.color] : []).map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      className={`w-8 h-8 rounded-full border-2 transition-all ${
+                        newCalendarColor === color 
+                          ? 'border-foreground shadow-md scale-110' 
+                          : 'border-border hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color }}
+                      onClick={() => setNewCalendarColor(color)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end space-x-2">
+                <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleEditCalendar} disabled={!newCalendarName.trim()}>
+                  Save
+                </Button>
             </div>
           </div>
         </DialogContent>
