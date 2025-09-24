@@ -79,15 +79,23 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       switch (action.type) {
         case 'CREATE_EVENT':
           if (action.event) {
+            // Ensure the event has a proper Date object
+            const eventWithDate = {
+              ...action.event,
+              date: action.event.date instanceof Date ? action.event.date : new Date(action.event.date)
+            };
+            
             setEvents(prev => {
               // Check if event already exists to avoid duplicates
-              const exists = prev.some(e => e.id === action.event!.id);
+              const exists = prev.some(e => e.id === eventWithDate.id);
               if (!exists) {
-                // Save the event to storage as well
-                storage.saveEvent(action.event!).catch(err => 
+                // Save the event to storage asynchronously
+                storage.saveEvent(eventWithDate).catch(err => 
                   console.error('Failed to save synced event to storage:', err)
                 );
-                return [...prev, action.event!];
+                
+                console.log('Added synced event:', eventWithDate.title, 'for calendar:', eventWithDate.calendarId);
+                return [...prev, eventWithDate];
               }
               return prev;
             });
@@ -99,13 +107,20 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           break;
         case 'UPDATE_EVENT':
           if (action.event) {
+            // Ensure the event has a proper Date object
+            const eventWithDate = {
+              ...action.event,
+              date: action.event.date instanceof Date ? action.event.date : new Date(action.event.date)
+            };
+            
             setEvents(prev => prev.map(e => {
               if (e.id === action.eventId) {
-                // Save the updated event to storage as well
-                storage.saveEvent(action.event!).catch(err => 
+                // Save the updated event to storage asynchronously
+                storage.saveEvent(eventWithDate).catch(err => 
                   console.error('Failed to save updated synced event to storage:', err)
                 );
-                return action.event!;
+                console.log('Updated synced event:', eventWithDate.title);
+                return eventWithDate;
               }
               return e;
             }));
@@ -117,8 +132,12 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           break;
         case 'DELETE_EVENT':
           if (action.eventId) {
-            setEvents(prev => prev.filter(e => e.id !== action.eventId));
-            // Delete the event from storage as well
+            setEvents(prev => {
+              const filtered = prev.filter(e => e.id !== action.eventId);
+              console.log('Deleted synced event:', action.eventId);
+              return filtered;
+            });
+            // Delete the event from storage asynchronously
             storage.deleteEvent(action.eventId).catch(err => 
               console.error('Failed to delete synced event from storage:', err)
             );
@@ -134,8 +153,18 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
             setCalendars(prev => {
               const exists = prev.some(cal => cal.id === action.calendar!.id);
               if (exists) {
-                return prev.map(cal => cal.id === action.calendar!.id ? { ...cal, ...action.calendar } : cal);
+                const updated = prev.map(cal => cal.id === action.calendar!.id ? { ...cal, ...action.calendar } : cal);
+                // Save updated calendar to storage
+                storage.saveCalendar(action.calendar as CalendarData).catch(err => 
+                  console.error('Failed to save updated calendar to storage:', err)
+                );
+                return updated;
               } else {
+                // Save new calendar to storage
+                storage.saveCalendar(action.calendar as CalendarData).catch(err => 
+                  console.error('Failed to save new calendar to storage:', err)
+                );
+                console.log('Added new shared calendar:', action.calendar.name);
                 return [...prev, action.calendar as CalendarData];
               }
             });
@@ -148,17 +177,26 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         case 'SYNC_EVENTS':
           if (action.events && action.events.length > 0) {
             console.log('Received events sync:', action.events.length, 'events');
+            
+            // Ensure all events have proper Date objects
+            const eventsWithDates = action.events.map(event => ({
+              ...event,
+              date: event.date instanceof Date ? event.date : new Date(event.date)
+            }));
+            
             setEvents(prev => {
               const existingIds = new Set(prev.map(e => e.id));
-              const newEvents = action.events!.filter(syncEvent => !existingIds.has(syncEvent.id));
+              const newEvents = eventsWithDates.filter(syncEvent => !existingIds.has(syncEvent.id));
+              
               if (newEvents.length > 0) {
-                // Save all new events to storage
+                // Save all new events to storage asynchronously
                 newEvents.forEach(event => {
                   storage.saveEvent(event).catch(err => 
                     console.error('Failed to save synced event to storage:', err)
                   );
                 });
                 
+                console.log('Added', newEvents.length, 'historical events');
                 toast({
                   title: "Events synchronized",
                   description: `${newEvents.length} historical events were loaded.`
@@ -349,7 +387,45 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   };
 
   const handleEventClick = (event: CalendarEvent) => {
-    setSelectedEvent(event);
+    try {
+      // Validate the event data before setting it
+      if (!event || !event.id || !event.title || !event.date) {
+        console.error('Invalid event data:', event);
+        toast({
+          title: "Error",
+          description: "This event has invalid data and cannot be displayed.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Ensure the event has a proper Date object
+      const validatedEvent = {
+        ...event,
+        date: event.date instanceof Date ? event.date : new Date(event.date)
+      };
+
+      // Check if the event's calendar exists
+      const calendar = calendars.find(cal => cal.id === validatedEvent.calendarId);
+      if (!calendar) {
+        console.error('Calendar not found for event:', validatedEvent.calendarId);
+        toast({
+          title: "Error", 
+          description: "The calendar for this event could not be found.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      setSelectedEvent(validatedEvent);
+    } catch (error) {
+      console.error('Error handling event click:', error);
+      toast({
+        title: "Error",
+        description: "Failed to open event details.",
+        variant: "destructive"
+      });
+    }
   };
 
   // Dev utilities

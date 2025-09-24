@@ -258,9 +258,9 @@ export class WakuSingleNodeManager {
       const action: EventSourceAction = {
         type: decoded.type as EventSourceAction['type'],
         eventId: decoded.eventId || undefined,
-        event: decoded.eventData ? JSON.parse(decoded.eventData) : undefined,
+        event: decoded.eventData ? this.parseEventData(decoded.eventData) : undefined,
         calendar: decoded.calendarData ? JSON.parse(decoded.calendarData) : undefined,
-        events: decoded.eventsData ? JSON.parse(decoded.eventsData) : undefined,
+        events: decoded.eventsData ? this.parseEventsData(decoded.eventsData) : undefined,
         timestamp: Number(decoded.timestamp),
         senderId: decoded.senderId
       };
@@ -271,6 +271,34 @@ export class WakuSingleNodeManager {
     } catch (error) {
       console.error(`Failed to decode incoming message for calendar ${calendarId}:`, error);
       this.eventHandlers.onError(`Failed to decode message for calendar ${calendarId}: ${error}`);
+    }
+  }
+
+  // Helper method to parse event data and convert date strings to Date objects
+  private parseEventData(eventDataString: string): CalendarEvent {
+    try {
+      const parsed = JSON.parse(eventDataString);
+      return {
+        ...parsed,
+        date: new Date(parsed.date) // Convert date string back to Date object
+      };
+    } catch (error) {
+      console.error('Failed to parse event data:', error);
+      throw error;
+    }
+  }
+
+  // Helper method to parse events array and convert date strings to Date objects
+  private parseEventsData(eventsDataString: string): CalendarEvent[] {
+    try {
+      const parsed = JSON.parse(eventsDataString);
+      return parsed.map((event: any) => ({
+        ...event,
+        date: new Date(event.date) // Convert date string back to Date object
+      }));
+    } catch (error) {
+      console.error('Failed to parse events data:', error);
+      throw error;
     }
   }
 
