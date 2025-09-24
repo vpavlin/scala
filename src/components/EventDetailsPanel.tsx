@@ -1,4 +1,4 @@
-import { Edit2, X, Trash2, MapPin } from 'lucide-react';
+import { Edit2, X, Trash2, MapPin, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -232,6 +232,25 @@ export function EventDetailsPanel({
                 <p className="text-sm text-foreground/80 whitespace-pre-wrap">
                   {event.description}
                 </p>
+              </div>
+            )}
+
+            {event.reminders && event.reminders.length > 0 && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Reminders</label>
+                <div className="space-y-1">
+                  {event.reminders.map((minutes, index) => (
+                    <div key={index} className="text-sm text-foreground/80 flex items-center gap-1">
+                      <Bell className="h-3 w-3" />
+                      <span>
+                        {minutes === 0 ? 'At time of event' :
+                         minutes < 60 ? `${minutes} minute${minutes !== 1 ? 's' : ''} before` :
+                         minutes < 1440 ? `${Math.floor(minutes / 60)} hour${Math.floor(minutes / 60) !== 1 ? 's' : ''} before` :
+                         `${Math.floor(minutes / 1440)} day${Math.floor(minutes / 1440) !== 1 ? 's' : ''} before`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

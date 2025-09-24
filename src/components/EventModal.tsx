@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2, CalendarIcon, Clock } from 'lucide-react';
+import { Trash2, CalendarIcon, Clock, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,6 +81,7 @@ export function EventModal({
   const [customFields, setCustomFields] = useState<Record<string, string>>({});
   const [newFieldKey, setNewFieldKey] = useState('');
   const [newFieldValue, setNewFieldValue] = useState('');
+  const [reminders, setReminders] = useState<number[]>([15]); // Default 15 minutes
   const [calendarId, setCalendarId] = useState(() => {
     // Smart calendar selection: prefer visible calendars, then any available calendar
     const visibleCalendars = calendars.filter(cal => cal.isVisible);
@@ -108,6 +109,7 @@ export function EventModal({
       setCategory(editingEvent.category || '');
       setUrl(editingEvent.url || '');
       setCustomFields(editingEvent.customFields || {});
+      setReminders(editingEvent.reminders || [15]);
       setCalendarId(editingEvent.calendarId);
     } else {
       // Only reset form when opening modal for new event, not on every calendars change
@@ -126,6 +128,7 @@ export function EventModal({
         setCategory('');
         setUrl('');
         setCustomFields({});
+        setReminders([15]);
         setNewFieldKey('');
         setNewFieldValue('');
         // Smart calendar selection for new events
@@ -166,6 +169,7 @@ export function EventModal({
     setCategory('');
     setUrl('');
     setCustomFields({});
+    setReminders([15]);
     setNewFieldKey('');
     setNewFieldValue('');
     // Smart calendar selection for new events
@@ -195,6 +199,7 @@ export function EventModal({
       status: status !== 'confirmed' ? status : undefined,
       category: category || undefined,
       url: url || undefined,
+      reminders: reminders.length > 0 ? reminders.filter(r => r >= 0) : undefined,
       customFields: Object.keys(customFields).length > 0 ? customFields : undefined
     };
 
@@ -441,6 +446,61 @@ export function EventModal({
               placeholder="Event description"
               rows={3}
             />
+          </div>
+
+          {/* Reminders Section */}
+          <div className="space-y-3">
+            <Label>Reminders</Label>
+            
+            {/* Existing reminders */}
+            {reminders.map((minutes, index) => (
+              <div key={index} className="flex items-center space-x-2 p-2 bg-muted rounded-md">
+                <div className="flex-1">
+                  <span className="text-sm">
+                    {minutes === 0 ? 'At time of event' :
+                     minutes < 60 ? `${minutes} minute${minutes !== 1 ? 's' : ''} before` :
+                     minutes < 1440 ? `${Math.floor(minutes / 60)} hour${Math.floor(minutes / 60) !== 1 ? 's' : ''} before` :
+                     `${Math.floor(minutes / 1440)} day${Math.floor(minutes / 1440) !== 1 ? 's' : ''} before`}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => setReminders(prev => prev.filter((_, i) => i !== index))}
+                  className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+
+            {/* Add reminder buttons */}
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: '5 min', value: 5 },
+                { label: '15 min', value: 15 },
+                { label: '30 min', value: 30 },
+                { label: '1 hour', value: 60 },
+                { label: '2 hours', value: 120 },
+                { label: '1 day', value: 1440 },
+                { label: '1 week', value: 10080 }
+              ].map(({ label, value }) => (
+                <Button
+                  key={value}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!reminders.includes(value)) {
+                      setReminders(prev => [...prev, value].sort((a, b) => a - b));
+                    }
+                  }}
+                  disabled={reminders.includes(value)}
+                  className="text-xs"
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
           </div>
 
           {/* Custom Fields Section */}

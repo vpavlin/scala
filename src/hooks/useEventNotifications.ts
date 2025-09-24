@@ -33,39 +33,44 @@ export const useEventNotifications = ({ events, enabled = true }: UseEventNotifi
 
     const now = new Date();
     const upcomingEvents = events.filter(event => {
-      if (!event.time) return false;
+      if (!event.time || !event.reminders || event.reminders.length === 0) return false;
       
       // Combine date and time
       const [hours, minutes] = event.time.split(':').map(Number);
       const eventStart = new Date(event.date);
       eventStart.setHours(hours, minutes, 0, 0);
       
-      const notificationTime = addMinutes(eventStart, -15); // 15 minutes before
-      
-      return isAfter(eventStart, now) && 
-             isBefore(notificationTime, addMinutes(now, 60)) && // Within next hour
-             isAfter(notificationTime, now); // But not in the past
+      // Check if event is in the future
+      return isAfter(eventStart, now);
     });
 
     upcomingEvents.forEach(event => {
-      if (!event.time) return;
+      if (!event.time || !event.reminders) return;
       
       const [hours, minutes] = event.time.split(':').map(Number);
       const eventStart = new Date(event.date);
       eventStart.setHours(hours, minutes, 0, 0);
-      
-      const notificationTime = addMinutes(eventStart, -15);
-      const timeUntilNotification = notificationTime.getTime() - now.getTime();
 
-      if (timeUntilNotification > 0) {
-        setTimeout(() => {
-          new Notification(`Upcoming Event: ${event.title}`, {
-            body: `Starting in 15 minutes at ${eventStart.toLocaleTimeString()}`,
-            icon: '/favicon.ico',
-            tag: event.id,
-          });
-        }, timeUntilNotification);
-      }
+      // Schedule notification for each reminder
+      event.reminders.forEach(reminderMinutes => {
+        const notificationTime = addMinutes(eventStart, -reminderMinutes);
+        const timeUntilNotification = notificationTime.getTime() - now.getTime();
+
+        if (timeUntilNotification > 0 && timeUntilNotification < 24 * 60 * 60 * 1000) { // Within 24 hours
+          setTimeout(() => {
+            const timeText = reminderMinutes === 0 ? 'now' :
+                           reminderMinutes < 60 ? `in ${reminderMinutes} minute${reminderMinutes !== 1 ? 's' : ''}` :
+                           reminderMinutes < 1440 ? `in ${Math.floor(reminderMinutes / 60)} hour${Math.floor(reminderMinutes / 60) !== 1 ? 's' : ''}` :
+                           `in ${Math.floor(reminderMinutes / 1440)} day${Math.floor(reminderMinutes / 1440) !== 1 ? 's' : ''}`;
+            
+            new Notification(`${reminderMinutes === 0 ? 'Event Starting' : 'Upcoming Event'}: ${event.title}`, {
+              body: `${reminderMinutes === 0 ? 'Starting now' : `Starting ${timeText}`} at ${eventStart.toLocaleTimeString()}`,
+              icon: '/favicon.png',
+              tag: `${event.id}-${reminderMinutes}`,
+            });
+          }, timeUntilNotification);
+        }
+      });
     });
   }, [events, enabled, requestPermission]);
 
