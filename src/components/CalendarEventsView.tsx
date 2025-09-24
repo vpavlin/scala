@@ -29,11 +29,12 @@ interface CalendarData {
 interface CalendarEventsViewProps {
   calendar: CalendarData;
   calendars: CalendarData[]; // Add all calendars for map component
-  events: CalendarEvent[];
-  onBack: () => void;
-  onEventClick: (event: CalendarEvent) => void;
-  onNewEventRequest: (date: Date, calendarId: string) => void;
-}
+        events: CalendarEvent[];
+        onBack: () => void;
+        onEventClick: (event: CalendarEvent) => void;
+        onNewEventRequest: (date: Date, calendarId: string) => void;
+        mapFeatureEnabled?: boolean; // Add optional prop for map feature
+      }
 
 export function CalendarEventsView({ 
   calendar, 
@@ -41,7 +42,8 @@ export function CalendarEventsView({
   events, 
   onBack, 
   onEventClick,
-  onNewEventRequest 
+  onNewEventRequest,
+  mapFeatureEnabled = false
 }: CalendarEventsViewProps) {
   const [showMap, setShowMap] = useState(false);
   
@@ -124,18 +126,20 @@ export function CalendarEventsView({
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center space-x-2">
-            <List className="h-4 w-4" />
-            <Switch
-              checked={showMap}
-              onCheckedChange={setShowMap}
-              id="map-toggle"
-            />
-            <MapPin className="h-4 w-4" />
-            <Label htmlFor="map-toggle" className="text-sm">
-              Map
-            </Label>
-          </div>
+          {mapFeatureEnabled && (
+            <div className="flex items-center space-x-2">
+              <List className="h-4 w-4" />
+              <Switch
+                checked={showMap}
+                onCheckedChange={setShowMap}
+                id="map-toggle"
+              />
+              <MapPin className="h-4 w-4" />
+              <Label htmlFor="map-toggle" className="text-sm">
+                Map
+              </Label>
+            </div>
+          )}
           
           <Button
             className="hover-lift shrink-0"
@@ -150,7 +154,7 @@ export function CalendarEventsView({
 
       {/* Events List or Map */}
       <div className="space-y-6">
-        {showMap ? (
+        {showMap && mapFeatureEnabled ? (
           <EventsMap 
             events={calendarEvents} 
             calendars={calendars}

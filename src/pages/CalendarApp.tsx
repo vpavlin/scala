@@ -79,8 +79,16 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [selectedDateForNewEvent, setSelectedDateForNewEvent] = useState<Date | null>(null);
   const [timeForNewEvent, setTimeForNewEvent] = useState<string | undefined>(undefined);
   const [preferredCalendarId, setPreferredCalendarId] = useState<string | undefined>(undefined);
-  const [viewingCalendarEvents, setViewingCalendarEvents] = useState<CalendarData | null>(null);
+  const [mapFeatureEnabled, setMapFeatureEnabled] = useState(() => {
+    return localStorage.getItem('calendar-map-feature-enabled') === 'true';
+  });
+
+  const handleMapFeatureToggle = (enabled: boolean) => {
+    setMapFeatureEnabled(enabled);
+    localStorage.setItem('calendar-map-feature-enabled', enabled.toString());
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [viewingCalendarEvents, setViewingCalendarEvents] = useState<CalendarData | null>(null);
 
   const selectedCalendars = calendars.filter(cal => cal.isVisible).map(cal => cal.id);
   
@@ -740,6 +748,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
                     events={filteredEvents.filter(e => e.calendarId === viewingCalendarEvents.id)}
                     onBack={() => setViewingCalendarEvents(null)}
                     onEventClick={handleEventClick}
+                    mapFeatureEnabled={mapFeatureEnabled}
                     onNewEventRequest={(date, calendarId) => handleNewEventRequest(date, undefined, calendarId)}
                   />
                 </div>
@@ -787,6 +796,8 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       <DevMenu
         onClearDatabase={handleClearDatabase}
         onPopulateExampleData={handlePopulateExampleData}
+        mapFeatureEnabled={mapFeatureEnabled}
+        onMapFeatureToggle={handleMapFeatureToggle}
       />
       
       {/* Global Event Modal */}
