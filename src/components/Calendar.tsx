@@ -69,6 +69,11 @@ export function Calendar({
     setIsEventModalOpen(true);
   };
 
+  const handleDayViewSwitch = (date: Date) => {
+    setCurrentDate(date);
+    setCurrentView('day');
+  };
+
   const handleTimeSlotClick = (date: Date, time: string) => {
     setSelectedDate(date);
     setModalEditingEvent(null);
@@ -93,6 +98,7 @@ export function Calendar({
             calendars={calendars}
             onDateChange={setCurrentDate}
             onDayClick={handleDayClick}
+            onDayViewSwitch={handleDayViewSwitch}
             onEventClick={onEventClick}
           />
         );
@@ -117,6 +123,7 @@ export function Calendar({
             calendars={calendars}
             onDateChange={setCurrentDate}
             onDayClick={handleDayClick}
+            onDayViewSwitch={handleDayViewSwitch}
             onEventClick={onEventClick}
           />
         );

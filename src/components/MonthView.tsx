@@ -25,6 +25,7 @@ interface MonthViewProps {
   calendars: CalendarData[];
   onDateChange: (date: Date) => void;
   onDayClick: (date: Date) => void;
+  onDayViewSwitch: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
 }
 
@@ -35,6 +36,7 @@ export function MonthView({
   calendars,
   onDateChange,
   onDayClick,
+  onDayViewSwitch,
   onEventClick
 }: MonthViewProps) {
   const today = new Date();
@@ -129,8 +131,12 @@ export function MonthView({
                 {dayEvents.length > 1 && (
                   <div 
                     className="text-xs text-muted-foreground hover:text-foreground cursor-pointer px-1 py-0.5 rounded transition-colors"
-                    onClick={() => handleDayClick(day)}
-                    title={`${dayEvents.length - 1} more events. Click to view all.`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const clickedDate = new Date(year, month, day);
+                      onDayViewSwitch(clickedDate);
+                    }}
+                    title={`${dayEvents.length - 1} more events. Click to switch to day view.`}
                   >
                     +{dayEvents.length - 1} more
                   </div>

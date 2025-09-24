@@ -25,6 +25,7 @@ interface WeekViewProps {
   calendars: CalendarData[];
   onDateChange: (date: Date) => void;
   onDayClick: (date: Date) => void;
+  onDayViewSwitch: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
 }
 
@@ -35,6 +36,7 @@ export function WeekView({
   calendars,
   onDateChange,
   onDayClick,
+  onDayViewSwitch,
   onEventClick
 }: WeekViewProps) {
   const startOfWeek = new Date(currentDate);
