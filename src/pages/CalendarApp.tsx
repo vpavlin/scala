@@ -300,7 +300,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     const calendar = calendars.find(cal => cal.id === calendarId);
     if (!calendar) return;
 
-    console.log('Sharing calendar:', calendar.name, 'ID:', calendarId, 'Private:', isPrivate);
+    console.log('Configuring calendar sharing:', calendar.name, 'ID:', calendarId, 'Private:', isPrivate);
 
     // Generate share URL manually
     const baseUrl = window.location.origin;
@@ -349,9 +349,97 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     await multiWakuSync.addSharedCalendar(updatedCalendar, calendarEvents);
     
     toast({
-      title: "Calendar shared",
-      description: `Calendar "${calendar.name}" is now being shared via Waku.`
+      title: "Calendar sharing configured",
+      description: `Calendar "${calendar.name}" sharing settings have been updated.`
     });
+  };
+
+  const handleCalendarShareToggle = async (calendarId: string, isSharing: boolean) => {
+    const calendar = calendars.find(cal => cal.id === calendarId);
+    if (!calendar) return;
+
+    console.log('Toggling calendar sharing:', calendar.name, 'ID:', calendarId, 'Sharing:', isSharing);
+
+    if (isSharing) {
+      // Enable sharing with default settings (non-private)
+      const baseUrl = window.location.origin;
+      const params = new URLSearchParams({
+        calendar: calendarId,
+        name: encodeURIComponent(calendar.name)
+      });
+      
+      const shareUrl = `${baseUrl}/shared?${params.toString()}`;
+
+      const updatedCalendar = { 
+        ...calendar, 
+        isShared: true, 
+        isPrivate: false,
+        shareUrl
+      };
+
+      // Update state first
+      setCalendars(prev => prev.map(cal => 
+        cal.id === calendarId ? updatedCalendar : cal
+      ));
+      
+      // Save to storage
+      try {
+        await storage.saveCalendar(updatedCalendar);
+        console.log('Calendar sharing enabled:', updatedCalendar);
+      } catch (error) {
+        console.error('Failed to save calendar:', error);
+        toast({
+          title: "Error",
+          description: "Failed to enable calendar sharing.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Add Waku sync for this calendar
+      const calendarEvents = events.filter(event => event.calendarId === calendarId);
+      await multiWakuSync.addSharedCalendar(updatedCalendar, calendarEvents);
+      
+      toast({
+        title: "Calendar sharing enabled",
+        description: `Calendar "${calendar.name}" is now being shared via Waku.`
+      });
+    } else {
+      // Disable sharing
+      const updatedCalendar = { 
+        ...calendar, 
+        isShared: false, 
+        isPrivate: false,
+        shareUrl: undefined
+      };
+
+      // Update state first
+      setCalendars(prev => prev.map(cal => 
+        cal.id === calendarId ? updatedCalendar : cal
+      ));
+      
+      // Save to storage
+      try {
+        await storage.saveCalendar(updatedCalendar);
+        console.log('Calendar sharing disabled:', updatedCalendar);
+      } catch (error) {
+        console.error('Failed to save calendar:', error);
+        toast({
+          title: "Error",
+          description: "Failed to disable calendar sharing.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Remove Waku sync for this calendar
+      await multiWakuSync.removeSharedCalendar(calendarId);
+      
+      toast({
+        title: "Calendar sharing disabled",
+        description: `Calendar "${calendar.name}" is no longer being shared.`
+      });
+    }
   };
 
   const handleEventCreate = async (eventData: Omit<CalendarEvent, 'id'>) => {
@@ -484,6 +572,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         onCalendarEdit={handleCalendarEdit}
         onCalendarDelete={handleCalendarDelete}
         onCalendarShare={handleCalendarShare}
+        onCalendarShareToggle={handleCalendarShareToggle}
         connectionStatus={multiWakuSync.globalConnectionStatus}
         isWakuConnected={multiWakuSync.globalConnectionStatus !== 'disconnected'}
         connectionStats={multiWakuSync.getConnectionStats()}

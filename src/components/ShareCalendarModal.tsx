@@ -101,7 +101,7 @@ export function ShareCalendarModal({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            Share "{calendarName}"
+            Configure Sharing for "{calendarName}"
             {getConnectionIcon()}
           </CardTitle>
           <CardDescription>
@@ -109,15 +109,12 @@ export function ShareCalendarModal({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!isConnected && (
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Calendar sharing uses Waku Network for decentralized, real-time synchronization. 
-                Click "Enable Sharing" to connect and generate a share link.
-              </AlertDescription>
-            </Alert>
-          )}
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              This calendar is already shared. Configure sharing settings below or copy the share link.
+            </AlertDescription>
+          </Alert>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -135,52 +132,54 @@ export function ShareCalendarModal({
               />
             </div>
 
-            {isConnected ? (
-              <div className="space-y-2">
-                <Label htmlFor="share-url">Share URL</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="share-url"
-                    value={shareUrl}
-                    readOnly
-                    className="font-mono text-sm"
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleCopyUrl}
-                    className="shrink-0"
-                  >
-                    {copiedUrl ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-                {isPrivate && encryptionKey && (
-                  <p className="text-xs text-muted-foreground">
-                    This URL contains an encryption key. Anyone with this link can view your calendar.
-                  </p>
-                )}
+            <div className="space-y-2">
+              <Label htmlFor="share-url">Share URL</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="share-url"
+                  value={shareUrl}
+                  readOnly
+                  className="font-mono text-sm"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleCopyUrl}
+                  className="shrink-0"
+                >
+                  {copiedUrl ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
               </div>
-            ) : (
-              <Button onClick={handleShareCalendar} className="w-full">
-                Enable Sharing
-              </Button>
-            )}
+              {isPrivate && encryptionKey && (
+                <p className="text-xs text-muted-foreground">
+                  This URL contains an encryption key. Anyone with this link can view your calendar.
+                </p>
+              )}
+            </div>
 
-            {isConnected && (
-              <div className="pt-2 border-t">
-                <h4 className="text-sm font-medium mb-2">How it works:</h4>
-                <ul className="text-sm text-muted-foreground space-y-1">
-                  <li>• Events are synchronized in real-time via Waku Network</li>
-                  <li>• Changes from any participant are instantly shared</li>
-                  <li>• No central server required - fully decentralized</li>
-                  {isPrivate && <li>• End-to-end encrypted for privacy</li>}
-                </ul>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Button 
+                onClick={handleShareCalendar} 
+                className="flex-1"
+                disabled={isConnected}
+              >
+                {isConnected ? 'Settings Updated' : 'Apply Settings'}
+              </Button>
+            </div>
+
+            <div className="pt-2 border-t">
+              <h4 className="text-sm font-medium mb-2">How it works:</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>• Events are synchronized in real-time via Waku Network</li>
+                <li>• Changes from any participant are instantly shared</li>
+                <li>• No central server required - fully decentralized</li>
+                {isPrivate && <li>• End-to-end encrypted for privacy</li>}
+              </ul>
+            </div>
           </div>
         </CardContent>
       </Card>

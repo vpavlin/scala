@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Plus, Share2, Eye, EyeOff, MoreHorizontal, Trash2, Edit2 } from 'lucide-react';
+import { Plus, Share2, Eye, EyeOff, MoreHorizontal, Trash2, Edit2, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ShareCalendarModal } from '@/components/ShareCalendarModal';
 import { WakuStatus } from '@/components/WakuStatus';
@@ -35,6 +36,7 @@ interface CalendarSidebarProps {
   onCalendarEdit: (calendar: CalendarData) => void;
   onCalendarDelete: (calendarId: string) => void;
   onCalendarShare: (calendarId: string, isPrivate: boolean) => void;
+  onCalendarShareToggle: (calendarId: string, isSharing: boolean) => void;
   connectionStatus?: 'connected' | 'disconnected' | 'minimal';
   isWakuConnected?: boolean;
   connectionStats?: {
@@ -57,6 +59,7 @@ export function CalendarSidebar({
   onCalendarEdit,
   onCalendarDelete,
   onCalendarShare,
+  onCalendarShareToggle,
   connectionStatus = 'disconnected',
   isWakuConnected = false,
   connectionStats
@@ -141,6 +144,10 @@ export function CalendarSidebar({
   const handleShare = (calendar: CalendarData) => {
     setSharingCalendar(calendar);
     setIsShareDialogOpen(true);
+  };
+
+  const handleShareToggle = (calendar: CalendarData, isSharing: boolean) => {
+    onCalendarShareToggle(calendar.id, isSharing);
   };
 
   const handleShareConfirm = (calendarId: string, isPrivate: boolean) => {
@@ -253,35 +260,72 @@ export function CalendarSidebar({
                     </div>
                     
                     <div className="flex items-center space-x-1">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                            <MoreHorizontal className="h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => {
-                            setEditingCalendar(calendar);
-                            setNewCalendarName(calendar.name);
-                            setNewCalendarColor(calendar.color);
-                            setIsEditDialogOpen(true);
-                          }}>
-                            <Edit2 className="h-3 w-3 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleShare(calendar)}>
-                            <Share2 className="h-3 w-3 mr-2" />
-                            Share
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleDelete(calendar)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="h-3 w-3 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <div className="flex items-center space-x-2">
+                        <Label htmlFor={`sharing-toggle-${calendar.id}`} className="text-xs">Share</Label>
+                        <Switch
+                          id={`sharing-toggle-${calendar.id}`}
+                          checked={calendar.isShared || false}
+                          onCheckedChange={(checked) => handleShareToggle(calendar, checked)}
+                        />
+                      </div>
+                      {calendar.isShared && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                              <Settings className="h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => {
+                              setEditingCalendar(calendar);
+                              setNewCalendarName(calendar.name);
+                              setNewCalendarColor(calendar.color);
+                              setIsEditDialogOpen(true);
+                            }}>
+                              <Edit2 className="h-3 w-3 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleShare(calendar)}>
+                              <Share2 className="h-3 w-3 mr-2" />
+                              Share Settings
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => handleDelete(calendar)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-3 w-3 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                      {!calendar.isShared && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                              <MoreHorizontal className="h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => {
+                              setEditingCalendar(calendar);
+                              setNewCalendarName(calendar.name);
+                              setNewCalendarColor(calendar.color);
+                              setIsEditDialogOpen(true);
+                            }}>
+                              <Edit2 className="h-3 w-3 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => handleDelete(calendar)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-3 w-3 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -410,7 +454,7 @@ export function CalendarSidebar({
       <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Share Calendar</DialogTitle>
+            <DialogTitle>Configure Sharing</DialogTitle>
           </DialogHeader>
           {sharingCalendar && (
             <ShareCalendarModal
