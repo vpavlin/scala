@@ -10,6 +10,7 @@ interface CalendarEvent {
   allDay?: boolean;
   calendarId: string;
   description?: string;
+  location?: string;
 }
 
 interface CalendarData {
@@ -139,7 +140,7 @@ export function MonthView({
                         borderColor: `${calendarColor}40`
                       }}
                       onClick={(e) => handleEventClick(firstEvent, e)}
-                      title={firstEvent.title}
+                      title={`${firstEvent.title}${firstEvent.location ? ` • ${firstEvent.location}` : ''}`}
                     >
                       <span className="truncate block">{firstEvent.title}</span>
                     </div>

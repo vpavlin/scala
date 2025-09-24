@@ -11,6 +11,7 @@ interface CalendarEvent {
   allDay?: boolean;
   calendarId: string;
   description?: string;
+  location?: string;
 }
 
 interface CalendarData {
@@ -162,6 +163,7 @@ export function CalendarEventsView({
                         borderColor: `${calendar.color}20`
                       }}
                       onClick={() => onEventClick(event)}
+                      title={`${event.title}${event.location ? ` • ${event.location}` : ''}`}
                     >
                       <div className="flex items-start gap-3">
                         <div 

@@ -10,6 +10,7 @@ interface CalendarEvent {
   allDay?: boolean;
   calendarId: string;
   description?: string;
+  location?: string;
 }
 
 interface CalendarData {
@@ -126,7 +127,7 @@ export function DayView({
                     borderColor: `${calendarColor}40`
                   }}
                   onClick={() => onEventClick(event)}
-                  title={event.title}
+                  title={`${event.title}${event.location ? ` • ${event.location}` : ''}`}
                 >
                   <span className="truncate block">{event.title}</span>
                 </div>
@@ -177,7 +178,7 @@ export function DayView({
                                 e.stopPropagation();
                                 onEventClick(event);
                               }}
-                              title={event.title}
+                              title={`${event.title}${event.location ? ` • ${event.location}` : ''}`}
                             >
                               <div className="font-medium truncate">{event.title}</div>
                               <div className="opacity-75">{event.time}</div>
@@ -204,7 +205,7 @@ export function DayView({
                 key={event.id}
                 className="p-2 rounded-md border border-border/50 hover:bg-muted/50 cursor-pointer hover-lift transition-colors"
                 onClick={() => onEventClick(event)}
-                title={event.title}
+                title={`${event.title}${event.location ? ` • ${event.location}` : ''}`}
               >
                 <div className="text-sm font-medium truncate">{event.title}</div>
                 <div className="text-xs text-muted-foreground">

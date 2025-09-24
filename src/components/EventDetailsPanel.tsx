@@ -1,8 +1,9 @@
-import { Edit2, X, Trash2 } from 'lucide-react';
+import { Edit2, X, Trash2, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { isValidLocation, openLocationInMap } from '@/lib/locationUtils';
 
 interface CalendarEvent {
   id: string;
@@ -150,7 +151,18 @@ export function EventDetailsPanel({
             {event.location && (
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Location</label>
-                <p className="text-sm text-foreground/80">{event.location}</p>
+                {isValidLocation(event.location) ? (
+                  <div 
+                    className="text-sm text-primary hover:text-primary/80 cursor-pointer flex items-center gap-1 group transition-colors"
+                    onClick={() => openLocationInMap(event.location!)}
+                    title="Click to open in OpenStreetMap"
+                  >
+                    <MapPin className="h-3 w-3 opacity-60 group-hover:opacity-100" />
+                    <span className="hover:underline">{event.location}</span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-foreground/80">{event.location}</p>
+                )}
               </div>
             )}
 

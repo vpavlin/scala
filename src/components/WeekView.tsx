@@ -10,6 +10,7 @@ interface CalendarEvent {
   allDay?: boolean;
   calendarId: string;
   description?: string;
+  location?: string;
 }
 
 interface CalendarData {
@@ -152,7 +153,7 @@ export function WeekView({
                           onEventClick(event);
                         }}
                       >
-                        <div className="font-medium truncate" title={event.title}>
+                        <div className="font-medium truncate" title={`${event.title}${event.location ? ` • ${event.location}` : ''}`}>
                           {event.title}
                         </div>
                         {event.time && (
