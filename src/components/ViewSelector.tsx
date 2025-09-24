@@ -15,18 +15,14 @@ export function ViewSelector({ currentView, onViewChange }: ViewSelectorProps) {
   ];
 
   return (
-    <div className="flex rounded-lg border border-border p-1 bg-muted/30">
+    <div className="flex rounded-lg border bg-muted/30 p-1">
       {views.map((view) => (
         <Button
           key={view.key}
-          variant={currentView === view.key ? 'default' : 'ghost'}
+          variant={currentView === view.key ? 'secondary' : 'ghost'}
           size="sm"
           onClick={() => onViewChange(view.key)}
-          className={`px-4 ${
-            currentView === view.key 
-              ? 'bg-background shadow-sm' 
-              : 'hover:bg-background/50'
-          }`}
+          className={currentView === view.key ? 'bg-background shadow-sm' : ''}
         >
           {view.label}
         </Button>
