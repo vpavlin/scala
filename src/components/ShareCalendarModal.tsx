@@ -58,24 +58,24 @@ export function ShareCalendarModal({
   };
 
   const handleShareCalendar = async () => {
-    if (!isConnected) {
-      onInitializeWaku(calendarId, isPrivate ? encryptionKey : undefined);
-      // Auto-copy URL after enabling sharing
-      setTimeout(async () => {
-        try {
-          await navigator.clipboard.writeText(shareUrl);
-          toast({
-            title: "Share link copied!",
-            description: "Calendar sharing enabled and link copied to clipboard."
-          });
-        } catch (error) {
-          toast({
-            title: "Sharing enabled",
-            description: "Calendar sharing is now active. Historical data has been synchronized."
-          });
-        }
-      }, 2000); // Wait a bit longer for sync to complete
-    }
+    // Always call onInitializeWaku for non-shared calendars to enable sharing
+    onInitializeWaku(calendarId, isPrivate ? encryptionKey : undefined);
+    
+    // Auto-copy URL after enabling sharing
+    setTimeout(async () => {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        toast({
+          title: "Share link copied!",
+          description: "Calendar sharing enabled and link copied to clipboard."
+        });
+      } catch (error) {
+        toast({
+          title: "Sharing enabled",
+          description: "Calendar sharing is now active. Historical data has been synchronized."
+        });
+      }
+    }, 2000); // Wait a bit longer for sync to complete
   };
 
   const getConnectionIcon = () => {
