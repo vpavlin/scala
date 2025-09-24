@@ -448,10 +448,21 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       
       // Save to storage
       try {
-        await storage.saveCalendar(updatedCalendar);
-        console.log('Calendar sharing disabled:', updatedCalendar);
+        // Send unshare notification to subscribers before disconnecting
+        await multiWakuSync.unshareCalendar(calendarId, calendar.name);
+        
+        // Wait a moment for the message to be sent
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Remove Waku sync for this calendar
+        await multiWakuSync.removeSharedCalendar(calendarId);
+        
+        toast({
+          title: "Calendar sharing disabled",
+          description: `Calendar "${calendar.name}" is no longer being shared.`
+        });
       } catch (error) {
-        console.error('Failed to save calendar:', error);
+        console.error('Error disabling calendar sharing:', error);
         toast({
           title: "Error",
           description: "Failed to disable calendar sharing.",
@@ -459,14 +470,6 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
         });
         return;
       }
-
-      // Remove Waku sync for this calendar
-      await multiWakuSync.removeSharedCalendar(calendarId);
-      
-      toast({
-        title: "Calendar sharing disabled",
-        description: `Calendar "${calendar.name}" is no longer being shared.`
-      });
     }
   };
 
