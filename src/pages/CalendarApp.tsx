@@ -183,6 +183,30 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
             });
           }
           break;
+        case 'SYNC_CALENDAR_DESCRIPTION':
+          if (action.calendarId && action.description !== undefined) {
+            console.log('Received calendar description sync for:', action.calendarId);
+            
+            setCalendars(prev => prev.map(cal => {
+              if (cal.id === action.calendarId) {
+                const updatedCalendar = { ...cal, description: action.description };
+                
+                // Save the updated calendar to storage asynchronously
+                storage.saveCalendar(updatedCalendar).catch(err => 
+                  console.error('Failed to save synced calendar description to storage:', err)
+                );
+                
+                return updatedCalendar;
+              }
+              return cal;
+            }));
+            
+            toast({
+              title: "Calendar updated",
+              description: "Calendar description was updated by another user."
+            });
+          }
+          break;
       }
     });
   }, []);
@@ -240,10 +264,17 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   };
 
   const handleCalendarEdit = async (updatedCalendar: CalendarData) => {
+    const prevCalendar = calendars.find(cal => cal.id === updatedCalendar.id);
+    
     setCalendars(prev => prev.map(cal => 
       cal.id === updatedCalendar.id ? updatedCalendar : cal
     ));
     await storage.saveCalendar(updatedCalendar);
+    
+    // Sync description to Waku if calendar is shared and description changed
+    if (updatedCalendar.isShared && prevCalendar?.description !== updatedCalendar.description) {
+      await multiWakuSync.syncCalendarDescription(updatedCalendar.id, updatedCalendar.description || '');
+    }
   };
 
   const handleCalendarUpdate = async (calendarId: string, updates: Partial<CalendarData>) => {
@@ -256,6 +287,11 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     const updatedCalendar = updatedCalendars.find(cal => cal.id === calendarId);
     if (updatedCalendar) {
       await storage.saveCalendar(updatedCalendar);
+      
+      // Sync description to Waku if calendar is shared and description was updated
+      if (updatedCalendar.isShared && 'description' in updates) {
+        await multiWakuSync.syncCalendarDescription(calendarId, updates.description || '');
+      }
     }
   };
 

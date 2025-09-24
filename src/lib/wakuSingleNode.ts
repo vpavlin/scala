@@ -11,22 +11,26 @@ export interface CalendarEvent {
 }
 
 export interface EventSourceAction {
-  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_EVENTS';
+  type: 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'SYNC_EVENTS' | 'SYNC_CALENDAR_DESCRIPTION';
   eventId?: string;
   event?: CalendarEvent;
   events?: CalendarEvent[];
+  calendarId?: string;
+  description?: string;
   timestamp: number;
   senderId: string;
 }
 
-// Protobuf message structure - only for events, no calendar metadata
+// Protobuf message structure - events and calendar description
 const EventActionMessage = new protobuf.Type("EventActionMessage")
   .add(new protobuf.Field("type", 1, "string"))
   .add(new protobuf.Field("eventId", 2, "string"))
   .add(new protobuf.Field("eventData", 3, "string")) // JSON serialized event
   .add(new protobuf.Field("eventsData", 5, "string")) // JSON serialized events array
   .add(new protobuf.Field("timestamp", 6, "uint64"))
-  .add(new protobuf.Field("senderId", 7, "string"));
+  .add(new protobuf.Field("senderId", 7, "string"))
+  .add(new protobuf.Field("calendarId", 8, "string"))
+  .add(new protobuf.Field("description", 9, "string"));
 
 interface CalendarChannel {
   calendarId: string;
@@ -272,6 +276,8 @@ export class WakuSingleNodeManager {
         eventId: decoded.eventId || undefined,
         event: decoded.eventData ? this.parseEventData(decoded.eventData) : undefined,
         events: decoded.eventsData ? this.parseEventsData(decoded.eventsData) : undefined,
+        calendarId: decoded.calendarId || undefined,
+        description: decoded.description || undefined,
         timestamp: Number(decoded.timestamp),
         senderId: decoded.senderId
       };
@@ -345,6 +351,8 @@ export class WakuSingleNodeManager {
         eventId: action.eventId || '',
         eventData: action.event ? JSON.stringify(action.event) : '',
         eventsData: action.events ? JSON.stringify(action.events) : '',
+        calendarId: action.calendarId || '',
+        description: action.description || '',
         timestamp: Date.now(),
         senderId: this.senderId
       });
@@ -396,6 +404,14 @@ export class WakuSingleNodeManager {
     });
   }
 
+  public async syncCalendarDescription(calendarId: string, description: string): Promise<boolean> {
+    return this.sendEventAction(calendarId, {
+      type: 'SYNC_CALENDAR_DESCRIPTION',
+      calendarId,
+      description
+    });
+  }
+
   public async initializeSharing(calendarId: string, calendar: any, events: CalendarEvent[], forceFullSync: boolean = false): Promise<boolean> {
     if (!this.isConnected) {
       this.eventHandlers.onError('Not connected to Waku network');
@@ -403,9 +419,14 @@ export class WakuSingleNodeManager {
     }
 
     try {
-      console.log(`Initializing sharing for calendar ${calendarId} - syncing events only (not metadata)...`);
+      console.log(`Initializing sharing for calendar ${calendarId} - syncing events and description...`);
       
       const calendarEvents = events.filter(event => event.calendarId === calendarId);
+      
+      // Always sync the calendar description when initializing sharing
+      if (calendar.description) {
+        await this.syncCalendarDescription(calendarId, calendar.description);
+      }
       
       if (forceFullSync || !this.lastProcessedTimestamp.has(calendarId)) {
         // Full sync needed - send all events
