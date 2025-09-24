@@ -78,6 +78,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [selectedDateForNewEvent, setSelectedDateForNewEvent] = useState<Date | null>(null);
   const [timeForNewEvent, setTimeForNewEvent] = useState<string | undefined>(undefined);
+  const [preferredCalendarId, setPreferredCalendarId] = useState<string | undefined>(undefined);
   const [viewingCalendarEvents, setViewingCalendarEvents] = useState<CalendarData | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -673,11 +674,12 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     setIsEditModalOpen(true);
   };
 
-  const handleNewEventRequest = (date: Date, time?: string) => {
+  const handleNewEventRequest = (date: Date, time?: string, preferredCalendarId?: string) => {
     // Open modal for creating new event
     setEditingEvent(null);
     setSelectedDateForNewEvent(date);
     setTimeForNewEvent(time);
+    setPreferredCalendarId(preferredCalendarId);
     setIsEditModalOpen(true);
   };
 
@@ -793,11 +795,13 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           setEditingEvent(null);
           setSelectedDateForNewEvent(null);
           setTimeForNewEvent(undefined);
+          setPreferredCalendarId(undefined);
         }}
         calendars={calendars}
         selectedDate={editingEvent ? editingEvent.date : selectedDateForNewEvent}
         editingEvent={editingEvent}
         initialTime={timeForNewEvent}
+        preferredCalendarId={preferredCalendarId}
         onEventSave={editingEvent ? handleEventUpdate : handleEventCreate}
         onEventDelete={handleEventDelete}
       />

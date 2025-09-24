@@ -49,7 +49,8 @@ interface EventModalProps {
   calendars: CalendarData[];
   selectedDate: Date | null;
   editingEvent: CalendarEvent | null;
-  initialTime?: string; // New prop for pre-filling time
+  initialTime?: string;
+  preferredCalendarId?: string; // New prop for smart calendar selection
   onEventSave: (event: CalendarEvent | Omit<CalendarEvent, 'id'>) => void;
   onEventDelete?: (eventId: string) => void;
 }
@@ -61,6 +62,7 @@ export function EventModal({
   selectedDate,
   editingEvent,
   initialTime,
+  preferredCalendarId,
   onEventSave,
   onEventDelete
 }: EventModalProps) {
@@ -79,9 +81,14 @@ export function EventModal({
   const [customFields, setCustomFields] = useState<Record<string, string>>({});
   const [newFieldKey, setNewFieldKey] = useState('');
   const [newFieldValue, setNewFieldValue] = useState('');
-  const [calendarId, setCalendarId] = useState(() => 
-    calendars.length > 0 ? calendars[0].id : ''
-  );
+  const [calendarId, setCalendarId] = useState(() => {
+    // Smart calendar selection: prefer visible calendars, then any available calendar
+    const visibleCalendars = calendars.filter(cal => cal.isVisible);
+    if (visibleCalendars.length > 0) {
+      return visibleCalendars[0].id;
+    }
+    return calendars.length > 0 ? calendars[0].id : '';
+  });
 
   useEffect(() => {
     // Only reset form when modal opens/closes or editing event changes
@@ -121,8 +128,14 @@ export function EventModal({
         setCustomFields({});
         setNewFieldKey('');
         setNewFieldValue('');
-        // Set default calendar ID to first available calendar
-        setCalendarId(calendars.length > 0 ? calendars[0].id : '');
+        // Smart calendar selection for new events
+        const visibleCalendars = calendars.filter(cal => cal.isVisible);
+        const defaultCalendarId = preferredCalendarId && calendars.find(cal => cal.id === preferredCalendarId)
+          ? preferredCalendarId
+          : (visibleCalendars.length > 0 
+            ? visibleCalendars[0].id 
+            : (calendars.length > 0 ? calendars[0].id : ''));
+        setCalendarId(defaultCalendarId);
       }
     }
   }, [editingEvent, isOpen]); // Removed 'calendars' from dependencies to prevent form clearing
@@ -130,8 +143,12 @@ export function EventModal({
   // Separate effect to handle calendar ID when calendars change but preserve other form data
   useEffect(() => {
     if (isOpen && !editingEvent && (!calendarId || !calendars.find(cal => cal.id === calendarId))) {
-      // Only update calendar ID if current one is invalid
-      setCalendarId(calendars.length > 0 ? calendars[0].id : '');
+      // Smart calendar selection when current selection is invalid
+      const visibleCalendars = calendars.filter(cal => cal.isVisible);
+      const defaultCalendarId = visibleCalendars.length > 0 
+        ? visibleCalendars[0].id 
+        : (calendars.length > 0 ? calendars[0].id : '');
+      setCalendarId(defaultCalendarId);
     }
   }, [calendars, isOpen, editingEvent, calendarId]);
 

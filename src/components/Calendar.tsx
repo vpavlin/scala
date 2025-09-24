@@ -36,7 +36,7 @@ interface CalendarProps {
   onEventEdit: (event: CalendarEvent) => void;
   onEventDelete: (eventId: string) => void;
   onEventClick: (event: CalendarEvent) => void;
-  onNewEventRequest: (date: Date, time?: string) => void; // New prop for opening modal
+  onNewEventRequest: (date: Date, time?: string, preferredCalendarId?: string) => void;
   onSidebarToggle?: () => void;
   isSidebarOpen?: boolean;
 }
@@ -58,12 +58,17 @@ export function Calendar({
 
   const handleDayClick = (date: Date) => {
     // Request to open modal for creating new event on this date
-    onNewEventRequest(date);
+    // Prefer the first visible calendar for better UX
+    const visibleCalendars = calendars.filter(cal => selectedCalendars.includes(cal.id));
+    const preferredCalendarId = visibleCalendars.length > 0 ? visibleCalendars[0].id : undefined;
+    onNewEventRequest(date, undefined, preferredCalendarId);
   };
 
   const handleTimeSlotClick = (date: Date, time: string) => {
     // Request to open modal for creating new event with pre-filled time
-    onNewEventRequest(date, time);
+    const visibleCalendars = calendars.filter(cal => selectedCalendars.includes(cal.id));
+    const preferredCalendarId = visibleCalendars.length > 0 ? visibleCalendars[0].id : undefined;
+    onNewEventRequest(date, time, preferredCalendarId);
   };
 
   const handleDayViewSwitch = (date: Date) => {
@@ -138,7 +143,10 @@ export function Calendar({
         <Button
           className="hover-lift"
           onClick={() => {
-            handleDayClick(new Date());
+            // Smart calendar selection for new event button
+            const visibleCalendars = calendars.filter(cal => selectedCalendars.includes(cal.id));
+            const preferredCalendarId = visibleCalendars.length > 0 ? visibleCalendars[0].id : undefined;
+            onNewEventRequest(new Date(), undefined, preferredCalendarId);
           }}
         >
           <Plus className="h-4 w-4 mr-2" />
