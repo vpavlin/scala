@@ -5,6 +5,7 @@ import { CalendarEventsView } from '@/components/CalendarEventsView';
 import { EventDetailsPanel } from '@/components/EventDetailsPanel';
 import { EventModal } from '@/components/EventModal';
 import { ShareCalendarModal } from '@/components/ShareCalendarModal';
+import { EventSearch } from '@/components/EventSearch';
 import { DevMenu } from '@/components/DevMenu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Toaster } from '@/components/ui/toaster';
@@ -26,9 +27,10 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const multiWakuSync = useMultiWakuSync();
   const [calendars, setCalendars] = useState<CalendarData[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [filteredEvents, setFilteredEvents] = useState<CalendarEvent[]>([]);
 
-  // Calculate event counts for each calendar
-  const eventCounts = events.reduce((counts, event) => {
+  // Calculate event counts for each calendar (use filtered events for display)
+  const eventCounts = filteredEvents.reduce((counts, event) => {
     counts[event.calendarId] = (counts[event.calendarId] || 0) + 1;
     return counts;
   }, {} as Record<string, number>);
@@ -45,6 +47,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
 
       setCalendars(loadedCalendars);
       setEvents(loadedEvents);
+      setFilteredEvents(loadedEvents); // Initialize filtered events
 
       // Don't initialize Waku immediately - wait for connection readiness
       const sharedCalendars = loadedCalendars.filter(cal => cal.isShared);
@@ -73,6 +76,9 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const selectedCalendars = calendars.filter(cal => cal.isVisible).map(cal => cal.id);
+  
+  // Get events for selected calendars only
+  const visibleEvents = filteredEvents.filter(event => selectedCalendars.includes(event.calendarId));
 
   // Setup multi-Waku event handler
   useEffect(() => {
@@ -616,32 +622,50 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           {/* Primary content */}
           <div className="flex-1 flex flex-col min-w-0">
             {viewingCalendarEvents ? (
-              <div className="p-6">
-                <CalendarEventsView
-                  calendar={viewingCalendarEvents}
-                  events={events}
-                  onBack={() => setViewingCalendarEvents(null)}
-                  onEventClick={handleEventClick}
-                />
+              <div className="flex flex-col h-full">
+                <div className="p-4 border-b bg-card">
+                  <EventSearch 
+                    events={events.filter(e => e.calendarId === viewingCalendarEvents.id)}
+                    onFilteredEventsChange={(filtered) => setFilteredEvents(filtered)}
+                  />
+                </div>
+                <div className="flex-1 p-6">
+                  <CalendarEventsView
+                    calendar={viewingCalendarEvents}
+                    events={filteredEvents.filter(e => e.calendarId === viewingCalendarEvents.id)}
+                    onBack={() => setViewingCalendarEvents(null)}
+                    onEventClick={handleEventClick}
+                  />
+                </div>
               </div>
             ) : (
-              <Calendar
-                calendars={calendars}
-                selectedCalendars={selectedCalendars}
-                events={events}
-                onEventCreate={handleEventCreate}
-                onEventEdit={handleEventUpdate}
-                onEventDelete={handleEventDelete}
-                onEventClick={handleEventClick}
-                isEditModalOpen={isEditModalOpen}
-                editingEvent={editingEvent}
-                onEditModalClose={() => {
-                  setIsEditModalOpen(false);
-                  setEditingEvent(null);
-                }}
-                onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-                isSidebarOpen={isSidebarOpen}
-              />
+              <div className="flex flex-col h-full">
+                <div className="p-4 border-b bg-card">
+                  <EventSearch 
+                    events={events}
+                    onFilteredEventsChange={(filtered) => setFilteredEvents(filtered)}
+                  />
+                </div>
+                <div className="flex-1">
+                  <Calendar
+                    calendars={calendars}
+                    selectedCalendars={selectedCalendars}
+                    events={visibleEvents}
+                    onEventCreate={handleEventCreate}
+                    onEventEdit={handleEventUpdate}
+                    onEventDelete={handleEventDelete}
+                    onEventClick={handleEventClick}
+                    isEditModalOpen={isEditModalOpen}
+                    editingEvent={editingEvent}
+                    onEditModalClose={() => {
+                      setIsEditModalOpen(false);
+                      setEditingEvent(null);
+                    }}
+                    onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+                    isSidebarOpen={isSidebarOpen}
+                  />
+                </div>
+              </div>
             )}
           </div>
           
