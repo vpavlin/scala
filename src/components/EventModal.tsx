@@ -152,6 +152,32 @@ export function EventModal({
     }
   }, [calendars, isOpen, editingEvent, calendarId]);
 
+  const resetForm = () => {
+    setTitle('');
+    setEventDate(selectedDate ? new Date(selectedDate) : new Date());
+    setAllDay(false);
+    setTime(initialTime || '');
+    setEndTime('');
+    setDescription('');
+    setLocation('');
+    setAttendees('');
+    setPriority('medium');
+    setStatus('confirmed');
+    setCategory('');
+    setUrl('');
+    setCustomFields({});
+    setNewFieldKey('');
+    setNewFieldValue('');
+    // Smart calendar selection for new events
+    const visibleCalendars = calendars.filter(cal => cal.isVisible);
+    const defaultCalendarId = preferredCalendarId && calendars.find(cal => cal.id === preferredCalendarId)
+      ? preferredCalendarId
+      : (visibleCalendars.length > 0 
+        ? visibleCalendars[0].id 
+        : (calendars.length > 0 ? calendars[0].id : ''));
+    setCalendarId(defaultCalendarId);
+  };
+
   const handleSave = () => {
     if (!title.trim() || !eventDate) return;
 
@@ -176,6 +202,8 @@ export function EventModal({
       onEventSave({ ...eventData, id: editingEvent.id });
     } else {
       onEventSave(eventData);
+      // Reset form for new events after saving
+      resetForm();
     }
 
     onClose();
