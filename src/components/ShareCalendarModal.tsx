@@ -13,7 +13,9 @@ interface ShareCalendarModalProps {
   calendarId: string;
   calendarName: string;
   isPrivate: boolean;
+  isShared: boolean;
   onPrivateToggle: (isPrivate: boolean) => void;
+  onUnshare: () => void;
   connectionStatus: 'connected' | 'disconnected' | 'minimal';
   isConnected: boolean;
   onInitializeWaku: (calendarId: string, encryptionKey?: string) => void;
@@ -23,7 +25,9 @@ export function ShareCalendarModal({
   calendarId,
   calendarName,
   isPrivate,
+  isShared,
   onPrivateToggle,
+  onUnshare,
   connectionStatus,
   isConnected,
   onInitializeWaku
@@ -109,78 +113,128 @@ export function ShareCalendarModal({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              This calendar is already shared. Configure sharing settings below or copy the share link.
-            </AlertDescription>
-          </Alert>
+          {isShared ? (
+            <>
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  This calendar is currently being shared. You can copy the share link or stop sharing.
+                </AlertDescription>
+              </Alert>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="private-toggle">Private Calendar</Label>
-                <p className="text-sm text-muted-foreground">
-                  Private calendars are encrypted and require the share link to access
-                </p>
-              </div>
-              <Switch
-                id="private-toggle"
-                checked={isPrivate}
-                onCheckedChange={onPrivateToggle}
-                disabled={isConnected} // Can't change privacy once connected
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="share-url">Share URL</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="share-url"
-                  value={shareUrl}
-                  readOnly
-                  className="font-mono text-sm"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleCopyUrl}
-                  className="shrink-0"
-                >
-                  {copiedUrl ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="share-url">Share URL</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="share-url"
+                      value={shareUrl}
+                      readOnly
+                      className="font-mono text-sm"
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleCopyUrl}
+                      className="shrink-0"
+                    >
+                      {copiedUrl ? (
+                        <Check className="h-4 w-4" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  {isPrivate && encryptionKey && (
+                    <p className="text-xs text-muted-foreground">
+                      This URL contains an encryption key. Anyone with this link can view your calendar.
+                    </p>
                   )}
-                </Button>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={onUnshare} 
+                    variant="destructive"
+                    className="flex-1"
+                  >
+                    Stop Sharing
+                  </Button>
+                </div>
+
+                <div className="pt-2 border-t">
+                  <h4 className="text-sm font-medium mb-2">How it works:</h4>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li>• Events are synchronized in real-time via Waku Network</li>
+                    <li>• Changes from any participant are instantly shared</li>
+                    <li>• No central server required - fully decentralized</li>
+                    {isPrivate && <li>• End-to-end encrypted for privacy</li>}
+                  </ul>
+                </div>
               </div>
-              {isPrivate && encryptionKey && (
-                <p className="text-xs text-muted-foreground">
-                  This URL contains an encryption key. Anyone with this link can view your calendar.
-                </p>
-              )}
-            </div>
+            </>
+          ) : (
+            <>
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Enable sharing to allow others to view and collaborate on this calendar.
+                </AlertDescription>
+              </Alert>
 
-            <div className="flex gap-2">
-              <Button 
-                onClick={handleShareCalendar} 
-                className="flex-1"
-                disabled={isConnected}
-              >
-                {isConnected ? 'Settings Updated' : 'Apply Settings'}
-              </Button>
-            </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="private-toggle">Private Calendar</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Private calendars are encrypted and require the share link to access
+                    </p>
+                  </div>
+                  <Switch
+                    id="private-toggle"
+                    checked={isPrivate}
+                    onCheckedChange={onPrivateToggle}
+                  />
+                </div>
 
-            <div className="pt-2 border-t">
-              <h4 className="text-sm font-medium mb-2">How it works:</h4>
-              <ul className="text-sm text-muted-foreground space-y-1">
-                <li>• Events are synchronized in real-time via Waku Network</li>
-                <li>• Changes from any participant are instantly shared</li>
-                <li>• No central server required - fully decentralized</li>
-                {isPrivate && <li>• End-to-end encrypted for privacy</li>}
-              </ul>
-            </div>
-          </div>
+                <div className="space-y-2">
+                  <Label htmlFor="share-url">Share URL (Preview)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="share-url"
+                      value={shareUrl}
+                      readOnly
+                      className="font-mono text-sm opacity-60"
+                    />
+                  </div>
+                  {isPrivate && encryptionKey && (
+                    <p className="text-xs text-muted-foreground">
+                      This URL will contain an encryption key. Anyone with this link will be able to view your calendar.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={handleShareCalendar} 
+                    className="flex-1"
+                  >
+                    Enable Sharing
+                  </Button>
+                </div>
+
+                <div className="pt-2 border-t">
+                  <h4 className="text-sm font-medium mb-2">How it works:</h4>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li>• Events will be synchronized in real-time via Waku Network</li>
+                    <li>• Changes from any participant will be instantly shared</li>
+                    <li>• No central server required - fully decentralized</li>
+                    {isPrivate && <li>• End-to-end encrypted for privacy</li>}
+                  </ul>
+                </div>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
