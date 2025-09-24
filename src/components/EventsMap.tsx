@@ -185,6 +185,7 @@ export function EventsMap({ events, calendars, onEventClick }: EventsMapProps) {
           background-color: ${calendar?.color || '#3b82f6'};
           border: 2px solid white;
           box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+          cursor: pointer;
         "></div>`,
         iconSize: [16, 16],
         iconAnchor: [8, 8]
@@ -192,7 +193,7 @@ export function EventsMap({ events, calendars, onEventClick }: EventsMapProps) {
 
       const marker = L.marker(coordinates, { icon: markerIcon });
       
-      // Create popup content
+      // Create popup content without button
       const popupContent = `
         <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 200px;">
           <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">${event.title}</div>
@@ -200,24 +201,17 @@ export function EventsMap({ events, calendars, onEventClick }: EventsMapProps) {
           <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
             ${event.date.toLocaleDateString()} ${event.time ? `at ${event.time}` : ''}
           </div>
-          <button 
-            onclick="window.dispatchEvent(new CustomEvent('event-click', {detail: '${event.id}'}))"
-            style="
-              background: ${calendar?.color || '#3b82f6'};
-              color: white;
-              border: none;
-              padding: 4px 8px;
-              border-radius: 4px;
-              font-size: 12px;
-              cursor: pointer;
-            "
-          >
-            View Details
-          </button>
+          <div style="font-size: 11px; color: #999;">Click marker to view details</div>
         </div>
       `;
 
       marker.bindPopup(popupContent);
+      
+      // Add click event to marker itself
+      marker.on('click', () => {
+        onEventClick(event);
+      });
+
       markersGroup.current!.addLayer(marker);
       bounds.push(coordinates);
     });
@@ -226,23 +220,9 @@ export function EventsMap({ events, calendars, onEventClick }: EventsMapProps) {
     if (bounds.length > 0) {
       map.current.fitBounds(bounds, { padding: [20, 20] });
     }
-  }, [events, calendars]);
+  }, [events, calendars, onEventClick]);
 
-  // Listen for custom event clicks from popups
-  useEffect(() => {
-    const handleEventClick = (e: CustomEvent) => {
-      const eventId = e.detail;
-      const event = events.find(evt => evt.id === eventId);
-      if (event) {
-        onEventClick(event);
-      }
-    };
-
-    window.addEventListener('event-click' as any, handleEventClick);
-    return () => {
-      window.removeEventListener('event-click' as any, handleEventClick);
-    };
-  }, [events, onEventClick]);
+  // Remove the custom event listener since we're using direct click events now
 
   if (eventsWithLocations.length === 0) {
     return (
