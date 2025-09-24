@@ -1,7 +1,11 @@
-import { ArrowLeft, Calendar as CalendarIcon, Clock, Plus } from 'lucide-react';
+import { ArrowLeft, Calendar as CalendarIcon, Clock, Plus, MapPin, List } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { EventsMap } from './EventsMap';
+import { useState, useMemo } from 'react';
 
 interface CalendarEvent {
   id: string;
@@ -24,22 +28,29 @@ interface CalendarData {
 
 interface CalendarEventsViewProps {
   calendar: CalendarData;
+  calendars: CalendarData[]; // Add all calendars for map component
   events: CalendarEvent[];
   onBack: () => void;
   onEventClick: (event: CalendarEvent) => void;
-  onNewEventRequest: (date: Date, calendarId: string) => void; // New prop for creating events
+  onNewEventRequest: (date: Date, calendarId: string) => void;
 }
 
 export function CalendarEventsView({ 
   calendar, 
+  calendars,
   events, 
   onBack, 
   onEventClick,
   onNewEventRequest 
 }: CalendarEventsViewProps) {
-  const calendarEvents = events
-    .filter(event => event.calendarId === calendar.id)
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const [showMap, setShowMap] = useState(false);
+  
+  const calendarEvents = useMemo(() => 
+    events
+      .filter(event => event.calendarId === calendar.id)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+    [events, calendar.id]
+  );
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {
@@ -112,93 +123,123 @@ export function CalendarEventsView({
           </div>
         </div>
 
-        <Button
-          className="hover-lift shrink-0"
-          onClick={() => onNewEventRequest(new Date(), calendar.id)}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          <span className="hidden sm:inline">New Event</span>
-          <span className="sm:hidden">New</span>
-        </Button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center space-x-2">
+            <List className="h-4 w-4" />
+            <Switch
+              checked={showMap}
+              onCheckedChange={setShowMap}
+              id="map-toggle"
+            />
+            <MapPin className="h-4 w-4" />
+            <Label htmlFor="map-toggle" className="text-sm">
+              Map
+            </Label>
+          </div>
+          
+          <Button
+            className="hover-lift shrink-0"
+            onClick={() => onNewEventRequest(new Date(), calendar.id)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">New Event</span>
+            <span className="sm:hidden">New</span>
+          </Button>
+        </div>
       </div>
 
-      {/* Events List */}
+      {/* Events List or Map */}
       <div className="space-y-6">
-        {calendarEvents.length === 0 ? (
-          <Card className="p-8 text-center">
-            <CalendarIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No events yet</h3>
-            <p className="text-muted-foreground">
-              This calendar doesn&apos;t have any events. Create your first event to get started.
-            </p>
-          </Card>
+        {showMap ? (
+          <EventsMap 
+            events={calendarEvents} 
+            calendars={calendars}
+            onEventClick={onEventClick}
+          />
         ) : (
-          Object.entries(groupedEvents).map(([dateKey, dayEvents]) => {
-            const date = new Date(dateKey);
-            const isDateToday = isToday(date);
-            const isDatePast = isPast(date);
-            
-            return (
-              <div key={dateKey} className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <h3 className={`text-lg font-medium ${
-                    isDateToday ? 'text-accent' : isDatePast ? 'text-muted-foreground' : ''
-                  }`}>
-                    {formatDate(date)}
-                  </h3>
-                  {isDateToday && (
-                    <Badge variant="secondary" className="text-xs">Today</Badge>
-                  )}
-                </div>
-                
-                <div className="space-y-2">
-                  {dayEvents.map(event => (
-                    <Card 
-                      key={event.id}
-                      className={`p-4 cursor-pointer hover-lift transition-all ${
-                        isDatePast ? 'opacity-60' : ''
-                      }`}
-                      style={{
-                        backgroundColor: `${calendar.color}08`,
-                        borderColor: `${calendar.color}20`
-                      }}
-                      onClick={() => onEventClick(event)}
-                      title={`${event.title}${event.location ? ` • ${event.location}` : ''}`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div 
-                          className="w-3 h-3 rounded-full mt-1 shrink-0"
-                          style={{ backgroundColor: calendar.color }}
-                        />
-                        
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-medium truncate">{event.title}</h4>
-                            {event.allDay ? (
-                              <div className="text-sm text-muted-foreground shrink-0">
-                                All day
-                              </div>
-                            ) : event.time && (
-                              <div className="flex items-center gap-1 text-sm text-muted-foreground shrink-0">
-                                <Clock className="h-3 w-3" />
-                                <span>{event.time}</span>
+          calendarEvents.length === 0 ? (
+            <Card className="p-8 text-center">
+              <CalendarIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <h3 className="text-lg font-medium mb-2">No events yet</h3>
+              <p className="text-muted-foreground">
+                This calendar doesn&apos;t have any events. Create your first event to get started.
+              </p>
+            </Card>
+          ) : (
+            Object.entries(groupedEvents).map(([dateKey, dayEvents]) => {
+              const date = new Date(dateKey);
+              const isDateToday = isToday(date);
+              const isDatePast = isPast(date);
+              
+              return (
+                <div key={dateKey} className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className={`text-lg font-medium ${
+                      isDateToday ? 'text-accent' : isDatePast ? 'text-muted-foreground' : ''
+                    }`}>
+                      {formatDate(date)}
+                    </h3>
+                    {isDateToday && (
+                      <Badge variant="secondary" className="text-xs">Today</Badge>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {dayEvents.map(event => (
+                      <Card 
+                        key={event.id}
+                        className={`p-4 cursor-pointer hover-lift transition-all ${
+                          isDatePast ? 'opacity-60' : ''
+                        }`}
+                        style={{
+                          backgroundColor: `${calendar.color}08`,
+                          borderColor: `${calendar.color}20`
+                        }}
+                        onClick={() => onEventClick(event)}
+                        title={`${event.title}${event.location ? ` • ${event.location}` : ''}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div 
+                            className="w-3 h-3 rounded-full mt-1 shrink-0"
+                            style={{ backgroundColor: calendar.color }}
+                          />
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-medium truncate">{event.title}</h4>
+                              {event.allDay ? (
+                                <div className="text-sm text-muted-foreground shrink-0">
+                                  All day
+                                </div>
+                              ) : event.time && (
+                                <div className="flex items-center gap-1 text-sm text-muted-foreground shrink-0">
+                                  <Clock className="h-3 w-3" />
+                                  <span>{event.time}</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {event.location && (
+                              <div className="flex items-center gap-1 text-sm text-muted-foreground mb-1">
+                                <MapPin className="h-3 w-3" />
+                                <span className="truncate">{event.location}</span>
                               </div>
                             )}
+                            
+                            {event.description && (
+                              <p className="text-sm text-muted-foreground line-clamp-2">
+                                {event.description}
+                              </p>
+                            )}
                           </div>
-                          
-                          {event.description && (
-                            <p className="text-sm text-muted-foreground line-clamp-2">
-                              {event.description}
-                            </p>
-                          )}
                         </div>
-                      </div>
-                    </Card>
-                  ))}
+                      </Card>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            })
+          )
         )}
       </div>
     </div>

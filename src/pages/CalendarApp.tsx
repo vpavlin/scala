@@ -736,6 +736,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
                 <div className="flex-1 p-6">
                   <CalendarEventsView
                     calendar={viewingCalendarEvents}
+                    calendars={calendars}
                     events={filteredEvents.filter(e => e.calendarId === viewingCalendarEvents.id)}
                     onBack={() => setViewingCalendarEvents(null)}
                     onEventClick={handleEventClick}
