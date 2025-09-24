@@ -111,7 +111,12 @@ All colors MUST be HSL.
   }
   
   .calendar-event {
-    @apply text-xs px-2 py-1 rounded-sm bg-accent/20 text-accent border-l-2 border-accent mb-1 block min-h-[20px] font-medium;
+    @apply text-xs px-2 py-1.5 rounded-md bg-accent/10 text-accent border border-accent/20 mb-1.5 block min-h-[24px] font-medium shadow-sm backdrop-blur-sm;
+    transition: all 0.2s ease-in-out;
+  }
+  
+  .calendar-event:hover {
+    @apply bg-accent/20 border-accent/40 shadow-md transform translate-y-[-1px];
   }
   
   .sidebar-transition {
