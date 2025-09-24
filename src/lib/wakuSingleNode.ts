@@ -51,6 +51,11 @@ export class WakuSingleNodeManager {
   private isConnected = false;
   private senderId: string;
   private healthCheckInterval: NodeJS.Timeout | null = null;
+  
+  // Message tracking for incremental sync
+  private processedMessageIds: Set<string> = new Set();
+  private lastProcessedTimestamp: Map<string, number> = new Map(); // per calendar
+  private maxProcessedMessages = 10000; // Limit memory usage
   private nodeStats = {
     peerCount: 0,
     isHealthy: false,
@@ -255,6 +260,22 @@ export class WakuSingleNodeManager {
         return;
       }
       
+      // Create unique message ID from senderId + timestamp + type + eventId
+      const messageId = `${decoded.senderId}-${decoded.timestamp}-${decoded.type}-${decoded.eventId || 'no-event'}`;
+      
+      // Skip already processed messages
+      if (this.processedMessageIds.has(messageId)) {
+        console.log(`Skipping already processed message: ${messageId}`);
+        return;
+      }
+      
+      // Check if this message is older than our last processed timestamp for this calendar
+      const lastTimestamp = this.lastProcessedTimestamp.get(calendarId) || 0;
+      if (decoded.timestamp <= lastTimestamp && decoded.type !== 'SYNC_CALENDAR' && decoded.type !== 'SYNC_EVENTS') {
+        console.log(`Skipping old message (timestamp: ${decoded.timestamp}, last: ${lastTimestamp})`);
+        return;
+      }
+      
       const action: EventSourceAction = {
         type: decoded.type as EventSourceAction['type'],
         eventId: decoded.eventId || undefined,
@@ -264,6 +285,25 @@ export class WakuSingleNodeManager {
         timestamp: Number(decoded.timestamp),
         senderId: decoded.senderId
       };
+      
+      // Mark message as processed
+      this.processedMessageIds.add(messageId);
+      
+      // Update last processed timestamp for incremental operations
+      if (decoded.type === 'CREATE_EVENT' || decoded.type === 'UPDATE_EVENT' || decoded.type === 'DELETE_EVENT') {
+        const currentLast = this.lastProcessedTimestamp.get(calendarId) || 0;
+        if (decoded.timestamp > currentLast) {
+          this.lastProcessedTimestamp.set(calendarId, decoded.timestamp);
+        }
+      }
+      
+      // Cleanup old message IDs periodically to prevent memory leaks
+      if (this.processedMessageIds.size > this.maxProcessedMessages) {
+        const idsArray = Array.from(this.processedMessageIds);
+        const toRemove = idsArray.slice(0, Math.floor(this.maxProcessedMessages * 0.3));
+        toRemove.forEach(id => this.processedMessageIds.delete(id));
+        console.log(`Cleaned up ${toRemove.length} old message IDs`);
+      }
       
       // Apply the action
       this.eventHandlers.onEventAction(action);
@@ -372,25 +412,40 @@ export class WakuSingleNodeManager {
     });
   }
 
-  public async initializeSharing(calendarId: string, calendar: any, events: CalendarEvent[]): Promise<boolean> {
+  public async initializeSharing(calendarId: string, calendar: any, events: CalendarEvent[], forceFullSync: boolean = false): Promise<boolean> {
     if (!this.isConnected) {
       this.eventHandlers.onError('Not connected to Waku network');
       return false;
     }
 
     try {
-      console.log(`Initializing sharing for calendar ${calendarId} with historical data...`);
+      console.log(`Initializing sharing for calendar ${calendarId}...`);
       
-      // First sync calendar metadata
+      // Always sync calendar metadata
       await this.syncCalendar(calendarId, calendar);
       
-      // Then sync all historical events for this calendar
       const calendarEvents = events.filter(event => event.calendarId === calendarId);
-      if (calendarEvents.length > 0) {
-        await this.syncEvents(calendarId, calendarEvents);
+      
+      if (forceFullSync || !this.lastProcessedTimestamp.has(calendarId)) {
+        // Full sync needed - send all events
+        console.log(`Performing full sync for calendar ${calendarId} with ${calendarEvents.length} events`);
+        if (calendarEvents.length > 0) {
+          await this.syncEvents(calendarId, calendarEvents);
+        }
+      } else {
+        // Incremental sync - only send events newer than last processed
+        const lastTimestamp = this.lastProcessedTimestamp.get(calendarId) || 0;
+        const newEvents = calendarEvents.filter(event => new Date(event.date).getTime() > lastTimestamp);
+        
+        if (newEvents.length > 0) {
+          console.log(`Performing incremental sync for calendar ${calendarId} with ${newEvents.length} new events`);
+          await this.syncEvents(calendarId, newEvents);
+        } else {
+          console.log(`No new events to sync for calendar ${calendarId}`);
+        }
       }
       
-      console.log(`Sharing initialized for calendar ${calendarId}: synced calendar + ${calendarEvents.length} events`);
+      console.log(`Sharing initialized for calendar ${calendarId}`);
       return true;
       
     } catch (error) {
@@ -476,6 +531,22 @@ export class WakuSingleNodeManager {
     }
   }
 
+  // Method to check if incremental sync is possible
+  public canUseIncrementalSync(calendarId: string): boolean {
+    return this.lastProcessedTimestamp.has(calendarId);
+  }
+  
+  // Method to get last processed timestamp for a calendar
+  public getLastProcessedTimestamp(calendarId: string): number {
+    return this.lastProcessedTimestamp.get(calendarId) || 0;
+  }
+  
+  // Method to reset sync state for a calendar (force full sync next time)
+  public resetSyncState(calendarId: string): void {
+    this.lastProcessedTimestamp.delete(calendarId);
+    console.log(`Reset sync state for calendar ${calendarId}`);
+  }
+
   public async disconnect(): Promise<void> {
     try {
       // Stop health monitoring
@@ -486,6 +557,10 @@ export class WakuSingleNodeManager {
       
       // Clear all channels
       this.channels.clear();
+      
+      // Clear sync state
+      this.processedMessageIds.clear();
+      this.lastProcessedTimestamp.clear();
       
       if (this.node) {
         await this.node.stop();

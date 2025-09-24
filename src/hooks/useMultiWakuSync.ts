@@ -127,9 +127,10 @@ export function useMultiWakuSync() {
             
             newConnections.set(calendar.id, connection);
 
-            // Initialize sharing with historical data
+            // Initialize sharing with historical data - use incremental sync if possible
             const calendarEvents = allEvents.filter(event => event.calendarId === calendar.id);
-            await wakuManagerRef.current.initializeSharing(calendar.id, calendar, calendarEvents);
+            const forceFullSync = !wakuManagerRef.current.canUseIncrementalSync(calendar.id);
+            await wakuManagerRef.current.initializeSharing(calendar.id, calendar, calendarEvents, forceFullSync);
             
             console.log(`Initialized calendar channel: ${calendar.name} (${calendarEvents.length} events)`);
           } else {
@@ -217,9 +218,10 @@ export function useMultiWakuSync() {
           return updated;
         });
 
-        // Initialize sharing with historical data
+        // Initialize sharing with historical data - use incremental sync if possible
         const calendarEvents = events.filter(event => event.calendarId === calendar.id);
-        await wakuManagerRef.current!.initializeSharing(calendar.id, calendar, calendarEvents);
+        const forceFullSync = !wakuManagerRef.current!.canUseIncrementalSync(calendar.id);
+        await wakuManagerRef.current!.initializeSharing(calendar.id, calendar, calendarEvents, forceFullSync);
         
         console.log(`Added calendar channel: ${calendar.name}`);
       }
@@ -296,6 +298,15 @@ export function useMultiWakuSync() {
     return wakuManagerRef.current?.generateShareUrl(calendarId, calendarName, 
       connectionsRef.current.get(calendarId)?.encryptionKey) ?? '';
   };
+  
+  // Method to force full sync for a calendar (useful for troubleshooting)
+  const forceFullSync = async (calendarId: string, calendar: CalendarData, events: CalendarEvent[]): Promise<boolean> => {
+    if (!wakuManagerRef.current) return false;
+    
+    wakuManagerRef.current.resetSyncState(calendarId);
+    const calendarEvents = events.filter(event => event.calendarId === calendarId);
+    return wakuManagerRef.current.initializeSharing(calendarId, calendar, calendarEvents, true);
+  };
 
   // Cleanup on unmount
   useEffect(() => {
@@ -320,6 +331,7 @@ export function useMultiWakuSync() {
     syncCalendar,
     getConnectionStats,
     generateShareUrl,
+    forceFullSync,
     clearError: () => setError(null)
   };
 }
