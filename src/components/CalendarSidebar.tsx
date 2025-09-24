@@ -29,6 +29,7 @@ interface CalendarData {
 interface CalendarSidebarProps {
   calendars: CalendarData[];
   selectedCalendars: string[];
+  eventCounts: Record<string, number>;
   onCalendarToggle: (calendarId: string) => void;
   onCalendarCreate: (calendar: Omit<CalendarData, 'id'>) => void;
   onCalendarEdit: (calendar: CalendarData) => void;
@@ -50,6 +51,7 @@ interface CalendarSidebarProps {
 export function CalendarSidebar({
   calendars,
   selectedCalendars,
+  eventCounts,
   onCalendarToggle,
   onCalendarCreate,
   onCalendarEdit,
@@ -175,6 +177,11 @@ export function CalendarSidebar({
                     style={{ backgroundColor: calendar.color }}
                   />
                   <span className="text-sm font-medium truncate">{calendar.name}</span>
+                  {eventCounts[calendar.id] > 0 && (
+                    <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">
+                      {eventCounts[calendar.id]}
+                    </span>
+                  )}
                 </div>
               </div>
               

@@ -26,6 +26,12 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [calendars, setCalendars] = useState<CalendarData[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
+  // Calculate event counts for each calendar
+  const eventCounts = events.reduce((counts, event) => {
+    counts[event.calendarId] = (counts[event.calendarId] || 0) + 1;
+    return counts;
+  }, {} as Record<string, number>);
+
   // Load initial data and defer Waku initialization
   useEffect(() => {
     const loadInitialData = async () => {
@@ -382,6 +388,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
       <CalendarSidebar
         calendars={calendars}
         selectedCalendars={selectedCalendars}
+        eventCounts={eventCounts}
         onCalendarToggle={handleCalendarToggle}
         onCalendarCreate={handleCalendarCreate}
         onCalendarEdit={handleCalendarEdit}
