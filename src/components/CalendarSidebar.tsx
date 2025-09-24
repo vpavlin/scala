@@ -27,6 +27,7 @@ interface CalendarData {
   isPrivate?: boolean;
   shareUrl?: string;
   description?: string;
+  wasUnshared?: boolean;
 }
 
 interface CalendarSidebarProps {
@@ -261,11 +262,11 @@ export function CalendarSidebar({
 
       <div className="space-y-6">
         {/* Private Calendars */}
-        {calendars.filter(cal => !cal.isShared).length > 0 && (
+        {calendars.filter(cal => !cal.isShared && !cal.wasUnshared).length > 0 && (
           <div className="space-y-2">
             <h3 className="text-sm font-medium text-muted-foreground px-1">Private Calendars</h3>
             <div className="space-y-2">
-              {calendars.filter(cal => !cal.isShared).map((calendar) => (
+              {calendars.filter(cal => !cal.isShared && !cal.wasUnshared).map((calendar) => (
                 <Card key={calendar.id} className="p-3 hover-lift">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3 flex-1">
@@ -314,6 +315,87 @@ export function CalendarSidebar({
                            <DropdownMenuItem onClick={() => handleShare(calendar)}>
                              <Share2 className="h-3 w-3 mr-2" />
                              Share
+                           </DropdownMenuItem>
+                           <DropdownMenuItem 
+                             onClick={() => handleDelete(calendar)}
+                             className="text-destructive"
+                           >
+                             <Trash2 className="h-3 w-3 mr-2" />
+                             Delete
+                           </DropdownMenuItem>
+                         </DropdownMenuContent>
+                       </DropdownMenu>
+                     </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Unshared Calendars (Previously Shared) */}
+        {calendars.filter(cal => cal.wasUnshared).length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-muted-foreground px-1">Previously Shared Calendars</h3>
+            <div className="space-y-2">
+              {calendars.filter(cal => cal.wasUnshared).map((calendar) => (
+                <Card key={calendar.id} className="p-3 hover-lift border-red-200 dark:border-red-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3 flex-1">
+                      <Checkbox
+                        checked={selectedCalendars.includes(calendar.id)}
+                        onCheckedChange={() => onCalendarToggle(calendar.id)}
+                      />
+                      <div className="flex items-center space-x-2 flex-1">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: calendar.color }}
+                        />
+                        <span 
+                          className="text-sm font-medium truncate cursor-pointer hover:text-accent transition-colors"
+                          onClick={() => onCalendarNameClick(calendar)}
+                          title="Click to view all events in this calendar"
+                        >
+                          {calendar.name}
+                        </span>
+                        {eventCounts[calendar.id] > 0 && (
+                          <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">
+                            {eventCounts[calendar.id]}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                     <div className="flex items-center space-x-1">
+                       <div title="This calendar is no longer being shared">
+                         <Share2 className="h-3 w-3 text-red-500" />
+                       </div>
+                       <DropdownMenu>
+                         <DropdownMenuTrigger asChild>
+                           <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                             <MoreHorizontal className="h-3 w-3" />
+                           </Button>
+                         </DropdownMenuTrigger>
+                         <DropdownMenuContent align="end">
+                           <DropdownMenuItem onClick={() => {
+                             setEditingCalendar(calendar);
+                             setNewCalendarName(calendar.name);
+                             setNewCalendarDescription(calendar.description || '');
+                             setNewCalendarColor(calendar.color);
+                             setIsEditDialogOpen(true);
+                           }}>
+                             <Edit2 className="h-3 w-3 mr-2" />
+                             Edit
+                           </DropdownMenuItem>
+                           <DropdownMenuItem 
+                             onClick={() => {
+                               // Clear the unshared flag and allow re-sharing
+                               const clearedCalendar = { ...calendar, wasUnshared: false };
+                               onCalendarEdit(clearedCalendar);
+                             }}
+                           >
+                             <Share2 className="h-3 w-3 mr-2" />
+                             Re-enable Sharing
                            </DropdownMenuItem>
                            <DropdownMenuItem 
                              onClick={() => handleDelete(calendar)}

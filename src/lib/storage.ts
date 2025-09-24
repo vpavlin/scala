@@ -9,6 +9,7 @@ export interface CalendarData {
   isPrivate?: boolean;
   shareUrl?: string;
   description?: string;
+  wasUnshared?: boolean; // Indicates a calendar that was previously shared but is no longer active
 }
 
 class CalendarStorage {

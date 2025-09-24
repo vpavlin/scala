@@ -17,6 +17,7 @@ interface CalendarData {
   isPrivate?: boolean;
   shareUrl?: string;
   description?: string;
+  wasUnshared?: boolean;
 }
 
 export function useMultiWakuSync() {

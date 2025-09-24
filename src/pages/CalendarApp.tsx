@@ -218,24 +218,45 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
           console.log('Calendar ID:', action.calendarId);
           console.log('Calendar Name:', action.calendarName);
           
-          if (action.calendarId && action.calendarName) {
-            console.log('Showing toast for calendar unshared:', action.calendarName);
-            toast({
-              title: "Calendar no longer shared",
-              description: `"${action.calendarName}" is no longer being shared. You will not receive further updates unless it's shared again.`,
-              variant: "default"
-            });
+          if (action.calendarId) {
+            // Mark the calendar as unshared
+            setCalendars(prev => prev.map(cal => 
+              cal.id === action.calendarId 
+                ? { ...cal, wasUnshared: true, isShared: false, shareUrl: undefined }
+                : cal
+            ));
+            
+            // Save updated calendar to storage
+            const updatedCalendar = calendars.find(cal => cal.id === action.calendarId);
+            if (updatedCalendar) {
+              const calendarWithUnsharedFlag = { 
+                ...updatedCalendar, 
+                wasUnshared: true, 
+                isShared: false, 
+                shareUrl: undefined 
+              };
+              storage.saveCalendar(calendarWithUnsharedFlag).catch(err => 
+                console.error('Failed to save unshared calendar state:', err)
+              );
+            }
+            
+            if (action.calendarName) {
+              console.log('Showing toast for calendar unshared:', action.calendarName);
+              toast({
+                title: "Calendar no longer shared",
+                description: `"${action.calendarName}" is no longer being shared. You will not receive further updates unless it's shared again.`,
+                variant: "default"
+              });
+            } else {
+              // Fallback toast if name is missing
+              toast({
+                title: "Calendar no longer shared",
+                description: "A shared calendar is no longer being shared. You will not receive further updates unless it's shared again.",
+                variant: "default"
+              });
+            }
           } else {
-            console.log('Missing calendarId or calendarName:', {
-              calendarId: action.calendarId,
-              calendarName: action.calendarName
-            });
-            // Fallback toast if name is missing
-            toast({
-              title: "Calendar no longer shared",
-              description: "A shared calendar is no longer being shared. You will not receive further updates unless it's shared again.",
-              variant: "default"
-            });
+            console.log('Missing calendarId in UNSHARE_CALENDAR action');
           }
           break;
       }
