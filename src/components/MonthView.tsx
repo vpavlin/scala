@@ -98,29 +98,42 @@ export function MonthView({
             {day}
           </div>
           <div className="space-y-1">
-            {dayEvents.slice(0, 3).map(event => {
-              const calendar = calendars.find(cal => cal.id === event.calendarId);
-              const calendarColor = calendar?.color || '#10b981';
-              
-              return (
-                <div
-                  key={event.id}
-                  className="calendar-event hover-lift cursor-pointer"
-                  style={{
-                    backgroundColor: `${calendarColor}15`,
-                    color: calendarColor,
-                    borderColor: `${calendarColor}40`
-                  }}
-                  onClick={(e) => handleEventClick(event, e)}
-                >
-                  {event.title}
-                </div>
-              );
-            })}
-            {dayEvents.length > 3 && (
-              <div className="text-xs text-muted-foreground">
-                +{dayEvents.length - 3} more
-              </div>
+            {dayEvents.length > 0 && (
+              <>
+                {/* Show only the first event */}
+                {(() => {
+                  const firstEvent = dayEvents[0];
+                  const calendar = calendars.find(cal => cal.id === firstEvent.calendarId);
+                  const calendarColor = calendar?.color || '#10b981';
+                  
+                  return (
+                    <div
+                      key={firstEvent.id}
+                      className="calendar-event hover-lift cursor-pointer text-xs mb-1"
+                      style={{
+                        backgroundColor: `${calendarColor}15`,
+                        color: calendarColor,
+                        borderColor: `${calendarColor}40`
+                      }}
+                      onClick={(e) => handleEventClick(firstEvent, e)}
+                      title={firstEvent.title}
+                    >
+                      <span className="truncate block">{firstEvent.title}</span>
+                    </div>
+                  );
+                })()}
+                
+                {/* Show count of remaining events */}
+                {dayEvents.length > 1 && (
+                  <div 
+                    className="text-xs text-muted-foreground hover:text-foreground cursor-pointer px-1 py-0.5 rounded transition-colors"
+                    onClick={() => handleDayClick(day)}
+                    title={`${dayEvents.length - 1} more events. Click to view all.`}
+                  >
+                    +{dayEvents.length - 1} more
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
