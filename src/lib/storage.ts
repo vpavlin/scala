@@ -8,6 +8,7 @@ export interface CalendarData {
   isShared?: boolean;
   isPrivate?: boolean;
   shareUrl?: string;
+  description?: string;
 }
 
 class CalendarStorage {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar } from '@/components/Calendar';
 import { CalendarSidebar } from '@/components/CalendarSidebar';
+import { CalendarEventsView } from '@/components/CalendarEventsView';
 import { EventDetailsPanel } from '@/components/EventDetailsPanel';
 import { EventModal } from '@/components/EventModal';
 import { ShareCalendarModal } from '@/components/ShareCalendarModal';
@@ -68,6 +69,8 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [viewingCalendarEvents, setViewingCalendarEvents] = useState<CalendarData | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const selectedCalendars = calendars.filter(cal => cal.isVisible).map(cal => cal.id);
 
@@ -534,7 +537,9 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
     setIsEditModalOpen(true);
   };
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const handleCalendarNameClick = (calendar: CalendarData) => {
+    setViewingCalendarEvents(calendar);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -561,6 +566,7 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
             onCalendarDelete={handleCalendarDelete}
             onCalendarShare={handleCalendarShare}
             onCalendarShareToggle={handleCalendarShareToggle}
+            onCalendarNameClick={handleCalendarNameClick}
             connectionStatus={multiWakuSync.globalConnectionStatus}
             isWakuConnected={multiWakuSync.globalConnectionStatus !== 'disconnected'}
             connectionStats={multiWakuSync.getConnectionStats()}
@@ -571,23 +577,34 @@ export default function CalendarApp({ sharedCalendarId, sharedEncryptionKey }: C
 
         {/* Main content */}
         <div className="flex-1 flex flex-col lg:ml-0">
-          <Calendar
-            calendars={calendars}
-            selectedCalendars={selectedCalendars}
-            events={events}
-            onEventCreate={handleEventCreate}
-            onEventEdit={handleEventUpdate}
-            onEventDelete={handleEventDelete}
-            onEventClick={handleEventClick}
-            isEditModalOpen={isEditModalOpen}
-            editingEvent={editingEvent}
-            onEditModalClose={() => {
-              setIsEditModalOpen(false);
-              setEditingEvent(null);
-            }}
-            onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-            isSidebarOpen={isSidebarOpen}
-          />
+          {viewingCalendarEvents ? (
+            <div className="p-6">
+              <CalendarEventsView
+                calendar={viewingCalendarEvents}
+                events={events}
+                onBack={() => setViewingCalendarEvents(null)}
+                onEventClick={handleEventClick}
+              />
+            </div>
+          ) : (
+            <Calendar
+              calendars={calendars}
+              selectedCalendars={selectedCalendars}
+              events={events}
+              onEventCreate={handleEventCreate}
+              onEventEdit={handleEventUpdate}
+              onEventDelete={handleEventDelete}
+              onEventClick={handleEventClick}
+              isEditModalOpen={isEditModalOpen}
+              editingEvent={editingEvent}
+              onEditModalClose={() => {
+                setIsEditModalOpen(false);
+                setEditingEvent(null);
+              }}
+              onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+              isSidebarOpen={isSidebarOpen}
+            />
+          )}
           
           {selectedEvent && (
             <EventDetailsPanel

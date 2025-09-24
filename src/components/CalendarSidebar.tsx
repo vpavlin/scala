@@ -6,6 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ShareCalendarModal } from '@/components/ShareCalendarModal';
 import { WakuStatus } from '@/components/WakuStatus';
@@ -25,6 +26,7 @@ interface CalendarData {
   isShared?: boolean;
   isPrivate?: boolean;
   shareUrl?: string;
+  description?: string;
 }
 
 interface CalendarSidebarProps {
@@ -37,6 +39,7 @@ interface CalendarSidebarProps {
   onCalendarDelete: (calendarId: string) => void;
   onCalendarShare: (calendarId: string, isPrivate: boolean) => void;
   onCalendarShareToggle: (calendarId: string, isSharing: boolean) => void;
+  onCalendarNameClick: (calendar: CalendarData) => void;
   connectionStatus?: 'connected' | 'disconnected' | 'minimal';
   isWakuConnected?: boolean;
   connectionStats?: {
@@ -62,6 +65,7 @@ export function CalendarSidebar({
   onCalendarDelete,
   onCalendarShare,
   onCalendarShareToggle,
+  onCalendarNameClick,
   connectionStatus = 'disconnected',
   isWakuConnected = false,
   connectionStats,
@@ -71,6 +75,7 @@ export function CalendarSidebar({
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [newCalendarDescription, setNewCalendarDescription] = useState('');
   const [editingCalendar, setEditingCalendar] = useState<CalendarData | null>(null);
   const [sharingCalendar, setSharingCalendar] = useState<CalendarData | null>(null);
   const [newCalendarName, setNewCalendarName] = useState('');
@@ -110,9 +115,11 @@ export function CalendarSidebar({
       onCalendarCreate({
         name: newCalendarName.trim(),
         color: selectedColor,
-        isVisible: true
+        isVisible: true,
+        description: newCalendarDescription.trim() || undefined
       });
       setNewCalendarName('');
+      setNewCalendarDescription('');
       setNewCalendarColor('#10b981');
       setIsCreateDialogOpen(false);
       toast({
@@ -132,9 +139,11 @@ export function CalendarSidebar({
       onCalendarEdit({
         ...editingCalendar,
         name: newCalendarName.trim(),
-        color: selectedColor
+        color: selectedColor,
+        description: newCalendarDescription.trim() || undefined
       });
       setNewCalendarName('');
+      setNewCalendarDescription('');
       setNewCalendarColor('#10b981');
       setIsEditDialogOpen(false);
       setEditingCalendar(null);
@@ -201,6 +210,16 @@ export function CalendarSidebar({
                       handleCreateCalendar();
                     }
                   }}
+                 />
+              </div>
+              <div>
+                <Label htmlFor="calendar-description">Description (optional)</Label>
+                <Textarea
+                  id="calendar-description"
+                  value={newCalendarDescription}
+                  onChange={(e) => setNewCalendarDescription(e.target.value)}
+                  placeholder="Add a description for your calendar"
+                  rows={2}
                 />
               </div>
               <div>
@@ -259,7 +278,13 @@ export function CalendarSidebar({
                           className="w-3 h-3 rounded-full"
                           style={{ backgroundColor: calendar.color }}
                         />
-                        <span className="text-sm font-medium truncate">{calendar.name}</span>
+                        <span 
+                          className="text-sm font-medium truncate cursor-pointer hover:text-accent transition-colors"
+                          onClick={() => onCalendarNameClick(calendar)}
+                          title="Click to view all events in this calendar"
+                        >
+                          {calendar.name}
+                        </span>
                         {eventCounts[calendar.id] > 0 && (
                           <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">
                             {eventCounts[calendar.id]}
@@ -288,6 +313,7 @@ export function CalendarSidebar({
                             <DropdownMenuItem onClick={() => {
                               setEditingCalendar(calendar);
                               setNewCalendarName(calendar.name);
+                              setNewCalendarDescription(calendar.description || '');
                               setNewCalendarColor(calendar.color);
                               setIsEditDialogOpen(true);
                             }}>
@@ -319,6 +345,7 @@ export function CalendarSidebar({
                             <DropdownMenuItem onClick={() => {
                               setEditingCalendar(calendar);
                               setNewCalendarName(calendar.name);
+                              setNewCalendarDescription(calendar.description || '');
                               setNewCalendarColor(calendar.color);
                               setIsEditDialogOpen(true);
                             }}>
@@ -428,7 +455,17 @@ export function CalendarSidebar({
                     handleEditCalendar();
                   }
                 }}
-              />
+                 />
+              </div>
+              <div>
+                <Label htmlFor="edit-calendar-description">Description (optional)</Label>
+                <Textarea
+                  id="edit-calendar-description"
+                  value={newCalendarDescription}
+                  onChange={(e) => setNewCalendarDescription(e.target.value)}
+                  placeholder="Add a description for your calendar"
+                  rows={2}
+                />
               </div>
               <div>
                 <Label>Calendar Color</Label>
