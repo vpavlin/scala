@@ -113,7 +113,7 @@ ScalaImpl::ScalaImpl() {
         syncStatusChanged(calId, status);
     });
 }
-ScalaImpl::~ScalaImpl() { delete m_sync; delete m_store; }
+ScalaImpl::~ScalaImpl() { if (m_resyncTimer) { m_resyncTimer->stop(); m_resyncTimer->deleteLater(); m_resyncTimer = nullptr; } delete m_sync; delete m_store; }
 
 // ── HLC + event helpers ──────────────────────────────────────────────────────
 scala::HLC ScalaImpl::nextHlc() {
@@ -353,6 +353,19 @@ void ScalaImpl::onContextReady() {
             if (m_sync && m_sync->ready())
                 for (const auto& c : m_store->calendars()) sendSyncReq(c.id);
         });
+
+    // PERIODIC catch-up (parity with qaku_core's m_hubTimer): the 3/10/25s ladder only covers
+    // mesh warm-up. A message dropped AFTER that window (and outside a join) was never re-reconciled
+    // until a restart — the reliability gap. Re-request the RBSR delta for every calendar every 30s
+    // so drops recover on their own. sendSyncReq is a bounded fp frame (no whole-log flood).
+    if (!m_resyncTimer) {
+        m_resyncTimer = new QTimer();
+        QObject::connect(m_resyncTimer, &QTimer::timeout, m_resyncTimer, [this]{
+            if (m_sync && m_sync->ready())
+                for (const auto& c : m_store->calendars()) sendSyncReq(c.id);
+        });
+        m_resyncTimer->start(30000);
+    }
 
     // Keycard authoring (scala ADR 0016): loam_core signs a keycard-owned write asynchronously (card
     // tap in keycard-ui) and delivers the result here, matched by ref. For a parked EVENT we attach

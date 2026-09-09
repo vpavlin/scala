@@ -11,6 +11,7 @@
 // Forward declarations for internal components (ported to std types)
 class CalendarStore;
 class CalendarSync;
+class QTimer;
 
 /**
  * ScalaImpl — Universal-pattern core module for the Scala calendar app.
@@ -149,6 +150,7 @@ logos_events:
 private:
     CalendarStore* m_store = nullptr;
     CalendarSync* m_sync = nullptr;
+    QTimer* m_resyncTimer = nullptr;      // periodic RBSR catch-up for every calendar (recovers drops after warmup)
     std::string m_identity;      // == m_signId.address (the "0x…" author id)
     scala::SignId m_signId;      // secp256k1 keypair; private key persisted in the kv store
     std::string m_namespace;

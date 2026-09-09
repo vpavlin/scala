@@ -62,9 +62,15 @@ Item {
     // ── identities (loam_core service; UI is ours) ─────────────────────────────
     property var identities: []            // [{id,kind,label,address,pubHex}]
     property string defaultIdentityId: "device"
+    // Defer the model assignment to the next event-loop tick. This is called from inside identity
+    // Repeater delegates' onClicked (set-default / remove); assigning root.identities synchronously
+    // there rebuilds that Repeater and destroys the very delegate whose handler is still on the stack
+    // → "Object destroyed while a QML signal handler is in progress" → Aborted. Reads stay sync; only
+    // the assign is deferred, so any caller (delegate or not) is crash-safe.
     function refreshIdentities() {
-        identities = root.j(loamCore("listIdentities", []), [])
-        defaultIdentityId = root.j(loamCore("getDefaultIdentityId", []), "device")
+        var ids = root.j(loamCore("listIdentities", []), [])
+        var def = root.j(loamCore("getDefaultIdentityId", []), "device")
+        Qt.callLater(function () { root.identities = ids; root.defaultIdentityId = def })
     }
     function identityLabel(id) {
         for (var i = 0; i < identities.length; i++) if (identities[i].id === id) return identities[i].label
@@ -115,8 +121,11 @@ Item {
     // Poll like kym's view does: listCalendars() self-drives the delivery bootstrap
     // in the core, so this keeps the node coming up + refreshes data. Also refreshes
     // the diagnostics while the Debug panel is open.
+    // Slowed from 3s → 6s: refresh() makes several BLOCKING logos.callModule calls on the UI thread,
+    // so a fast poll froze the view whenever scala/loam_core was busy (and a click during the freeze
+    // piled another blocking call on). 6s halves that exposure; applies are also deferred (see refresh).
     Timer {
-        interval: 3000; running: true; repeat: true
+        interval: 6000; running: true; repeat: true
         onTriggered: {
             if (!root.ready) return
             root.refresh()
@@ -139,11 +148,13 @@ Item {
         // RULE: no per-item blocking IPC in QML. The core aggregates everything the view needs into
         // two calls — listCalendars carries each calendar's authoring address (loam binding), and
         // listAllEvents returns every event tagged with calendarId — instead of 2·N blocking calls.
-        calendars = j(core("listCalendars", []), [])
+        var cals = j(core("listCalendars", []), [])
         var ca = {}
-        for (var ci = 0; ci < calendars.length; ci++) ca[calendars[ci].id] = calendars[ci].authorAddr || ""
-        root.calAddr = ca
-        events = j(core("listAllEvents", []), [])
+        for (var ci = 0; ci < cals.length; ci++) ca[cals[ci].id] = cals[ci].authorAddr || ""
+        var evs = j(core("listAllEvents", []), [])
+        // Deferred apply (same reason as refreshIdentities): reassigning these models rebuilds the
+        // calendar/event Repeaters; deferring keeps that off any in-flight signal handler's stack.
+        Qt.callLater(function () { root.calendars = cals; root.calAddr = ca; root.events = evs })
     }
     // Deterministic color derived from the calendar id — SAME on desktop + mobile,
     // so a calendar looks consistent across devices regardless of a stored color.
