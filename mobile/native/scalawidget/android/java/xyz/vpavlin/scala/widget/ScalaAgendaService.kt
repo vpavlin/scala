@@ -26,9 +26,13 @@ private class ScalaAgendaFactory(private val ctx: Context) : RemoteViewsService.
   override fun hasStableIds(): Boolean = false
   override fun getLoadingView(): RemoteViews? = null
 
+  // NOTE: RemoteViewsService.RemoteViewsFactory has NO getItemViewType — distinct row types are
+  // declared via getViewTypeCount() above and realised by getViewAt() returning different layouts.
+  // (This was an invalid `override` — RecyclerView.Adapter has it, RemoteViewsFactory does not.)
   private fun isHeader(position: Int): Boolean =
     items.optJSONObject(position)?.optString("type") == "header"
-  override fun getItemViewType(position: Int): Int = if (isHeader(position)) 0 else 1
+  @Suppress("unused")
+  fun getItemViewType(position: Int): Int = if (isHeader(position)) 0 else 1
 
   // Re-read the pushed agenda JSON. Called on bind and on notifyAppWidgetViewDataChanged.
   override fun onDataSetChanged() {
