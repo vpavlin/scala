@@ -62,6 +62,11 @@ Item {
     // ── identities (loam_core service; UI is ours) ─────────────────────────────
     property var identities: []            // [{id,kind,label,address,pubHex}]
     property string defaultIdentityId: "device"
+    property string renameTargetId: ""      // soft identity being renamed (idRenamePopup)
+    property string idRemoveId: ""          // identity pending removal (idRemovePopup) + its meta for the warning
+    property string idRemoveKind: ""
+    property string idRemoveLabel: ""
+    property string idRemoveAddr: ""
     // Defer the model assignment to the next event-loop tick. This is called from inside identity
     // Repeater delegates' onClicked (set-default / remove); assigning root.identities synchronously
     // there rebuilds that Repeater and destroys the very delegate whose handler is still on the stack
@@ -79,6 +84,24 @@ Item {
     function calendarIdentityId(calId) {
         var m = root.j(loamCore("identityForContainer", [calId]), null)
         return m && m.id ? m.id : root.defaultIdentityId
+    }
+    // Identity meta (from the loaded list) whose address signs THIS calendar for me. calAddr[calId]
+    // is the bound authoring address; falls back to the default identity when the calendar is unbound.
+    function identityByAddr(addr) {
+        if (!addr) return null
+        for (var i = 0; i < identities.length; i++) if (identities[i].address === addr) return identities[i]
+        return null
+    }
+    function calSigner(calId) { return identityByAddr(root.calAddr[calId] || "") }
+    // True if authoring on this calendar goes through a Keycard (every write needs a card tap).
+    function calIsKeycard(calId) { var m = calSigner(calId); return !!m && m.kind === "keycard" }
+    // How many calendars this identity currently signs (by address) — drives the "removing this
+    // orphans N calendars" warning, mirroring the fold's owner/binding resolution.
+    function identitySignsCount(addr) {
+        if (!addr) return 0
+        var n = 0
+        for (var i = 0; i < calendars.length; i++) if ((root.calAddr[calendars[i].id] || "") === addr) n++
+        return n
     }
 
     // ── keycard authoring (scala ADR 0016) — poll the core snapshot; drive the overlay ─────────
@@ -398,7 +421,12 @@ Item {
                             Rectangle { width: 12; height: 12; radius: 6; color: root.calColor(modelData.id); Layout.alignment: Qt.AlignVCenter }
                             ColumnLayout {
                                 Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: 1
-                                LogosText { text: modelData.name || "(unnamed)"; color: Theme.palette.text; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 4
+                                    LogosText { text: modelData.name || "(unnamed)"; color: Theme.palette.text; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    // 🔑 = this calendar is signed with a Keycard, so every edit needs a card tap.
+                                    LogosText { visible: root.calIsKeycard(modelData.id); text: "🔑"; font.pixelSize: 12; Layout.alignment: Qt.AlignVCenter }
+                                }
                                 LogosText {
                                     visible: !!modelData.description && modelData.description.length > 0
                                     text: modelData.description || ""
@@ -1162,10 +1190,17 @@ Item {
                         }
                     }
                     LogosButton {
+                        visible: modelData.kind === "soft"; text: "✎"
+                        onClicked: { root.renameTargetId = modelData.id; renameField.text = modelData.label; idRenamePopup.open() }
+                    }
+                    LogosButton {
                         visible: modelData.kind === "soft" || modelData.kind === "keycard"; text: "✕"
+                        // Guarded: removing an identity you sign calendars with orphans them (you can no
+                        // longer author there). Confirm + warn how many, instead of firing immediately.
                         onClicked: {
-                            root.loamCore(modelData.kind === "keycard" ? "removeKeycardIdentity" : "removeSoftIdentity", [modelData.id])
-                            root.refreshIdentities()
+                            root.idRemoveId = modelData.id; root.idRemoveKind = modelData.kind
+                            root.idRemoveLabel = modelData.label; root.idRemoveAddr = modelData.address || ""
+                            idRemovePopup.open()
                         }
                     }
                 }
@@ -1192,6 +1227,67 @@ Item {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Close"; onClicked: identitiesPopup.close() }
+            }
+        }
+    }
+
+    // ── rename a soft identity ───────────────────────────────────────────────
+    Popup {
+        id: idRenamePopup
+        anchors.centerIn: Overlay.overlay
+        width: 360; modal: true; padding: Theme.spacing.large
+        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        ColumnLayout {
+            width: parent.width; spacing: Theme.spacing.medium
+            LogosText { text: "Rename identity"; color: Theme.palette.text; font.pixelSize: 16; font.weight: Theme.typography.weightMedium }
+            LogosTextField { id: renameField; Layout.fillWidth: true; placeholderText: "Identity name" }
+            RowLayout {
+                Layout.fillWidth: true; spacing: Theme.spacing.small
+                Item { Layout.fillWidth: true }
+                LogosButton { text: "Cancel"; onClicked: idRenamePopup.close() }
+                LogosButton {
+                    text: "Save"
+                    onClicked: {
+                        var nm = renameField.text.trim()
+                        if (nm.length && root.renameTargetId) { root.loamCore("renameSoftIdentity", [root.renameTargetId, nm]); root.refreshIdentities() }
+                        idRenamePopup.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // ── confirm identity removal (warns if it signs calendars → orphans them) ─
+    Popup {
+        id: idRemovePopup
+        anchors.centerIn: Overlay.overlay
+        width: 400; modal: true; padding: Theme.spacing.large
+        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        readonly property int owned: root.identitySignsCount(root.idRemoveAddr)
+        ColumnLayout {
+            width: parent.width; spacing: Theme.spacing.medium
+            LogosText { text: "Remove “" + root.idRemoveLabel + "”?"; color: Theme.palette.text; font.pixelSize: 16; font.weight: Theme.typography.weightMedium; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            LogosText {
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; font.pixelSize: 13
+                color: idRemovePopup.owned > 0 ? Theme.palette.error : Theme.palette.textTertiary
+                text: idRemovePopup.owned > 0
+                    ? "⚠️ This identity signs " + idRemovePopup.owned + " calendar" + (idRemovePopup.owned === 1 ? "" : "s") + " on this device. Removing it orphans them — you won't be able to author there until you rebind another identity (a calendar's ⚙ → Signs as)."
+                    : (root.idRemoveKind === "keycard"
+                        ? "Forgets this Keycard on this device. The card itself is unchanged; re-enrol to use it again."
+                        : "This soft identity's key is deleted from loam_core and cannot be recovered.")
+            }
+            RowLayout {
+                Layout.fillWidth: true; spacing: Theme.spacing.small
+                Item { Layout.fillWidth: true }
+                LogosButton { text: "Cancel"; onClicked: idRemovePopup.close() }
+                LogosButton {
+                    text: idRemovePopup.owned > 0 ? "Remove anyway" : "Remove"
+                    onClicked: {
+                        root.loamCore(root.idRemoveKind === "keycard" ? "removeKeycardIdentity" : "removeSoftIdentity", [root.idRemoveId])
+                        root.refreshIdentities()
+                        idRemovePopup.close()
+                    }
+                }
             }
         }
     }
@@ -1302,6 +1398,13 @@ Item {
                         }
                     }
                     LogosText { text: "This identity owns the calendar and signs its events."; color: Theme.palette.textTertiary; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    // Explain the divergence when the global default is a Keycard: we pre-select This device
+                    // so creating a calendar doesn't force a card tap. Pick the Keycard chip to own it with the card.
+                    LogosText {
+                        visible: root.createDefaultOwner !== root.defaultIdentityId && root.newCalIdentity === ""
+                        text: "Your default is a 🔑 Keycard — new calendars use This device unless you pick the card, so you're not asked to tap on every calendar."
+                        color: Theme.palette.textTertiary; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    }
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderHairline; Layout.topMargin: 4 }
 
@@ -1387,11 +1490,13 @@ Item {
 
     // ── per-calendar settings popup (name/description, schema, roles) ──────────
     property string setCalId: ""
+    property string calSetIdentity: ""      // the identity currently signing setCalId (for the rebind chips)
     property string setNewType: "text"      // staged field type in the add-row
     property string setNewRole: "editor"    // staged role in the add-member row
 
     function openCalSettings(cal) {
         setCalId = cal.id
+        root.calSetIdentity = root.calendarIdentityId(cal.id)   // which identity signs my events here (rebindable)
         setName.text = cal.name || ""
         setDesc.text = cal.description || ""
         setSchemaModel.clear()
@@ -1498,6 +1603,32 @@ Item {
 
                     LogosText { text: "Description"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                     Field { id: setDesc; Layout.fillWidth: true; placeholderText: "Optional description" }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderHairline; Layout.topMargin: 4 }
+
+                    // ── signing identity (rebind) — which of MY identities signs my events here. The
+                    // OWNER is fixed at creation; this only changes who I author as. Tapping a Keycard
+                    // makes my future writes need a card tap.
+                    LogosText { text: "Signs as"; color: Theme.palette.text; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
+                    Flow {
+                        Layout.fillWidth: true; spacing: Theme.spacing.small
+                        Repeater {
+                            model: root.identities
+                            Rectangle {
+                                radius: Theme.spacing.radiusSmall
+                                color: (root.calSetIdentity === modelData.id) ? Theme.palette.primary : Theme.palette.backgroundSecondary
+                                border.width: 1
+                                border.color: (root.calSetIdentity === modelData.id) ? Theme.palette.primary : Theme.palette.borderHairline
+                                implicitHeight: setIdChipT.implicitHeight + 10; implicitWidth: setIdChipT.implicitWidth + 22
+                                LogosText { id: setIdChipT; anchors.centerIn: parent
+                                    text: (modelData.kind === "keycard" ? "🔑 " : "") + modelData.label; font.pixelSize: 12; color: Theme.palette.text }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: { root.loamCore("bindContainer", [root.setCalId, modelData.id]); root.calSetIdentity = modelData.id; root.refresh() } }
+                            }
+                        }
+                    }
+                    LogosText { text: "Changes who signs your future events on this calendar; the owner is unchanged."
+                        color: Theme.palette.textTertiary; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderHairline; Layout.topMargin: 4 }
 
