@@ -276,8 +276,15 @@ void ScalaImpl::onContextReady() {
         modules().loam_core.setSenderIdAsync(m_identity.empty() ? std::string("scala-default") : m_identity,
                                              [](std::string) {});
         auto fired = std::make_shared<bool>(false);
-        modules().loam_core.onStatusChanged([cb, fired](const std::string& s) {
-            if (s == "Connected" && !*fired) { *fired = true; cb(true, ""); }
+        modules().loam_core.onStatusChanged([this, cb, fired](const std::string& s) {
+            if (s != "Connected") return;
+            if (!*fired) { *fired = true; cb(true, ""); return; }
+            // A RECONNECT ("Connected" again after a drop, or the mesh only NOW has peers). Re-advertise
+            // our id-set so a backlog authored while the node wasn't meshed reaches peers WITHOUT a manual
+            // Basecamp restart — that restart-to-sync was the gap. This fires off the loam_core status
+            // string, so it works even if m_sync->ready() is stale; sendSyncReq no-ops if we still can't
+            // send, so repeating it is safe.
+            for (const auto& c : m_store->calendars()) sendSyncReq(c.id);
         });
         modules().loam_core.startAsync(cfg, [](std::string err) {
             if (!err.empty()) fprintf(stderr, "[scala] loam_core.start: %s\n", err.c_str());
@@ -350,8 +357,8 @@ void ScalaImpl::onContextReady() {
     // module's event-loop thread; sendSyncReq is a no-op until the node is ready.
     for (int ms : {3000, 10000, 25000})
         QTimer::singleShot(ms, [this]{
-            if (m_sync && m_sync->ready())
-                for (const auto& c : m_store->calendars()) sendSyncReq(c.id);
+            if (m_sync)   // no ready() gate: sendSyncReq self-no-ops if the node can't send yet, and a
+                for (const auto& c : m_store->calendars()) sendSyncReq(c.id);   // stale ready() must not suppress catch-up
         });
 
     // PERIODIC catch-up (parity with qaku_core's m_hubTimer): the 3/10/25s ladder only covers
@@ -361,7 +368,7 @@ void ScalaImpl::onContextReady() {
     if (!m_resyncTimer) {
         m_resyncTimer = new QTimer();
         QObject::connect(m_resyncTimer, &QTimer::timeout, m_resyncTimer, [this]{
-            if (m_sync && m_sync->ready())
+            if (m_sync)   // no ready() gate (see the ladder above): a stale ready() must not stop the 30s re-serve
                 for (const auto& c : m_store->calendars()) sendSyncReq(c.id);
         });
         m_resyncTimer->start(30000);
@@ -399,7 +406,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.6"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.8"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
