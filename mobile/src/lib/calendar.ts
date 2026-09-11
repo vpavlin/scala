@@ -3,6 +3,7 @@
 // events into the log, and folds for the UI — the exact model the desktop core
 // (scala_impl.cpp publishAndApply / applyIncoming) uses. Also parses/builds the
 // `scala://` invite links the desktop uses to share a calendar's key.
+import { AppState } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { fromByteArray, toByteArray } from "base64-js";
@@ -348,6 +349,29 @@ export async function setSharedNode(on: boolean): Promise<void> {
 }
 
 /** Bring sync up on every shared calendar we hold a key for. */
+// ── periodic, foreground-gated self-reconcile ────────────────────────────────
+// The startup ladder (askAll at 0/9/24s, pull at 2/12s) only covers the mesh warm-up;
+// after it the phone goes silent, so a peer's event authored LATER isn't pulled until
+// something re-triggers (pre-fix, a desktop restart). Rather than lean on peers pushing,
+// the phone asks for what it's missing on its own: re-send the bounded RBSR fingerprint
+// (sendSyncReq — ~1KB, zero follow-up when already converged) + re-pull the fleet store.
+// Gated on AppState "active" so it costs no battery/data in the background, and fires an
+// immediate reconcile the moment the app is foregrounded (when the user is actually looking).
+const RECONCILE_MS = 45000;
+let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+let appStateSub: { remove: () => void } | null = null;
+async function reconcileAll(): Promise<void> {
+  if (AppState.currentState !== "active") return; // idle in background
+  for (const r of await store.getRegistry()) if (r.key) sendSyncReq(r.id).catch(() => {});
+  sync.storeSync().catch(() => {});
+}
+function ensurePeriodicReconcile(): void {
+  if (reconcileTimer) return; // idempotent — startSyncing runs again on every join
+  reconcileTimer = setInterval(() => { reconcileAll().catch(() => {}); }, RECONCILE_MS);
+  // Foregrounding is the highest-value moment to catch up (the user is watching) — do it at once.
+  appStateSub = AppState.addEventListener("change", (s) => { if (s === "active") reconcileAll().catch(() => {}); });
+}
+
 export async function startSyncing(shared?: boolean, onStatus?: (s: string) => void): Promise<void> {
   const useShared = shared ?? (await getSharedNode());
   const regs = await store.getRegistry();
@@ -369,6 +393,9 @@ export async function startSyncing(shared?: boolean, onStatus?: (s: string) => v
   const pull = () => { sync.storeSync().catch(() => {}); };
   setTimeout(pull, 2000);
   setTimeout(pull, 12000);
+  // After the warm-up ladder, keep reconciling on our own (foreground-gated) so late peer
+  // events arrive without relying on a peer to push or on an app restart.
+  ensurePeriodicReconcile();
 }
 
 // ── tiny change bus so the UI can refresh after inbound/outbound edits ───────
