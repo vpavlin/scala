@@ -154,11 +154,14 @@ export default function App() {
   // the Keycard identity is writable even when the global default is the device key. meFor maps
   // calId → that authoring address; falls back to `me` until resolved.
   const [meFor, setMeFor] = useState<Record<string, string>>({});
+  const [kcFor, setKcFor] = useState<Record<string, boolean>>({}); // calId → signed by a Keycard (edits need a card tap)
   useEffect(() => {
     let alive = true;
     (async () => {
-      const entries = await Promise.all(cals.map(async (c) => [c.id, (await identityForCalendar(c.id)).address] as const));
-      if (alive) setMeFor(Object.fromEntries(entries));
+      const metas = await Promise.all(cals.map(async (c) => [c.id, await identityForCalendar(c.id)] as const));
+      if (!alive) return;
+      setMeFor(Object.fromEntries(metas.map(([id, m]) => [id, m.address])));
+      setKcFor(Object.fromEntries(metas.map(([id, m]) => [id, m.kind === "keycard"])));
     })();
     return () => { alive = false; };
   }, [cals, identities]);
@@ -544,6 +547,7 @@ export default function App() {
                       {!!aliasMap[c.id] && <Text style={s.roleBadge}>alias</Text>}
                       {c.rolesConfigured && <Text style={s.roleBadge}>{roleOf(c)}</Text>}
                       {!canAddTo(c) && <Text style={[s.roleBadge, { color: "#f9e2af", borderColor: "#f9e2af" }]}>read-only</Text>}
+                      {kcFor[c.id] && <Text style={[s.roleBadge, { color: C.accent, borderColor: C.accent }]}>🔑 tap to edit</Text>}
                       <SyncChip calId={c.id} />
                     </View>
                     {!!c.description && <Text style={s.sub} numberOfLines={2}>{c.description}</Text>}

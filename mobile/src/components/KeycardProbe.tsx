@@ -2,7 +2,7 @@
 // new calendars, plus the on-demand PIN modal and the "hold your card" tap overlay. All loam-keycard
 // / identities imports are dynamic so a build without the native module can't crash startup.
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, Platform, Alert } from "react-native";
 import { KeycardPinGate as UIPinGate, KeycardTapOverlay as UITapOverlay, KeycardEnrollModal, KeycardUIController, KeycardTheme } from "../lib/loam-keycard/ui";
 
 // Bridge the reusable loam-keycard UI kit to scala's signer. Dynamic imports keep a build without
@@ -22,6 +22,7 @@ export function IdentitiesPanel() {
   const [kc, setKc] = useState({ enrolled: false, session: false, status: "" });
   const [setupKc, setSetupKc] = useState(false);
   const [newLabel, setNewLabel] = useState(""); const [adding, setAdding] = useState(false);
+  const [renameId, setRenameId] = useState(""); const [renameLabel, setRenameLabel] = useState("");
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState("");
 
   const refresh = useCallback(async () => {
@@ -43,8 +44,45 @@ export function IdentitiesPanel() {
   const setDefault = (id: string) => wrap(async () => { const I = await import("../lib/identities"); await I.setDefaultIdentityId(id); return "default identity updated"; })();
   const addSoft = wrap(async () => { const I = await import("../lib/identities"); const m = await I.addSoftIdentity(newLabel.trim() || "Identity"); setNewLabel(""); setAdding(false); return "added " + m.label; });
   const removeSoft = (id: string) => wrap(async () => { const I = await import("../lib/identities"); await I.removeSoftIdentity(id); return "removed"; })();
+  const doRename = wrap(async () => { const I = await import("../lib/identities"); await I.renameSoftIdentity(renameId, renameLabel.trim() || "Identity"); setRenameId(""); return "renamed"; });
   const lock = wrap(async () => { const s = await import("../lib/loam-keycard/scala-signer"); s.lockKeycard(); return "locked"; });
   const forgetKc = wrap(async () => { const s = await import("../lib/loam-keycard/scala-signer"); await s.unenroll(); return "Keycard removed"; });
+
+  // How many calendars this identity currently signs on this device — removing it orphans them.
+  const countSignedBy = async (addr: string): Promise<number> => {
+    try {
+      const { store } = await import("../lib/store");
+      const I = await import("../lib/identities");
+      const regs = await store.getRegistry();
+      let n = 0;
+      for (const c of regs) { try { if ((await I.identityForCalendar(c.id)).address === addr) n++; } catch { /* skip */ } }
+      return n;
+    } catch { return 0; }
+  };
+  // Guarded removal: confirm, and warn when the identity signs calendars (orphans them).
+  const confirmRemove = (m: { id: string; label: string; address: string }) => async () => {
+    const n = await countSignedBy(m.address);
+    const warn = n > 0
+      ? `⚠️ "${m.label}" signs ${n} calendar${n === 1 ? "" : "s"} on this device. Removing it orphans them — you won't be able to author there until you rebind another identity (a calendar's ⚙ → "Signs as").`
+      : "This soft identity's key is deleted from loam and cannot be recovered.";
+    Alert.alert(`Remove "${m.label}"?`, warn, [
+      { text: "Cancel", style: "cancel" },
+      { text: n > 0 ? "Remove anyway" : "Remove", style: "destructive", onPress: () => removeSoft(m.id) },
+    ]);
+  };
+  const confirmForget = () => {
+    const kcm = ids.find((m) => m.kind === "keycard");
+    (async () => {
+      const n = kcm ? await countSignedBy(kcm.address) : 0;
+      const warn = n > 0
+        ? `⚠️ Your Keycard signs ${n} calendar${n === 1 ? "" : "s"} on this device. Forgetting it orphans them until you rebind another identity (a calendar's ⚙ → "Signs as").`
+        : "Forgets this Keycard on this device. The card itself is unchanged; re-enrol to use it again.";
+      Alert.alert("Forget Keycard?", warn, [
+        { text: "Cancel", style: "cancel" },
+        { text: n > 0 ? "Forget anyway" : "Forget", style: "destructive", onPress: forgetKc },
+      ]);
+    })();
+  };
 
   const defLabel = ids.find((m) => m.id === def)?.label || "—";
   return (
@@ -56,11 +94,18 @@ export function IdentitiesPanel() {
       {!open ? null : (<>
       {ids.map((m) => (
         <View key={m.id} style={st.idRow}>
-          <Pressable style={{ flex: 1 }} onPress={() => setDefault(m.id)} disabled={busy}>
-            <Text style={st.idLabel}>{m.id === def ? "★ " : "  "}{m.label} <Text style={st.badge}>{m.kind}</Text></Text>
-            <Text style={st.addr}>{m.address.slice(0, 14)}…{m.address.slice(-4)}</Text>
-          </Pressable>
-          {m.kind === "soft" ? <Pressable onPress={() => removeSoft(m.id)} disabled={busy} hitSlop={8}><Text style={st.forget}>✕</Text></Pressable> : null}
+          {renameId === m.id ? (<>
+            <TextInput style={[st.in, { flex: 1, marginBottom: 0 }]} value={renameLabel} onChangeText={setRenameLabel} autoFocus placeholderTextColor="#6c7086" />
+            <Pressable onPress={doRename} disabled={busy} hitSlop={8}><Text style={st.save}>save</Text></Pressable>
+            <Pressable onPress={() => setRenameId("")} hitSlop={8}><Text style={st.forget}>✕</Text></Pressable>
+          </>) : (<>
+            <Pressable style={{ flex: 1 }} onPress={() => setDefault(m.id)} disabled={busy}>
+              <Text style={st.idLabel}>{m.id === def ? "★ " : "  "}{m.label} <Text style={st.badge}>{m.kind === "keycard" ? "🔑 keycard" : m.kind}</Text></Text>
+              <Text style={st.addr}>{m.address.slice(0, 14)}…{m.address.slice(-4)}</Text>
+            </Pressable>
+            {m.kind === "soft" ? <Pressable onPress={() => { setRenameId(m.id); setRenameLabel(m.label); }} disabled={busy} hitSlop={8}><Text style={st.editIcon}>✎</Text></Pressable> : null}
+            {m.kind === "soft" ? <Pressable onPress={confirmRemove(m)} disabled={busy} hitSlop={8}><Text style={st.forget}>✕</Text></Pressable> : null}
+          </>)}
         </View>
       ))}
       <Text style={st.hint}>★ = default for new calendars. Tap an identity to make it the default.</Text>
@@ -78,7 +123,7 @@ export function IdentitiesPanel() {
         {kc.enrolled ? (
           <View style={st.row}>
             {kc.session ? <Pressable style={[st.btn, st.ghost]} onPress={lock}><Text style={st.btnT}>Lock</Text></Pressable> : <Text style={st.hint}>edit a card-bound calendar → asks for your PIN</Text>}
-            <Pressable onPress={forgetKc} hitSlop={8}><Text style={st.forget}>forget</Text></Pressable>
+            <Pressable onPress={confirmForget} hitSlop={8}><Text style={st.forget}>forget</Text></Pressable>
           </View>
         ) : null}
       </View>
@@ -120,6 +165,8 @@ const st = StyleSheet.create({
   dim: { opacity: 0.5 },
   btnT: { color: "#1e1e2e", fontWeight: "700" },
   forget: { color: "#f38ba8", fontSize: 13, paddingHorizontal: 10 },
+  editIcon: { color: "#9399b2", fontSize: 14, paddingHorizontal: 8 },
+  save: { color: "#a6e3a1", fontSize: 13, fontWeight: "700", paddingHorizontal: 8 },
   kcBox: { marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#45475a" },
   kcH: { color: "#9399b2", fontSize: 12, marginBottom: 8 },
   r: { color: "#a6e3a1", marginTop: 10, fontFamily: Platform.OS === "ios" ? "Courier" : "monospace", fontSize: 12 },
