@@ -92,7 +92,9 @@ Item {
         var s = root.j(root.core("keycardState", []), { active: false })
         var prevPhase = root.kc.phase, prevRef = root.kc.ref
         root.kc = s
-        if (s.phase === "pending") { if (!keycardOverlay.visible) keycardOverlay.open() }
+        // Reopen while pending — BUT not for a ref the user already cancelled (Cancel sets kcLastRef),
+        // else closing the overlay just re-opens it on the next tick = an inescapable trap.
+        if (s.phase === "pending" && s.ref !== root.kcLastRef) { if (!keycardOverlay.visible) keycardOverlay.open() }
         else if (s.ref && (s.ref !== root.kcLastRef)) {          // a terminal result we haven't shown yet
             root.kcLastRef = s.ref
             if (s.phase === "done") { keycardOverlay.close(); root.refresh() }
@@ -1196,7 +1198,18 @@ Item {
 
     // ── new-calendar popup ───────────────────────────────────────────────────
     property bool newCalOpen: false         // default CLOSED — opening a calendar up is a deliberate choice
-    property string newCalIdentity: ""      // "author as" (loam identity) — "" = default
+    property string newCalIdentity: ""      // "author as" (loam identity) — "" = pick createDefaultOwner
+    // The owner a NEW calendar gets when the user hasn't explicitly tapped a chip: the global default —
+    // UNLESS that default is a keycard. A keycard must be an EXPLICIT choice, never the silent default,
+    // or a keycard-default user is forced into a card tap just to create a calendar (and, pre-fix, trapped
+    // in the sign overlay). Mirrors loam's own "a keycard default never silently signs" rule. Soft/device
+    // defaults are still honored (WYSIWYG). Re-evaluates when identities/default change.
+    readonly property string createDefaultOwner: {
+        var d = root.defaultIdentityId
+        for (var i = 0; i < root.identities.length; i++)
+            if (root.identities[i].id === d) return root.identities[i].kind === "keycard" ? "device" : d
+        return d
+    }
     property string joinIdentity: ""         // "author as" for a joined calendar
     property string ncNewType: "text"   // staged field type in the new-calendar add-row
     // Add a custom field to the NEW-calendar schema (mirrors addSchemaField).
@@ -1225,11 +1238,10 @@ Item {
             // listCalendars) or the id comes back quoted and updateCalendarMeta targets the
             // WRONG calendar, so description/custom-fields silently never save on create.
             // Color is DERIVED from the calendar id (calColor), never chosen — pass "".
-            // Bind the RESOLVED identity — the explicit pick, or (nothing picked) the highlighted
-            // default. Passing "" would leave the calendar unbound, and loam never signs with a keycard
-            // via the default, so a keycard default would silently fall back to device. WYSIWYG: the
-            // highlighted chip is what owns + signs the calendar.
-            var id = String(root.j(root.core("createCalendar", [newCalName.text.trim(), "", (root.newCalIdentity || root.defaultIdentityId)]), ""))
+            // Bind the RESOLVED owner — the explicit pick, or (nothing picked) createDefaultOwner
+            // (the global default, but never silently a keycard). WYSIWYG: the highlighted chip owns +
+            // signs the calendar; a keycard only owns it if the user explicitly taps it.
+            var id = String(root.j(root.core("createCalendar", [newCalName.text.trim(), "", (root.newCalIdentity || root.createDefaultOwner)]), ""))
             if (id === "") { newCalPopup.close(); root.refresh(); return }
             var sch = []
             for (var i = 0; i < newCalSchemaModel.count; i++) {
@@ -1280,9 +1292,9 @@ Item {
                                 // selected = explicitly picked, or (nothing picked yet) the default. Inlined
                                 // like the working field-type chips so the binding re-evaluates on click.
                                 radius: Theme.spacing.radiusSmall
-                                color: (root.newCalIdentity === modelData.id || (root.newCalIdentity === "" && modelData.id === root.defaultIdentityId)) ? Theme.palette.primary : Theme.palette.backgroundSecondary
+                                color: (root.newCalIdentity === modelData.id || (root.newCalIdentity === "" && modelData.id === root.createDefaultOwner)) ? Theme.palette.primary : Theme.palette.backgroundSecondary
                                 border.width: 1
-                                border.color: (root.newCalIdentity === modelData.id || (root.newCalIdentity === "" && modelData.id === root.defaultIdentityId)) ? Theme.palette.primary : Theme.palette.borderHairline
+                                border.color: (root.newCalIdentity === modelData.id || (root.newCalIdentity === "" && modelData.id === root.createDefaultOwner)) ? Theme.palette.primary : Theme.palette.borderHairline
                                 implicitHeight: chipT.implicitHeight + 10; implicitWidth: chipT.implicitWidth + 22
                                 LogosText { id: chipT; anchors.centerIn: parent; text: modelData.label; font.pixelSize: 12; color: Theme.palette.text }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.newCalIdentity = modelData.id }
