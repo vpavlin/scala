@@ -25,7 +25,8 @@
       "./src/lib/loam-transport-pkg/plugins/withDeliveryClient.js",
       "@react-native-community/datetimepicker",
       "expo-notifications",
-      "./plugins/withScalaWidget"
+      "./plugins/withScalaWidget",
+      "./plugins/withLogosStorage"
     ],
     "extra": {
       "comment": "versionCode here is source of truth; assert it matches android/app/build.gradle after prebuild."
