@@ -18,18 +18,24 @@ let ctx: string | null = null;
 
 export interface StorageConfig {
   "log-level"?: string;
-  "data-dir": string; // a writable dir (e.g. <documentDir>/codex)
+  "data-dir"?: string; // a writable dir; defaults to <app filesDir>/codex
   network?: string; // "logos.test"
   "listen-port"?: number;
   "bootstrap-node"?: string[];
 }
 
+/** The app-internal writable base dir (from the native side; no expo-file-system dep). */
+export async function filesDir(): Promise<string> {
+  return LS.filesDir();
+}
+
 /** Create + start the node. Idempotent-ish: a second call returns the existing ctx. */
-export async function init(cfg: StorageConfig): Promise<string> {
+export async function init(cfg: StorageConfig = {}): Promise<string> {
   if (!LS) throw new Error("LogosStorage native module unavailable in this build");
   if (ctx) return ctx;
   await LS.setup();
-  const json = JSON.stringify({ "log-level": "WARN", network: "logos.test", ...cfg });
+  const dataDir = cfg["data-dir"] ?? `${await LS.filesDir()}/codex`;
+  const json = JSON.stringify({ "log-level": "WARN", network: "logos.test", ...cfg, "data-dir": dataDir });
   ctx = (await LS.newNode(json)) as string;
   await LS.start(ctx);
   return ctx;

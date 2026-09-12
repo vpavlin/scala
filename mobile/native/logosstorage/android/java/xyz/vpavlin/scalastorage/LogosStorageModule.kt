@@ -116,6 +116,13 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
   fun downloadToFile(ctx: String, cid: String, chunkSize: Double, local: Boolean, filePath: String, promise: Promise) =
     bg(promise, "storage_download_stream") { storageDownloadStream(BigInteger(ctx).toLong(), cid, chunkSize.toLong(), local, filePath) }
 
+  // App-internal writable dir — the base for libstorage's data-dir (no expo-file-system dep needed).
+  @ReactMethod
+  fun filesDir(promise: Promise) {
+    try { promise.resolve(reactApplicationContext.filesDir.absolutePath) }
+    catch (t: Throwable) { promise.reject("files_dir", t.message ?: "failed") }
+  }
+
   @ReactMethod fun addListener(eventName: String) { /* no-op (RN event-emitter contract) */ }
   @ReactMethod fun removeListeners(count: Int) { /* no-op */ }
 }

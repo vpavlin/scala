@@ -25,6 +25,7 @@ import { EventModal, EventDraft } from "./src/components/EventModal";
 import { Drawer } from "./src/components/Drawer";
 import { IdentitiesPanel, KeycardTapOverlay, KeycardPinGate } from "./src/components/KeycardProbe";
 import { listIdentities, getDefaultIdentityId, identityForCalendar } from "./src/lib/identities";
+import * as codexStorage from "./src/lib/logos-storage";
 import * as sstat from "./src/lib/syncstatus";
 
 // Per-calendar sync freshness chip (offline / syncing N / up-to-date), fed by syncstatus.ts.
@@ -534,6 +535,21 @@ export default function App() {
                   identities, set the default, and share an address so an owner can grant a role. */}
               <Text style={s.pLabel}>Your identities</Text>
               <IdentitiesPanel />
+
+              {/* DEV: one-tap Codex fetch-client smoke — start the node + read spr. Remove once wired. */}
+              <Text style={s.pLabel}>Codex storage (dev)</Text>
+              <Pressable style={s.calRow} onPress={() => { void (async () => {
+                if (!codexStorage.available()) { Alert.alert("Codex", "Native module not in this build (x86_64 emulator?)"); return; }
+                try {
+                  Alert.alert("Codex", "Starting node… (first start can take ~10s)");
+                  await codexStorage.init({});
+                  const v = await codexStorage.version();
+                  const spr = await codexStorage.spr();
+                  Alert.alert("Codex OK ✅", `version: ${v}\nspr: ${spr.slice(0, 72)}…`);
+                } catch (e: any) { Alert.alert("Codex FAILED ❌", String(e?.message || e)); }
+              })(); }}>
+                <Text style={s.calName}>🧪 Codex storage smoke (start + spr)</Text>
+              </Pressable>
 
               <Text style={s.pLabel}>Your calendars</Text>
               {cals.length === 0 && <Text style={s.sub}>None yet.</Text>}
