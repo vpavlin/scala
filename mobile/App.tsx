@@ -555,11 +555,16 @@ export default function App() {
                 if (!codexStorage.available()) { Alert.alert("Codex", "Native module not in this build"); return; }
                 const CID = "zDvZRwzmAZ35ys1juAVEMsss158X5M3QfPMnwHdPbEMfiTdQkqWu";
                 const PEER = "16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL";
-                const ADDR = "/ip4/198.19.224.254/tcp/8070/p2p/16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL";
+                // Reach the box by the mesh HOSTNAME (routes like jimmy-crib.mesh:8099 does) — the raw
+                // overlay IP only works on the box's LAN. Try both (libp2p picks a working one).
+                const ADDRS = [
+                  `/dns4/jimmy-crib.mesh/tcp/8070/p2p/${PEER}`,
+                  `/ip4/198.19.224.254/tcp/8070/p2p/${PEER}`,
+                ];
                 try {
                   await codexStorage.init({});
                   Alert.alert("Codex", "node up — dialing the box seeder…");
-                  await codexStorage.connect(PEER, [ADDR]);
+                  await codexStorage.connect(PEER, ADDRS);
                   const dir = await codexStorage.filesDir();
                   const content = await codexStorage.downloadToFile(CID, `${dir}/fetched.txt`, { local: false });
                   Alert.alert("Codex FETCH ✅", content ? `got: ${content}` : "(downloaded, empty content)");
