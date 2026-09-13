@@ -83,8 +83,9 @@ export async function downloadToFile(
   cid: string,
   filePath: string,
   opts?: { chunkSize?: number; local?: boolean },
-): Promise<void> {
-  await LS.downloadToFile(need(), cid, opts?.chunkSize ?? 65536, opts?.local ?? false, filePath);
+): Promise<string> {
+  // Resolves with the downloaded content (the native terminal callback carries it) AND writes filePath.
+  return LS.downloadToFile(need(), cid, opts?.chunkSize ?? 65536, opts?.local ?? false, filePath);
 }
 
 /** Stop + close + destroy the node (best-effort). */

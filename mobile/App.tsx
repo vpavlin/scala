@@ -550,6 +550,23 @@ export default function App() {
               })(); }}>
                 <Text style={s.calName}>🧪 Codex storage smoke (start + spr)</Text>
               </Pressable>
+              {/* DEV: cross-node FETCH test — dial the box seeder + download its CID over Codex. */}
+              <Pressable style={s.calRow} onPress={() => { void (async () => {
+                if (!codexStorage.available()) { Alert.alert("Codex", "Native module not in this build"); return; }
+                const CID = "zDvZRwzmAZ35ys1juAVEMsss158X5M3QfPMnwHdPbEMfiTdQkqWu";
+                const PEER = "16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL";
+                const ADDR = "/ip4/198.19.224.254/tcp/8070/p2p/16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL";
+                try {
+                  await codexStorage.init({});
+                  Alert.alert("Codex", "node up — dialing the box seeder…");
+                  await codexStorage.connect(PEER, [ADDR]);
+                  const dir = await codexStorage.filesDir();
+                  const content = await codexStorage.downloadToFile(CID, `${dir}/fetched.txt`, { local: false });
+                  Alert.alert("Codex FETCH ✅", content ? `got: ${content}` : "(downloaded, empty content)");
+                } catch (e: any) { Alert.alert("Codex FETCH ❌", String(e?.message || e)); }
+              })(); }}>
+                <Text style={s.calName}>⬇️ Codex fetch test (pull CID from the box)</Text>
+              </Pressable>
 
               <Text style={s.pLabel}>Your calendars</Text>
               {cals.length === 0 && <Text style={s.sub}>None yet.</Text>}
