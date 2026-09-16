@@ -112,7 +112,7 @@ jobs:
         run: cd scala-ui && nix flake metadata --no-update-lock-file --override-input scala path:..
 
   test-engines:
-    name: "Engine tests (fold parity, crypto, interop, catch-up)"
+    name: "Engine tests (fold parity, crypto, interop, catch-up, roles/permissions)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
