@@ -6,7 +6,7 @@
     # core and host stay on one SDK. An unpinned builder was building the view
     # against a different rev than the core — part of why it never loaded.
     logos-module-builder.url = "github:logos-co/logos-module-builder/afe4430ee6eb7ba45c08a516a43e18500720c715";
-    scala.url = "github:jimmy-claw/scala";
+    scala.url = "github:vpavlin/scala";
     scala.inputs.logos-module-builder.follows = "logos-module-builder";
   };
 

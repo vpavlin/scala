@@ -13,3 +13,5 @@ Makefile.cmake
 result
 .direnv/
 modules/
+result-*
+scala-ui/result-*
