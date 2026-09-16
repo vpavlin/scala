@@ -110,3 +110,25 @@ jobs:
 
       - name: Check flake metadata (UI)
         run: cd scala-ui && nix flake metadata --no-update-lock-file --override-input scala path:..
+
+  test-engines:
+    name: "Engine tests (fold parity, crypto, interop, catch-up)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      # Build the core so nlohmann_json + openssl land in /nix/store — the C++ harnesses
+      # (fold_cpp / catchup_cpp) discover their includes there.
+      - name: Populate C++ deps
+        run: nix build -L .
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install mobile deps
+        run: cd mobile && npm install --no-audit --no-fund
+      - name: Run engine parity + convergence tests
+        run: cd mobile && npm test

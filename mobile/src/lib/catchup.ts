@@ -9,7 +9,7 @@
 // (logos-sync docs/PARITY.md), or a phone and a desktop silently fail to converge.
 import { sha256 } from "@noble/hashes/sha2.js";
 import { utf8ToBytes, bytesToHex } from "@noble/hashes/utils.js";
-import { Event } from "./engine";
+import type { Event } from "./engine";
 
 // Order-independent range fingerprint: XOR of SHA-256(id) over 32 bytes, then
 // SHA-256(acc ‖ uint32_be(count))[0..16], hex. Identical bytes to the C++ mirror.
