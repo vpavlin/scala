@@ -112,9 +112,26 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
     bg(promise, "storage_download_init") { storageDownloadInit(BigInteger(ctx).toLong(), cid, chunkSize.toLong(), local) }
 
   // Fetch a CID to a file on disk (the BlobBackend.get path — JS then reads filePath).
+  // libstorage requires download_init (creates the download SESSION for the cid) BEFORE
+  // download_stream — calling stream alone fails with "no session for cid". Chain both here so
+  // the JS side stays a single call.
   @ReactMethod
-  fun downloadToFile(ctx: String, cid: String, chunkSize: Double, local: Boolean, filePath: String, promise: Promise) =
-    bg(promise, "storage_download_stream") { storageDownloadStream(BigInteger(ctx).toLong(), cid, chunkSize.toLong(), local, filePath) }
+  fun downloadToFile(ctx: String, cid: String, chunkSize: Double, local: Boolean, filePath: String, promise: Promise) {
+    Thread {
+      try {
+        val c = BigInteger(ctx).toLong()
+        val init = JSONObject(storageDownloadInit(c, cid, chunkSize.toLong(), local))
+        if (!init.optBoolean("ok", false)) {
+          promise.reject("storage_download_init", init.optString("err", "download init failed")); return@Thread
+        }
+        val stream = JSONObject(storageDownloadStream(c, cid, chunkSize.toLong(), local, filePath))
+        if (stream.optBoolean("ok", false)) promise.resolve(stream.optString("msg", ""))
+        else promise.reject("storage_download_stream", stream.optString("err", "storage error"))
+      } catch (t: Throwable) {
+        promise.reject("storage_download_stream", t.message ?: "storage call failed")
+      }
+    }.start()
+  }
 
   // App-internal writable dir — the base for libstorage's data-dir (no expo-file-system dep needed).
   @ReactMethod
