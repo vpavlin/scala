@@ -5,7 +5,7 @@ import {
   Modal, View, Text, TextInput, Pressable, ScrollView, Platform, StyleSheet, KeyboardAvoidingView,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { CalEvent } from "../lib/store";
+import { CalEvent, Attachment } from "../lib/store";
 import { Recur, Freq, recurLabel } from "../lib/recur";
 
 const FREQS: { key: Freq | "none"; label: string }[] = [
@@ -34,6 +34,7 @@ export interface EventDraft {
   reminderMin?: number;
   recur?: Recur;
   fields?: Record<string, any>; // #8: custom schema field values
+  attachments?: Attachment[];   // ADR 0017: files in Logos Storage (desktop uploads; phone fetches)
 }
 
 export interface CalOption { id: string; name: string; color: string }
@@ -42,7 +43,7 @@ export interface HistoryEntry { author: string; at: number; action: string; payl
 
 export function EventModal({
   visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onClose,
-  schema = [], loadHistory, canEdit = true, readonlyReason,
+  schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment,
 }: {
   visible: boolean;
   initial: EventDraft;
@@ -57,6 +58,7 @@ export function EventModal({
   loadHistory?: () => Promise<HistoryEntry[]>; // #4: async edit-history loader (when editing)
   canEdit?: boolean;             // false = viewer on a role-managed calendar → read-only
   readonlyReason?: string;       // specific "why you can't edit" copy (owner/identity mismatch, closed, viewer)
+  onOpenAttachment?: (att: Attachment) => void; // fetch+decrypt+open a Logos Storage attachment
 }) {
   const [title, setTitle] = useState(initial.title);
   const [start, setStart] = useState(new Date(initial.startTime));
@@ -69,6 +71,7 @@ export function EventModal({
   const [reminderMin, setReminderMin] = useState(initial.reminderMin ?? 10);
   const [recur, setRecur] = useState<Recur | undefined>(initial.recur);
   const [fields, setFields] = useState<Record<string, any>>(initial.fields || {});
+  const [attachments, setAttachments] = useState<Attachment[]>(initial.attachments || []);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pick, setPick] = useState<null | { which: "start" | "end" | "until"; mode: "date" | "time" }>(null);
   const [calOpen, setCalOpen] = useState(false); // #6: select-box dropdown open?
@@ -82,6 +85,7 @@ export function EventModal({
       setEnd(new Date(initial.endTime));
       setDesc(initial.description || "");
       setLocation(initial.location || "");
+      setAttachments(initial.attachments || []);
       setUrl(initial.url || "");
       setAllDay(!!initial.allDay);
       setReminderMin(initial.reminderMin ?? 10);
@@ -161,6 +165,7 @@ export function EventModal({
       reminderMin,
       recur,
       fields: schema.length ? fields : undefined,
+      attachments: attachments.length ? attachments : undefined,   // preserve (mobile doesn't author yet)
     });
   };
 
@@ -235,6 +240,25 @@ export function EventModal({
 
             <Text style={s.label}>Meeting link</Text>
             <TextInput style={s.input} value={url} editable={canEdit} onChangeText={setUrl} placeholder="https://…" placeholderTextColor={C.sub} autoCapitalize="none" keyboardType="url" />
+
+            {attachments.length > 0 && (
+              <>
+                <Text style={s.label}>Attachments</Text>
+                {attachments.map((a, i) => (
+                  <Pressable
+                    key={a.storageCid || a.blobId || String(i)}
+                    onPress={() => onOpenAttachment && onOpenAttachment(a)}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border }}
+                  >
+                    <Text style={{ color: C.primary, fontSize: 15, flex: 1 }} numberOfLines={1}>
+                      📎 {a.name || "file"}
+                      {a.size ? `  (${a.size < 1024 ? a.size + " B" : a.size < 1048576 ? (a.size / 1024).toFixed(1) + " KB" : (a.size / 1048576).toFixed(1) + " MB"})` : ""}
+                    </Text>
+                    <Text style={{ color: C.sub, fontSize: 12 }}>{a.storageCid ? "Download ⬇" : "…"}</Text>
+                  </Pressable>
+                ))}
+              </>
+            )}
 
             <Text style={s.label}>Reminder</Text>
             <View style={s.calRow}>

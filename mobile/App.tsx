@@ -26,6 +26,9 @@ import { Drawer } from "./src/components/Drawer";
 import { IdentitiesPanel, KeycardTapOverlay, KeycardPinGate } from "./src/components/KeycardProbe";
 import { listIdentities, getDefaultIdentityId, identityForCalendar } from "./src/lib/identities";
 import * as codexStorage from "./src/lib/logos-storage";
+import { open as openSealed } from "./src/lib/crypto";
+import { toByteArray, fromByteArray } from "base64-js";
+import type { Attachment } from "./src/lib/store";
 import * as sstat from "./src/lib/syncstatus";
 
 // Per-calendar sync freshness chip (offline / syncing N / up-to-date), fed by syncstatus.ts.
@@ -413,6 +416,7 @@ export default function App() {
     const common = {
       title: d.title, startTime: d.startTime, endTime: d.endTime, description: d.description,
       location: d.location, url: d.url, allDay: d.allDay, reminderMin: d.reminderMin, recur: d.recur, fields: d.fields,
+      attachments: d.attachments,   // ADR 0017 — preserve attachment refs through edits
     };
     try {
       if (modal.editing) await updateEvent({ ...modal.editing, ...common });
@@ -423,6 +427,31 @@ export default function App() {
   const removeEvent = async () => {
     if (!modal.editing) return;
     try { await deleteEvent(modal.editing); setModal((m) => ({ ...m, open: false })); } catch (e: any) { onKeycardAbort(e, () => removeEvent()); }
+  };
+  // ADR 0017: fetch a sealed attachment from Logos Storage, decrypt it with the calendar key, save.
+  const openAttachment = async (att: Attachment) => {
+    const cal = cals.find((c) => c.id === modal.calId);
+    if (!cal?.encryptionKey) { Alert.alert("Attachment", "This calendar has no key — can't decrypt."); return; }
+    if (!att.storageCid) { Alert.alert("Attachment", "Not uploaded yet (no CID)."); return; }
+    if (!codexStorage.available()) { Alert.alert("Attachment", "Storage module not in this build."); return; }
+    try {
+      Alert.alert("Attachment", `Fetching ${att.name || att.storageCid.slice(0, 12)}…`);
+      await codexStorage.init({ "bootstrap-node": [codexBoot.trim()] });   // ride our own Loam Storage network
+      const dir = await codexStorage.filesDir();
+      const sealedPath = `${dir}/attach-dl/${att.storageCid}.sealed`;
+      await codexStorage.downloadToFile(att.storageCid, sealedPath, { local: false });
+      const sealed = toByteArray(await codexStorage.readFileB64(sealedPath));
+      const plain = openSealed(cal.encryptionKey, sealed);
+      if (!plain) { Alert.alert("Attachment ❌", "Decrypt failed (wrong calendar key?)."); return; }
+      const outPath = `${dir}/attachments/${att.name || att.storageCid}`;
+      await codexStorage.writeFileB64(outPath, fromByteArray(plain));
+      // Text preview if it looks like UTF-8; otherwise just confirm the bytes landed.
+      let preview = "";
+      try { const t = new TextDecoder("utf-8", { fatal: true }).decode(plain); if (t.length <= 500) preview = "\n\n" + t; } catch { /* binary */ }
+      Alert.alert("Attachment ✅", `Decrypted ${att.name || "file"} (${plain.length} bytes)\nSaved: ${outPath}${preview}`);
+    } catch (e: any) {
+      Alert.alert("Attachment ❌", `[${e?.code ?? "?"}] ${e?.message ?? e}`);
+    }
   };
 
   // Custom-field editing for the NEW-calendar form (mirrors settings' addField/removeField, staged
@@ -930,6 +959,7 @@ export default function App() {
           onClose={() => setModal((m) => ({ ...m, open: false }))}
           schema={cals.find((c) => c.id === modal.calId)?.schema || []}
           loadHistory={modal.editing ? () => getEventHistory(modal.calId, modal.editing!.id) : undefined}
+          onOpenAttachment={openAttachment}
         />
       </SafeAreaView>
     </SafeAreaProvider>
