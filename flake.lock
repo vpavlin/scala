@@ -29163,6 +29163,27 @@
         "type": "github"
       }
     },
+    "logos-storage": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_646",
+        "nixpkgs-windows": "nixpkgs-windows"
+      },
+      "locked": {
+        "lastModified": 1789570551,
+        "narHash": "sha256-intgBuOBTXJ+3bLqHtjgdTZf9o49kUsn1z2LLbfQLWM=",
+        "ref": "refs/heads/master",
+        "rev": "e3225940fca9b6660343f8002bd90e641d7a592c",
+        "revCount": 982,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/logos-storage/logos-storage-nim"
+      },
+      "original": {
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/logos-storage/logos-storage-nim"
+      }
+    },
     "logos-test-framework": {
       "inputs": {
         "logos-cpp-sdk": [
@@ -37517,6 +37538,22 @@
         "owner": "NixOS",
         "repo": "nixpkgs",
         "rev": "535f3e6942cb1cead3929c604320d3db54b542b9",
+        "type": "github"
+      }
+    },
+    "nixpkgs-windows": {
+      "locked": {
+        "lastModified": 1789027773,
+        "narHash": "sha256-peDPNhDs5kAX4b7jP71fsyEI6vM5DTFNXhnjd+7Ug6A=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "4b576876945404fa58704ebe13e4e72c50a4ccdc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "release-26.05",
+        "repo": "nixpkgs",
         "type": "github"
       }
     },
@@ -47216,6 +47253,22 @@
         "type": "github"
       }
     },
+    "nixpkgs_646": {
+      "locked": {
+        "lastModified": 1783375776,
+        "narHash": "sha256-pg6hLjDeAWaUOzh2JM2Cw0BwYpGtOyNr6A4FBwP9Ymo=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "cd648d6ea62bc0ffba91e61fcfe5e33c1e2004b1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "release-25.11",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "nixpkgs_65": {
       "locked": {
         "lastModified": 1759036355,
@@ -48336,7 +48389,8 @@
     "root": {
       "inputs": {
         "loam_core": "loam_core",
-        "logos-module-builder": "logos-module-builder"
+        "logos-module-builder": "logos-module-builder",
+        "storage_module": "storage_module"
       }
     },
     "rust-overlay": {
@@ -48508,6 +48562,27 @@
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "storage_module": {
+      "inputs": {
+        "logos-module-builder": [
+          "logos-module-builder"
+        ],
+        "logos-storage": "logos-storage"
+      },
+      "locked": {
+        "lastModified": 1789621286,
+        "narHash": "sha256-dskL304btW1+gNcVC75ZUqLcslyjIixwpsx1+UvS6Uc=",
+        "owner": "logos-co",
+        "repo": "logos-storage-module",
+        "rev": "bcc29f05e2a7b4a2d215d09640aaa7436359906b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "logos-co",
+        "repo": "logos-storage-module",
         "type": "github"
       }
     },

@@ -2,14 +2,15 @@
   "name": "scala",
   "display_name": "Scala Core",
   "icon": "icon.png",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "type": "core",
   "category": "general",
   "description": "Secure Calendar App \u2014 privacy-first shared calendar module for Logos Core",
   "main": "scala_plugin",
   "interface": "universal",
   "dependencies": [
-    "loam_core"
+    "loam_core",
+    "storage_module"
   ],
   "nix": {
     "packages": {

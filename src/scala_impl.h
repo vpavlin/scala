@@ -130,6 +130,19 @@ public:
     void setSetting(const std::string& key, const std::string& value);
     std::string getSetting(const std::string& key, const std::string& defaultValue);
 
+    // ── Attachments (ADR 0017 — files in Logos Storage, referenced by CID) ─────
+    /// Seal a local file with the calendar key and upload it to Logos Storage. Async: returns a
+    /// `ref` immediately; completion arrives on the `attachmentUploaded` event with the CID. The
+    /// view then adds {name,mime,size,storageCid,blobId} to the event's `attachments` array.
+    std::string uploadAttachment(const std::string& calendarId, const std::string& filePath,
+                                 const std::string& name, const std::string& mime);
+    /// Fetch a CID from Storage + decrypt it to a local file. Async: returns a `ref`; completion on
+    /// the `attachmentReady` event with the on-disk path the view opens.
+    std::string downloadAttachment(const std::string& calendarId, const std::string& cid,
+                                   const std::string& name);
+    /// Directory downloaded (decrypted) attachments are written to (for the view to open).
+    std::string attachmentsDir();
+
     // ── Context lifecycle ────────────────────────────────────────────────────
     /// Called when the module context is fully initialized (deps are live).
     void onContextReady() override;
@@ -146,6 +159,13 @@ logos_events:
     /// {purpose:"event"|"enroll", phase:"pending"|"done"|"failed", error?}. The view shows a
     /// "hold your Keycard" overlay on pending and clears it on done/failed. calId is "" for enrol.
     void keycardStatus(const std::string& calId, const std::string& ref, const std::string& statusJson);
+
+    /// Completion of uploadAttachment. resultJson = {ok:true, cid, name, mime, size, blobId} or
+    /// {ok:false, error}. The view merges the ref into the event's `attachments` on ok.
+    void attachmentUploaded(const std::string& calId, const std::string& ref, const std::string& resultJson);
+
+    /// Completion of downloadAttachment. resultJson = {ok:true, path, name} or {ok:false, error}.
+    void attachmentReady(const std::string& calId, const std::string& ref, const std::string& resultJson);
 
 private:
     CalendarStore* m_store = nullptr;
@@ -173,6 +193,18 @@ private:
     std::map<std::string, PendingKc> m_pendingKc;   // events awaiting a card signature, keyed by event id (== ref)
     std::string m_kcState = "{\"active\":false}";   // last keycard op snapshot, polled by keycardState()
     void applyIncoming(const std::string& calId, const std::string& eventJson);  // merge a received event
+
+    // ── Attachments / Logos Storage (ADR 0017) ────────────────────────────────
+    bool m_storageInit = false;          // storage_module init+start issued + events subscribed
+    std::string m_storageDir;            // libstorage data-dir (persistent cache)
+    void ensureStorage();                // idempotent: subscribe events + init + start the node
+    void cacheAttachments(const scala::Event& e);  // cache-on-see: fetch any attachment CID we lack → become a provider
+    struct PendingUp { std::string calId, name, mime, blobId, tmpPath; long long size = 0; };
+    std::map<std::string, PendingUp> m_pendUp;     // storage sessionId -> pending upload
+    struct PendingDown { std::string calId, name, cid, sealedPath, outPath; };
+    std::map<std::string, PendingDown> m_pendDown; // storage sessionId -> pending download
+    void onStorageUploadDone(const std::string& payload);
+    void onStorageDownloadDone(const std::string& payload);
     // ── catch-up (qaku SYNC_REQ + seed) ──────────────────────────────────────
     void onSyncReq(const std::string& calId, const nlohmann::json& req);  // serve ONLY the delta a peer lacks (logos_sync catch-up)
     void sendSyncReq(const std::string& calId);   // publish our id-summary so peers serve our gap (on join/connect + retries)

@@ -6,6 +6,10 @@
     loam_core.url = "github:vpavlin/loam-basecamp?dir=core";
     logos-module-builder.url = "github:logos-co/logos-module-builder/0.2.6";
     loam_core.inputs.logos-module-builder.follows = "logos-module-builder";
+    # ADR 0017 Gate 3: attachments live in Logos Storage. storage_module wraps libstorage
+    # (currently tracks upstream master = Kademlia DHT, matching our mobile fetch client).
+    storage_module.url = "github:logos-co/logos-storage-module";
+    storage_module.inputs.logos-module-builder.follows = "logos-module-builder";
   };
   outputs = inputs@{ logos-module-builder, ... }:
     logos-module-builder.lib.mkLogosModule {

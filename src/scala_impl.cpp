@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <ctime>
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 #include <vector>
 #include <cctype>
@@ -219,6 +220,7 @@ void ScalaImpl::applyIncoming(const std::string& calId, const std::string& event
     // delta, don't store the request itself.
     if (e.type == scala::ET::SYNC_REQ) { onSyncReq(calId, e.payload); return; }
     m_store->appendEvent(calId, e);   // idempotent (dedup by id); the view's poll refolds
+    cacheAttachments(e);              // ADR 0017: pull+pin any attachment CID we lack → we now serve it too
 }
 
 // Step the catch-up state machine for one incoming SYNC_REQ. `msg` is a single
@@ -399,6 +401,8 @@ void ScalaImpl::onContextReady() {
         publishAndApply(pk.calId, pk.event);          // now it's a fully-signed event
         emitKcStatus(pk.calId, ref, "event", "done", "");
     });
+
+    ensureStorage();   // bring up the Logos Storage node (attachments cache/provider) — ADR 0017
 }
 
 void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
@@ -406,7 +410,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.8"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.9"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -673,3 +677,146 @@ std::string ScalaImpl::diagnostics() {
 
 // unused legacy hook (kept to satisfy the header declaration).
 void ScalaImpl::onSyncMessageReceived(const std::string&, const std::string&) {}
+
+// ── Attachments via Logos Storage (ADR 0017) ─────────────────────────────────
+namespace {
+namespace afs = std::filesystem;
+bool scalaReadFile(const std::string& path, std::string& out) {
+    std::ifstream f(path, std::ios::binary); if (!f) return false;
+    out.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()); return true;
+}
+bool scalaWriteFile(const std::string& path, const std::string& data) {
+    std::ofstream f(path, std::ios::binary | std::ios::trunc); if (!f) return false;
+    f.write(data.data(), (std::streamsize)data.size()); return (bool)f;
+}
+std::string scalaSha256Hex(const std::string& s) {
+    scala::Bytes in(s.begin(), s.end());
+    scala::Bytes h = scala::sha256b(in);
+    return scala::toHexS(h.data(), (int)h.size());
+}
+std::string resVal(const StdLogosResult& r) {   // sessionId/string value out of a StdLogosResult
+    return r.value.is_string() ? r.value.get<std::string>() : std::string();
+}
+} // namespace
+
+std::string ScalaImpl::attachmentsDir() {
+    std::string d = m_storageDir.empty() ? getSetting("storage_dir", std::string(getenv("HOME") ? getenv("HOME") : ".") + "/.scala-storage") : m_storageDir;
+    std::error_code ec; afs::create_directories(d + "/files", ec);
+    return d + "/files";
+}
+
+// Idempotent: subscribe to completion events, then init+start the storage node. Config is
+// setting-driven: `storage_bootstrap` (our hub SPR — bootstrap off our own Kademlia network,
+// NOT public logos.test), `storage_extip` (declare a reachable LAN/mesh IP so a hub advertises),
+// `storage_dir` (persistent cache dir).
+void ScalaImpl::ensureStorage() {
+    if (m_storageInit) return;
+    m_storageInit = true;
+    m_storageDir = getSetting("storage_dir", std::string(getenv("HOME") ? getenv("HOME") : ".") + "/.scala-storage");
+    std::error_code ec;
+    afs::create_directories(m_storageDir + "/tmp", ec);
+    afs::create_directories(m_storageDir + "/dl", ec);
+    afs::create_directories(m_storageDir + "/files", ec);
+
+    modules().storage_module.onStorageUploadDone([this](const std::string& payload) { onStorageUploadDone(payload); });
+    modules().storage_module.onStorageDownloadDone([this](const std::string& payload) { onStorageDownloadDone(payload); });
+
+    json cfg;
+    cfg["log-level"] = "WARN";
+    cfg["data-dir"] = m_storageDir + "/node";
+    std::string boot = getSetting("storage_bootstrap", "");
+    if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot });
+    std::string extip = getSetting("storage_extip", "");
+    if (!extip.empty()) cfg["nat"] = "extip:" + extip;
+    try { modules().storage_module.init(cfg.dump()); modules().storage_module.start(); }
+    catch (...) { /* best-effort; upload/fetch will retry the calls */ }
+}
+
+std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std::string& filePath,
+                                        const std::string& name, const std::string& mime) {
+    ensureStorage();
+    std::string bytes;
+    if (!scalaReadFile(filePath, bytes)) { attachmentUploaded(calendarId, "", "{\"ok\":false,\"error\":\"cannot read file\"}"); return ""; }
+    // Deterministic seal (nonce from plaintext hash) → same file → same sealed bytes → same CID.
+    std::string sealId = scalaSha256Hex(bytes);
+    std::string sealed = m_sync ? m_sync->sealBlob(calendarId, bytes, sealId) : std::string();
+    if (sealed.empty()) { attachmentUploaded(calendarId, "", "{\"ok\":false,\"error\":\"seal failed (unknown calendar key?)\"}"); return ""; }
+    std::string blobId = scalaSha256Hex(sealed);
+    std::string tmpPath = m_storageDir + "/tmp/" + blobId;
+    if (!scalaWriteFile(tmpPath, sealed)) { attachmentUploaded(calendarId, blobId, "{\"ok\":false,\"error\":\"cannot stage blob\"}"); return blobId; }
+    StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536);
+    if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "upload rejected" : r.error}}; attachmentUploaded(calendarId, blobId, e.dump()); return blobId; }
+    std::string sess = resVal(r);
+    m_pendUp[sess] = PendingUp{ calendarId, name, mime, blobId, tmpPath, (long long)bytes.size() };
+    return blobId;   // ref the view correlates on attachmentUploaded
+}
+
+void ScalaImpl::onStorageUploadDone(const std::string& payload) {
+    json p = json::parse(payload, nullptr, false);
+    if (p.is_discarded() || !p.is_object()) return;
+    std::string sess = p.value("sessionId", std::string());
+    auto it = m_pendUp.find(sess);
+    if (it == m_pendUp.end()) return;
+    PendingUp up = it->second; m_pendUp.erase(it);
+    std::error_code ec; afs::remove(up.tmpPath, ec);   // sealed blob now lives in the storage node
+    if (!p.value("success", false)) {
+        json e{{"ok", false}, {"error", p.value("error", std::string("upload failed"))}};
+        attachmentUploaded(up.calId, up.blobId, e.dump()); return;
+    }
+    json ok{{"ok", true}, {"cid", p.value("cid", std::string())}, {"name", up.name},
+            {"mime", up.mime}, {"size", up.size}, {"blobId", up.blobId}};
+    attachmentUploaded(up.calId, up.blobId, ok.dump());
+}
+
+// Cache-on-see: for every attachment CID in a freshly-applied event we don't already hold, pull it
+// into our local store. That makes THIS node a provider too — so a household/hub node caches and
+// serves attachments for everyone, and content survives the original uploader going offline.
+void ScalaImpl::cacheAttachments(const scala::Event& e) {
+    if (e.type != scala::ET::EVENT_PUT) return;
+    if (!e.payload.contains("attachments") || !e.payload["attachments"].is_array()) return;
+    ensureStorage();
+    for (const auto& a : e.payload["attachments"]) {
+        if (!a.is_object()) continue;
+        std::string cid = a.value("storageCid", std::string());
+        if (cid.empty()) continue;
+        try {
+            StdLogosResult ex = modules().storage_module.exists(cid);
+            bool have = ex.success && ((ex.value.is_boolean() && ex.value.get<bool>()) || (ex.value.is_string() && ex.value.get<std::string>() == "true"));
+            if (!have) modules().storage_module.fetch(cid);   // async prefetch → we become a provider
+        } catch (...) { /* best-effort caching */ }
+    }
+}
+
+std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const std::string& cid,
+                                          const std::string& name) {
+    ensureStorage();
+    std::string sealedPath = m_storageDir + "/dl/" + cid + ".sealed";
+    std::string outName = name.empty() ? cid : name;
+    std::string outPath = attachmentsDir() + "/" + outName;
+    StdLogosResult r = modules().storage_module.downloadToUrl(cid, sealedPath, false, 65536);
+    if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "download rejected" : r.error}}; attachmentReady(calendarId, cid, e.dump()); return cid; }
+    std::string sess = resVal(r);
+    m_pendDown[sess] = PendingDown{ calendarId, outName, cid, sealedPath, outPath };
+    return cid;
+}
+
+void ScalaImpl::onStorageDownloadDone(const std::string& payload) {
+    json p = json::parse(payload, nullptr, false);
+    if (p.is_discarded() || !p.is_object()) return;
+    std::string sess = p.value("sessionId", std::string());
+    auto it = m_pendDown.find(sess);
+    if (it == m_pendDown.end()) return;
+    PendingDown dn = it->second; m_pendDown.erase(it);
+    if (!p.value("success", false)) {
+        json e{{"ok", false}, {"error", p.value("error", std::string("download failed"))}};
+        attachmentReady(dn.calId, dn.cid, e.dump()); return;
+    }
+    std::string sealed;
+    if (!scalaReadFile(dn.sealedPath, sealed)) { attachmentReady(dn.calId, dn.cid, "{\"ok\":false,\"error\":\"downloaded blob missing\"}"); return; }
+    auto plain = m_sync ? m_sync->openBlob(dn.calId, sealed) : std::nullopt;
+    std::error_code ec; afs::remove(dn.sealedPath, ec);
+    if (!plain) { attachmentReady(dn.calId, dn.cid, "{\"ok\":false,\"error\":\"decrypt failed (wrong key?)\"}"); return; }
+    if (!scalaWriteFile(dn.outPath, *plain)) { attachmentReady(dn.calId, dn.cid, "{\"ok\":false,\"error\":\"cannot write file\"}"); return; }
+    json ok{{"ok", true}, {"path", dn.outPath}, {"name", dn.name}};
+    attachmentReady(dn.calId, dn.cid, ok.dump());
+}

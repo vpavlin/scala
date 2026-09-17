@@ -97,6 +97,17 @@ public:
     /// Handle incoming sealed message from transport (called by ScalaImpl callback).
     void handleReceive(const std::string &topic, const std::string &sealedOnceDecoded);
 
+    /// Public blob seal/open for ATTACHMENTS (ADR 0017) — reuse the calendar's AES-256-GCM seal so
+    /// files stored in Logos Storage are confidential to the household. Pass a content-derived
+    /// `sealId` (e.g. sha256(plaintext)) to make the sealed bytes deterministic → same file yields
+    /// the same Storage CID (dedup). Returns empty / nullopt if the calendar key is unknown.
+    std::string sealBlob(const std::string &calendarId, const std::string &bytes, const std::string &sealId) {
+        return seal(calendarId, bytes, sealId);
+    }
+    std::optional<std::string> openBlob(const std::string &calendarId, const std::string &sealed) {
+        return open(calendarId, sealed);
+    }
+
 private:
     // calendarId -> encryption key
     std::map<std::string, std::string> m_activeTopics;
