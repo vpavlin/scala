@@ -1,8 +1,8 @@
 // Scala mobile — shared calendar peer over Logos Delivery (SDS channels).
 // Month grid + day detail + event editor; calendars live in a left drawer.
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
-  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform,
+  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -84,6 +84,47 @@ export default function App() {
   // DEV: editable Codex fetch target (default = box LAN IP; edit for mesh/relay without a rebuild).
   const [codexAddr, setCodexAddr] = useState("/ip4/192.168.10.32/tcp/8070/p2p/16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL");
   const [codexCid, setCodexCid] = useState("zDvZRwzmAZ35ys1juAVEMsss158X5M3QfPMnwHdPbEMfiTdQkqWu");
+  const [codexDbg, setCodexDbg] = useState(false);       // Codex debug modal open
+  const [codexLog, setCodexLog] = useState<string[]>([]); // live step-by-step log
+  const [codexBusy, setCodexBusy] = useState(false);
+  const codexScrollRef = useRef<ScrollView>(null);
+
+  // Run the cross-node fetch as discrete steps, appending a live log line per step (with timing and
+  // the real error incl. RN reject code) so progress is visible interactively and shareable via Copy.
+  const runCodexTest = useCallback(async () => {
+    if (codexBusy) return;
+    const ts = () => new Date().toISOString().slice(11, 23);
+    const push = (line: string) => setCodexLog((L) => [...L, `${ts()}  ${line}`]);
+    const yield_ = () => new Promise((r) => setTimeout(r, 0)); // let the UI paint between steps
+    const step = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
+      push(`▶ ${label}…`); await yield_();
+      const t0 = Date.now();
+      try { const r = await fn(); push(`  ✓ ${label} (${Date.now() - t0}ms)`); await yield_(); return r; }
+      catch (e: any) { push(`  ✗ ${label} (${Date.now() - t0}ms): [${e?.code ?? "?"}] ${e?.message ?? e}`); await yield_(); throw e; }
+    };
+    setCodexBusy(true); setCodexLog([]); await yield_();
+    const addr = codexAddr.trim(), CID = codexCid.trim();
+    const PEER = (addr.split("/p2p/")[1] || "").trim();
+    try {
+      if (!codexStorage.available()) { push("✗ native module not in this build (x86_64 emulator?)"); return; }
+      if (!PEER) { push("✗ multiaddr must end with /p2p/<peerId>"); return; }
+      if (!CID) { push("✗ enter a CID"); return; }
+      push(`peer ${PEER}`); push(`addr ${addr}`); push(`cid  ${CID}`); await yield_();
+      await step("init node", () => codexStorage.init({}));
+      push(`  version=${await codexStorage.version()}`);
+      push(`  spr=${(await codexStorage.spr()).slice(0, 44)}…`); await yield_();
+      await step("connect peer", () => codexStorage.connect(PEER, [addr]));
+      const dbg = await step("debug (peers)", () => codexStorage.debug());
+      try { const j = JSON.parse(dbg); push(`  connected peers: ${(j.connections || []).length}`); } catch { /* raw */ }
+      try { push(`  exists=${await codexStorage.exists(CID)}`); } catch (e: any) { push(`  exists ✗ [${e?.code ?? "?"}] ${e?.message ?? e}`); }
+      await yield_();
+      const dir = await codexStorage.filesDir();
+      // downloadToFile does download_init then download_stream internally; its reject code names which stage failed.
+      const content = await step("download (init+stream)", () => codexStorage.downloadToFile(CID, `${dir}/fetched.txt`, { local: false }));
+      push(content ? `✅ CONTENT: ${content}` : "✅ downloaded — file on disk (empty/large, not shown inline)");
+    } catch { push("— stopped —"); }
+    finally { setCodexBusy(false); await yield_(); }
+  }, [codexBusy, codexAddr, codexCid]);
   const [calSetIdentity, setCalSetIdentity] = useState("");   // the open calendar-settings sheet's bound identity
   const [currentCalId, setCurrentCalId] = useState<string>("");     // #5: last-tapped calendar (preselected for new events)
   const [aliasMap, setAliasMap] = useState<Record<string, string>>({}); // #7: device-local name overrides
@@ -539,70 +580,11 @@ export default function App() {
               <Text style={s.pLabel}>Your identities</Text>
               <IdentitiesPanel />
 
-              {/* DEV: one-tap Codex fetch-client smoke — start the node + read spr. Remove once wired. */}
+              {/* DEV: Codex fetch-client debugger — modal with live step-by-step progress + Copy logs. */}
               <Text style={s.pLabel}>Codex storage (dev)</Text>
-              <Pressable style={s.calRow} onPress={() => { void (async () => {
-                if (!codexStorage.available()) { Alert.alert("Codex", "Native module not in this build (x86_64 emulator?)"); return; }
-                try {
-                  Alert.alert("Codex", "Starting node… (first start can take ~10s)");
-                  await codexStorage.init({});
-                  const v = await codexStorage.version();
-                  const spr = await codexStorage.spr();
-                  Alert.alert("Codex OK ✅", `version: ${v}\nspr: ${spr.slice(0, 72)}…`);
-                } catch (e: any) { Alert.alert("Codex FAILED ❌", String(e?.message || e)); }
-              })(); }}>
-                <Text style={s.calName}>🧪 Codex storage smoke (start + spr)</Text>
-              </Pressable>
-              {/* DEV: cross-node FETCH test — dial the box seeder + download its CID over Codex.
-                  The peer multiaddr is EDITABLE so we can point at whatever route is reachable
-                  (box LAN IP when co-located, the mesh hostname when only .mesh:8070 is forwarded,
-                  or a p2p-circuit relay addr) WITHOUT another rebuild. peerId is parsed from /p2p/. */}
-              <TextInput
-                style={[s.searchIn, { marginTop: 6 }]}
-                value={codexAddr}
-                onChangeText={setCodexAddr}
-                placeholder="/ip4/<host>/tcp/8070/p2p/<peerId>"
-                placeholderTextColor={C.sub}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TextInput
-                style={[s.searchIn, { marginTop: 6 }]}
-                value={codexCid}
-                onChangeText={setCodexCid}
-                placeholder="CID to fetch"
-                placeholderTextColor={C.sub}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <Pressable style={s.calRow} onPress={() => { void (async () => {
-                if (!codexStorage.available()) { Alert.alert("Codex", "Native module not in this build"); return; }
-                const addr = codexAddr.trim();
-                const CID = codexCid.trim();
-                const PEER = (addr.split("/p2p/")[1] || "").trim();
-                if (!PEER) { Alert.alert("Codex", "multiaddr must end with /p2p/<peerId>"); return; }
-                if (!CID) { Alert.alert("Codex", "enter a CID to fetch"); return; }
-                // Step-by-step so a failure names the exact stage + the real libstorage error
-                // (RN rejections carry code AND message; show both).
-                const es = (e: any) => `[${e?.code ?? "?"}] ${e?.message ?? e}`;
-                const log: string[] = [];
-                try {
-                  await codexStorage.init({}); log.push("init ✓");
-                  await codexStorage.connect(PEER, [addr]); log.push("connect ✓");
-                  try { log.push(`exists=${await codexStorage.exists(CID)}`); }
-                  catch (e: any) { log.push(`exists ✗ ${es(e)}`); }
-                  const dir = await codexStorage.filesDir();
-                  try {
-                    const content = await codexStorage.downloadToFile(CID, `${dir}/fetched.txt`, { local: false });
-                    log.push(content ? `got: ${content}` : "downloaded (empty/large — on disk)");
-                    Alert.alert("Codex FETCH ✅", log.join("\n"));
-                  } catch (e: any) {
-                    log.push(`download ✗ ${es(e)}`);
-                    Alert.alert("Codex FETCH ❌", log.join("\n"));
-                  }
-                } catch (e: any) { log.push(`✗ ${es(e)}`); Alert.alert("Codex FETCH ❌", log.join("\n")); }
-              })(); }}>
-                <Text style={s.calName}>⬇️ Codex fetch test (pull CID from the peer above)</Text>
+              <Pressable style={s.calRow} onPress={() => setCodexDbg(true)}>
+                <Text style={s.calName}>🧪 Codex fetch debug</Text>
+                <Text style={s.share}>Open</Text>
               </Pressable>
 
               <Text style={s.pLabel}>Your calendars</Text>
@@ -883,6 +865,46 @@ export default function App() {
                   </>
                 );
               })()}
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+
+        {/* Codex fetch debugger — live step-by-step log + editable target + Copy/Clear. */}
+        <Modal visible={codexDbg} animationType="slide" onRequestClose={() => setCodexDbg(false)}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1115" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", padding: 14 }}>
+              <Text style={{ color: "#e8eaed", fontSize: 18, fontWeight: "700", flex: 1 }}>Codex fetch debug</Text>
+              <Pressable onPress={() => setCodexDbg(false)} hitSlop={12}><Text style={{ color: "#6ea8fe", fontSize: 16 }}>Close</Text></Pressable>
+            </View>
+            <View style={{ paddingHorizontal: 14, gap: 6 }}>
+              <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Peer multiaddr (peerId parsed from /p2p/)</Text>
+              <TextInput style={[s.searchIn, { minHeight: 38 }]} value={codexAddr} onChangeText={setCodexAddr}
+                placeholder="/ip4/<host>/tcp/8070/p2p/<peerId>" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} multiline />
+              <Text style={{ color: "#9aa1ad", fontSize: 12 }}>CID</Text>
+              <TextInput style={s.searchIn} value={codexCid} onChangeText={setCodexCid}
+                placeholder="CID to fetch" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} />
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 4, alignItems: "center" }}>
+                <Pressable style={[s.smBtn, { flex: 1, alignItems: "center", opacity: codexBusy ? 0.6 : 1 }]} disabled={codexBusy} onPress={() => void runCodexTest()}>
+                  <Text style={s.smBtnT}>{codexBusy ? "Running…" : "Run fetch test"}</Text>
+                </Pressable>
+                <Pressable style={[s.smBtn, { alignItems: "center", backgroundColor: "transparent", borderWidth: 1, borderColor: C.border }]}
+                  onPress={async () => { await Clipboard.setStringAsync(codexLog.join("\n")); Alert.alert("Copied", "Debug log copied to clipboard."); }}>
+                  <Text style={[s.smBtnT, { color: C.text }]}>Copy</Text>
+                </Pressable>
+                <Pressable style={[s.smBtn, { alignItems: "center", backgroundColor: "transparent", borderWidth: 1, borderColor: C.border }]} onPress={() => setCodexLog([])}>
+                  <Text style={[s.smBtnT, { color: C.text }]}>Clear</Text>
+                </Pressable>
+              </View>
+              {codexBusy && <ActivityIndicator color="#6ea8fe" style={{ marginTop: 6 }} />}
+            </View>
+            <ScrollView ref={codexScrollRef} onContentSizeChange={() => codexScrollRef.current?.scrollToEnd({ animated: true })}
+              style={{ flex: 1, margin: 14, backgroundColor: "#0b0d12", borderRadius: 8 }} contentContainerStyle={{ padding: 10 }}>
+              {codexLog.length === 0
+                ? <Text style={{ color: "#6b7280", fontFamily: "monospace", fontSize: 12 }}>Tap “Run fetch test” to begin.</Text>
+                : codexLog.map((l, i) => (
+                  <Text key={i} selectable style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 17,
+                    color: l.includes("✗") ? "#f38ba8" : (l.includes("✅") || l.includes("✓")) ? "#a6e3a1" : "#cdd6f4" }}>{l}</Text>
+                ))}
             </ScrollView>
           </SafeAreaView>
         </Modal>
