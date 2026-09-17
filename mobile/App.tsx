@@ -81,6 +81,9 @@ export default function App() {
   const [newCalSchema, setNewCalSchema] = useState<FieldDef[]>([]); // custom fields, set at create
   const [newCalCanAdd, setNewCalCanAdd] = useState(false);    // "Open — anyone can add" (default CLOSED — opening is deliberate)
   const [joinIdentity, setJoinIdentity] = useState("");       // identity to author my events on a joined calendar
+  // DEV: editable Codex fetch target (default = box LAN IP; edit for mesh/relay without a rebuild).
+  const [codexAddr, setCodexAddr] = useState("/ip4/192.168.10.32/tcp/8070/p2p/16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL");
+  const [codexCid, setCodexCid] = useState("zDvZRwzmAZ35ys1juAVEMsss158X5M3QfPMnwHdPbEMfiTdQkqWu");
   const [calSetIdentity, setCalSetIdentity] = useState("");   // the open calendar-settings sheet's bound identity
   const [currentCalId, setCurrentCalId] = useState<string>("");     // #5: last-tapped calendar (preselected for new events)
   const [aliasMap, setAliasMap] = useState<Record<string, string>>({}); // #7: device-local name overrides
@@ -550,27 +553,45 @@ export default function App() {
               })(); }}>
                 <Text style={s.calName}>🧪 Codex storage smoke (start + spr)</Text>
               </Pressable>
-              {/* DEV: cross-node FETCH test — dial the box seeder + download its CID over Codex. */}
+              {/* DEV: cross-node FETCH test — dial the box seeder + download its CID over Codex.
+                  The peer multiaddr is EDITABLE so we can point at whatever route is reachable
+                  (box LAN IP when co-located, the mesh hostname when only .mesh:8070 is forwarded,
+                  or a p2p-circuit relay addr) WITHOUT another rebuild. peerId is parsed from /p2p/. */}
+              <TextInput
+                style={[s.searchIn, { marginTop: 6 }]}
+                value={codexAddr}
+                onChangeText={setCodexAddr}
+                placeholder="/ip4/<host>/tcp/8070/p2p/<peerId>"
+                placeholderTextColor={C.sub}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TextInput
+                style={[s.searchIn, { marginTop: 6 }]}
+                value={codexCid}
+                onChangeText={setCodexCid}
+                placeholder="CID to fetch"
+                placeholderTextColor={C.sub}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
               <Pressable style={s.calRow} onPress={() => { void (async () => {
                 if (!codexStorage.available()) { Alert.alert("Codex", "Native module not in this build"); return; }
-                const CID = "zDvZRwzmAZ35ys1juAVEMsss158X5M3QfPMnwHdPbEMfiTdQkqWu";
-                const PEER = "16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL";
-                // Reach the box by the mesh HOSTNAME (routes like jimmy-crib.mesh:8099 does) — the raw
-                // overlay IP only works on the box's LAN. Try both (libp2p picks a working one).
-                const ADDRS = [
-                  `/dns4/jimmy-crib.mesh/tcp/8070/p2p/${PEER}`,
-                  `/ip4/198.19.224.254/tcp/8070/p2p/${PEER}`,
-                ];
+                const addr = codexAddr.trim();
+                const CID = codexCid.trim();
+                const PEER = (addr.split("/p2p/")[1] || "").trim();
+                if (!PEER) { Alert.alert("Codex", "multiaddr must end with /p2p/<peerId>"); return; }
+                if (!CID) { Alert.alert("Codex", "enter a CID to fetch"); return; }
                 try {
                   await codexStorage.init({});
-                  Alert.alert("Codex", "node up — dialing the box seeder…");
-                  await codexStorage.connect(PEER, ADDRS);
+                  Alert.alert("Codex", `node up — dialing ${addr.slice(0, 48)}…`);
+                  await codexStorage.connect(PEER, [addr]);
                   const dir = await codexStorage.filesDir();
                   const content = await codexStorage.downloadToFile(CID, `${dir}/fetched.txt`, { local: false });
                   Alert.alert("Codex FETCH ✅", content ? `got: ${content}` : "(downloaded, empty content)");
                 } catch (e: any) { Alert.alert("Codex FETCH ❌", String(e?.message || e)); }
               })(); }}>
-                <Text style={s.calName}>⬇️ Codex fetch test (pull CID from the box)</Text>
+                <Text style={s.calName}>⬇️ Codex fetch test (pull CID from the peer above)</Text>
               </Pressable>
 
               <Text style={s.pLabel}>Your calendars</Text>
