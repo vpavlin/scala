@@ -84,6 +84,8 @@ export default function App() {
   // DEV: editable Codex fetch target (default = box LAN IP; edit for mesh/relay without a rebuild).
   const [codexAddr, setCodexAddr] = useState("/ip4/192.168.10.32/tcp/8070/p2p/16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL");
   const [codexCid, setCodexCid] = useState("zDvZRwzmAZ35ys1juAVEMsss158X5M3QfPMnwHdPbEMfiTdQkqWu");
+  // Bootstrap off our OWN Loam Storage node (node A on the box) instead of the public logos.test net.
+  const [codexBoot, setCodexBoot] = useState("spr:CiUIAhIhAkeexKEHwg3RgmFJ9f-ah3ygYsPkPjyWY74LVvdHa_XQEgIDARo7CicAJQgCEiECR57EoQfCDdGCYUn1_5qHfKBiw-Q-PJZjvgtW90dr9dAQl-Ou1QYaCgoIBMCoCiAGH4YqRjBEAiAJjP94u94UlnpHWm2z9S5FyL40QI90aTegdi_kgmrwiQIgTwfJ_lubh3uLppB8JAJwiO3nCqA7W-Lh4Oj-fi_jRg4");
   const [codexDbg, setCodexDbg] = useState(false);       // Codex debug modal open
   const [codexLog, setCodexLog] = useState<string[]>([]); // live step-by-step log
   const [codexBusy, setCodexBusy] = useState(false);
@@ -103,17 +105,19 @@ export default function App() {
       catch (e: any) { push(`  ✗ ${label} (${Date.now() - t0}ms): [${e?.code ?? "?"}] ${e?.message ?? e}`); await yield_(); throw e; }
     };
     setCodexBusy(true); setCodexLog([]); await yield_();
-    const addr = codexAddr.trim(), CID = codexCid.trim();
+    const addr = codexAddr.trim(), CID = codexCid.trim(), boot = codexBoot.trim();
     const PEER = (addr.split("/p2p/")[1] || "").trim();
     try {
       if (!codexStorage.available()) { push("✗ native module not in this build (x86_64 emulator?)"); return; }
-      if (!PEER) { push("✗ multiaddr must end with /p2p/<peerId>"); return; }
       if (!CID) { push("✗ enter a CID"); return; }
-      push(`peer ${PEER}`); push(`addr ${addr}`); push(`cid  ${CID}`); await yield_();
-      await step("init node", () => codexStorage.init({}));
+      push(`net  ${boot ? "OUR bootstrap (" + boot.slice(0, 20) + "…)" : "logos.test (public)"}`);
+      push(`cid  ${CID}`); await yield_();
+      // Bootstrap off our own node → its DHT knows the provider; discovery then finds + fetches.
+      await step("init node", () => codexStorage.init(boot ? { "bootstrap-node": [boot] } : {}));
       push(`  version=${await codexStorage.version()}`);
       push(`  spr=${(await codexStorage.spr()).slice(0, 44)}…`); await yield_();
-      await step("connect peer", () => codexStorage.connect(PEER, [addr]));
+      // Optional: also dial the holder directly if a /p2p/ multiaddr was given (belt-and-suspenders).
+      if (PEER) await step("connect peer", () => codexStorage.connect(PEER, [addr]));
       const dbg = await step("debug (peers)", () => codexStorage.debug());
       try { const j = JSON.parse(dbg); push(`  connected peers: ${(j.connections || []).length}`); } catch { /* raw */ }
       try { push(`  exists=${await codexStorage.exists(CID)}`); } catch (e: any) { push(`  exists ✗ [${e?.code ?? "?"}] ${e?.message ?? e}`); }
@@ -877,7 +881,10 @@ export default function App() {
               <Pressable onPress={() => setCodexDbg(false)} hitSlop={12}><Text style={{ color: "#6ea8fe", fontSize: 16 }}>Close</Text></Pressable>
             </View>
             <View style={{ paddingHorizontal: 14, gap: 6 }}>
-              <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Peer multiaddr (peerId parsed from /p2p/)</Text>
+              <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Bootstrap SPR (our Loam Storage node — empty = public logos.test)</Text>
+              <TextInput style={[s.searchIn, { minHeight: 38 }]} value={codexBoot} onChangeText={setCodexBoot}
+                placeholder="spr:… (our bootstrap node)" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} multiline />
+              <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Peer multiaddr (optional direct dial; peerId from /p2p/)</Text>
               <TextInput style={[s.searchIn, { minHeight: 38 }]} value={codexAddr} onChangeText={setCodexAddr}
                 placeholder="/ip4/<host>/tcp/8070/p2p/<peerId>" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} multiline />
               <Text style={{ color: "#9aa1ad", fontSize: 12 }}>CID</Text>

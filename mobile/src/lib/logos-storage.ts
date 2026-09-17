@@ -35,7 +35,11 @@ export async function init(cfg: StorageConfig = {}): Promise<string> {
   if (ctx) return ctx;
   await LS.setup();
   const dataDir = cfg["data-dir"] ?? `${await LS.filesDir()}/codex`;
-  const json = JSON.stringify({ "log-level": "WARN", network: "logos.test", ...cfg, "data-dir": dataDir });
+  const base: Record<string, unknown> = { "log-level": "WARN" };
+  // Ride our OWN Loam Storage network when a bootstrap node is given (the public logos.test
+  // bootstrap nodes are kad-incompatible with our build); else fall back to logos.test.
+  if (!cfg["bootstrap-node"] || cfg["bootstrap-node"].length === 0) base.network = "logos.test";
+  const json = JSON.stringify({ ...base, ...cfg, "data-dir": dataDir });
   ctx = (await LS.newNode(json)) as string;
   await LS.start(ctx);
   return ctx;
