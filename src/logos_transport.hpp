@@ -51,6 +51,7 @@
 //      traffic, that's the cause (not your code).
 //
 #pragma once
+#include <cstdlib>
 #include <string>
 #include <vector>
 #include <functional>
@@ -157,11 +158,24 @@ public:
         // WakuNodeConf keys (entryNodes/relay/logLevel), and discv5-udp-port is REQUIRED or
         // discovery can't run (0 peers). So send the canonical config; the preset picks the
         // cluster-2 fleet. m_cfg.entryNodes is no longer needed (kym_core/qaku_core parity).
+        // The delivery createNode config. Deployed delivery builds disagree on the schema: newer
+        // ones take the layered messagingOverrides shape; the fleet-deployed 0.1.x (what the crib's
+        // kym uses) wants a FLAT WakuNodeConf (logLevel/mode/preset/relay/entryNodes) and REJECTS
+        // the layered shape (it expands it to restPort:0… then fails its own parser). So allow a
+        // verbatim override via SCALA_DELIVERY_CFG (the kym KYM_DELIVERY_CFG pattern) — a headless
+        // hub sets it to the shape ITS delivery accepts, without changing the GUI default.
         LogosMap cfg = LogosMap::object();
-        cfg["mode"] = "Core"; cfg["preset"] = m_cfg.preset;
-        LogosMap mo = LogosMap::object();
-        mo["logLevel"] = m_cfg.logLevel; mo["tcp-port"] = 30303; mo["discv5-udp-port"] = 9000;
-        cfg["messagingOverrides"] = mo;
+        const char* envCfg = std::getenv("SCALA_DELIVERY_CFG");
+        if (envCfg && *envCfg) {
+            LogosMap parsed = LogosMap::parse(std::string(envCfg), nullptr, false);
+            if (parsed.is_object()) cfg = parsed;
+        }
+        if (cfg.empty()) {
+            cfg["mode"] = "Core"; cfg["preset"] = m_cfg.preset;
+            LogosMap mo = LogosMap::object();
+            mo["logLevel"] = m_cfg.logLevel; mo["tcp-port"] = 30303; mo["discv5-udp-port"] = 9000;
+            cfg["messagingOverrides"] = mo;
+        }
         const std::string cfgStr = cfg.dump();
         fprintf(stderr, "logos_transport bootstrap cfg=%s\n", cfgStr.c_str());
 
