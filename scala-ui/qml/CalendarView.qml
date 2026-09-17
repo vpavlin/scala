@@ -13,6 +13,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 import Logos.Theme
 import Logos.Controls
@@ -649,6 +650,43 @@ Item {
     property int evReminder: 10           // minutes before; 0 = none
     property string evRecurFreq: ""       // "" = does not repeat | daily/weekly/monthly/yearly
     readonly property var reminderOpts: [{ l: "None", v: 0 }, { l: "10 min", v: 10 }, { l: "30 min", v: 30 }, { l: "1 hour", v: 60 }, { l: "1 day", v: 1440 }]
+    // ── attachments (ADR 0017 — stored in Logos Storage, sealed with the calendar key) ──
+    property var evAttachments: []          // refs on the current event draft: {name,mime,size,storageCid,blobId}
+    property bool attachBusy: false
+    property string attachMsg: ""
+    property string attachPollRef: ""       // ref currently being polled (upload blobId / download cid)
+    property string attachPollMode: ""      // "upload" | "download"
+    function humanSize(n) { n = n || 0; if (n < 1024) return n + " B"; if (n < 1048576) return (n / 1024).toFixed(1) + " KB"; return (n / 1048576).toFixed(1) + " MB" }
+    function removeAttachment(i) { var a = root.evAttachments.slice(); a.splice(i, 1); root.evAttachments = a }
+    function onAttachmentPicked(fileUrl) {
+        var path = ("" + fileUrl).replace(/^file:\/\//, "")
+        var name = path.split("/").pop()
+        root.attachBusy = true; root.attachMsg = "Sealing + uploading " + name + "…"
+        var ref = core("uploadAttachment", [root.editCalId, path, name, ""])
+        if (!ref) { root.attachBusy = false; root.attachMsg = "Upload failed to start"; return }
+        root.attachPollRef = ref; root.attachPollMode = "upload"; attachPoll.restart()
+    }
+    function openAttachment(calId, cid, name) {
+        if (!cid) { root.attachMsg = "Not uploaded yet"; return }
+        root.attachBusy = true; root.attachMsg = "Fetching " + (name || cid) + "…"
+        var ref = core("downloadAttachment", [calId, cid, name || ""])
+        if (!ref) { root.attachBusy = false; root.attachMsg = "Download failed to start"; return }
+        root.attachPollRef = ref; root.attachPollMode = "download"; attachPoll.restart()
+    }
+    function pollAttach() {
+        var r = root.j(core("attachmentStatus", [root.attachPollRef]), {})
+        if (r.pending) return                      // still working — keep polling
+        attachPoll.stop(); root.attachBusy = false
+        if (!r.ok) { root.attachMsg = "Failed: " + (r.error || "unknown"); return }
+        if (root.attachPollMode === "upload") {
+            var a = root.evAttachments.slice()
+            a.push({ name: r.name, mime: r.mime, size: r.size, storageCid: r.cid, blobId: r.blobId })
+            root.evAttachments = a; root.attachMsg = "Attached " + r.name
+        } else {
+            root.attachMsg = "Saved to " + r.path
+            Qt.openUrlExternally("file://" + r.path)
+        }
+    }
     readonly property var recurOpts: [{ l: "Does not repeat", v: "" }, { l: "Daily", v: "daily" }, { l: "Weekly", v: "weekly" }, { l: "Monthly", v: "monthly" }, { l: "Yearly", v: "yearly" }]
     // Build the recur object from the current editor controls (null when "Does not repeat").
     function buildRecur() {
@@ -718,6 +756,7 @@ Item {
         evAllDay = false; evReminder = 10; evRecurFreq = ""
         evLocation.text = ""; evUrl.text = ""; evRecurInterval.text = "1"; evRecurUntil.text = ""
         seedFieldVals(editCalId, null)
+        root.evAttachments = []; root.attachBusy = false; root.attachMsg = ""
         eventPopup.open()
     }
     // `occ` may be an expanded occurrence — series edits operate on the MASTER, so
@@ -740,6 +779,8 @@ Item {
         evRecurInterval.text = (r && r.interval) ? String(r.interval) : "1"
         evRecurUntil.text = (r && typeof r.until === "number") ? fmtDateInput(new Date(r.until)) : ""
         seedFieldVals(ev.calendarId, ev)
+        root.evAttachments = (ev.attachments && ev.attachments.length) ? ev.attachments.slice() : []
+        root.attachBusy = false; root.attachMsg = ""
         evHistory = root.j(core("getEventHistory", [ev.calendarId, ev.id]), [])
         eventPopup.open()
     }
@@ -765,6 +806,7 @@ Item {
             up.reminderMin = root.evReminder
             up.recur = recur    // null clears a previous recurrence
             if (hasSchema) up.fields = collectFieldVals(editCalId)
+            up.attachments = root.evAttachments
             core("updateEvent", [JSON.stringify(up)])
         } else {
             var nv = {
@@ -774,6 +816,7 @@ Item {
             }
             if (recur) nv.recur = recur
             if (hasSchema) nv.fields = collectFieldVals(editCalId)
+            if (root.evAttachments.length) nv.attachments = root.evAttachments
             core("createEvent", [editCalId, JSON.stringify(nv)])
             root.lastCalId = editCalId       // preselect this calendar next time
 
@@ -785,6 +828,13 @@ Item {
         eventPopup.close(); refresh()
     }
 
+    // Native file picker for attachments; poll timer for the async upload/download (no blocking IPC).
+    FileDialog {
+        id: attachFileDialog
+        title: "Choose a file to attach"
+        onAccepted: root.onAttachmentPicked(attachFileDialog.selectedFile)
+    }
+    Timer { id: attachPoll; interval: 600; repeat: true; onTriggered: root.pollAttach() }
 
     Popup {
         id: eventPopup
@@ -893,6 +943,33 @@ Item {
             Field {
                 id: evUrl; readOnly: root.eventReadOnly; Layout.fillWidth: true; placeholderText: "https://…"
                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+            }
+
+            // ── attachments (Logos Storage, sealed with the calendar key) ──
+            LogosText { text: "Attachments"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            Repeater {
+                model: root.evAttachments
+                delegate: RowLayout {
+                    Layout.fillWidth: true; spacing: 6
+                    LogosText {
+                        Layout.fillWidth: true
+                        text: "📎 " + (modelData.name || "file") + (modelData.size ? "  (" + root.humanSize(modelData.size) + ")" : "")
+                        color: Theme.palette.primary; font.pixelSize: 13; elide: Text.ElideMiddle
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            onClicked: root.openAttachment(root.editCalId, modelData.storageCid, modelData.name) }
+                    }
+                    LogosText {
+                        visible: !root.eventReadOnly; text: "✕"; color: Theme.palette.warning; font.pixelSize: 14
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.removeAttachment(index) }
+                    }
+                }
+            }
+            LogosText { visible: root.attachMsg !== ""; text: root.attachMsg; color: Theme.palette.textSecondary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            LogosButton {
+                visible: !root.eventReadOnly
+                text: root.attachBusy ? "Working…" : "＋ Attach file"
+                enabled: !root.attachBusy
+                onClicked: attachFileDialog.open()
             }
 
             // reminder chips

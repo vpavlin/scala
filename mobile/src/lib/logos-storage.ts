@@ -29,6 +29,15 @@ export async function filesDir(): Promise<string> {
   return LS.filesDir();
 }
 
+/** Read a file as base64 (binary-safe — sealed attachment blobs are not UTF-8). */
+export async function readFileB64(path: string): Promise<string> {
+  return LS.readFileB64(path);
+}
+/** Write base64 bytes to a file (used to save the decrypted attachment). Returns the path. */
+export async function writeFileB64(path: string, b64: string): Promise<string> {
+  return LS.writeFileB64(path, b64);
+}
+
 /** Create + start the node. Idempotent-ish: a second call returns the existing ctx. */
 export async function init(cfg: StorageConfig = {}): Promise<string> {
   if (!LS) throw new Error("LogosStorage native module unavailable in this build");

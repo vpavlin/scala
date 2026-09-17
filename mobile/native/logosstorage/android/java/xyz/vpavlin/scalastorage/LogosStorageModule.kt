@@ -147,6 +147,28 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
     catch (t: Throwable) { promise.reject("files_dir", t.message ?: "failed") }
   }
 
+  // Binary-safe file IO for attachments: downloaded blobs are SEALED bytes (not UTF-8), so read them
+  // as base64, decrypt in JS with the calendar key, then write the plaintext back as base64.
+  @ReactMethod
+  fun readFileB64(path: String, promise: Promise) {
+    Thread {
+      try {
+        val bytes = java.io.File(path).readBytes()
+        promise.resolve(android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+      } catch (t: Throwable) { promise.reject("read_b64", t.message ?: "read failed") }
+    }.start()
+  }
+  @ReactMethod
+  fun writeFileB64(path: String, b64: String, promise: Promise) {
+    Thread {
+      try {
+        val bytes = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+        val f = java.io.File(path); f.parentFile?.mkdirs(); f.writeBytes(bytes)
+        promise.resolve(path)
+      } catch (t: Throwable) { promise.reject("write_b64", t.message ?: "write failed") }
+    }.start()
+  }
+
   @ReactMethod fun addListener(eventName: String) { /* no-op (RN event-emitter contract) */ }
   @ReactMethod fun removeListeners(count: Int) { /* no-op */ }
 }
