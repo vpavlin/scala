@@ -582,14 +582,25 @@ export default function App() {
                 const PEER = (addr.split("/p2p/")[1] || "").trim();
                 if (!PEER) { Alert.alert("Codex", "multiaddr must end with /p2p/<peerId>"); return; }
                 if (!CID) { Alert.alert("Codex", "enter a CID to fetch"); return; }
+                // Step-by-step so a failure names the exact stage + the real libstorage error
+                // (RN rejections carry code AND message; show both).
+                const es = (e: any) => `[${e?.code ?? "?"}] ${e?.message ?? e}`;
+                const log: string[] = [];
                 try {
-                  await codexStorage.init({});
-                  Alert.alert("Codex", `node up — dialing ${addr.slice(0, 48)}…`);
-                  await codexStorage.connect(PEER, [addr]);
+                  await codexStorage.init({}); log.push("init ✓");
+                  await codexStorage.connect(PEER, [addr]); log.push("connect ✓");
+                  try { log.push(`exists=${await codexStorage.exists(CID)}`); }
+                  catch (e: any) { log.push(`exists ✗ ${es(e)}`); }
                   const dir = await codexStorage.filesDir();
-                  const content = await codexStorage.downloadToFile(CID, `${dir}/fetched.txt`, { local: false });
-                  Alert.alert("Codex FETCH ✅", content ? `got: ${content}` : "(downloaded, empty content)");
-                } catch (e: any) { Alert.alert("Codex FETCH ❌", String(e?.message || e)); }
+                  try {
+                    const content = await codexStorage.downloadToFile(CID, `${dir}/fetched.txt`, { local: false });
+                    log.push(content ? `got: ${content}` : "downloaded (empty/large — on disk)");
+                    Alert.alert("Codex FETCH ✅", log.join("\n"));
+                  } catch (e: any) {
+                    log.push(`download ✗ ${es(e)}`);
+                    Alert.alert("Codex FETCH ❌", log.join("\n"));
+                  }
+                } catch (e: any) { log.push(`✗ ${es(e)}`); Alert.alert("Codex FETCH ❌", log.join("\n")); }
               })(); }}>
                 <Text style={s.calName}>⬇️ Codex fetch test (pull CID from the peer above)</Text>
               </Pressable>

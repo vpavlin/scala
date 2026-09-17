@@ -79,6 +79,10 @@ export async function fetch(cid: string): Promise<void> {
  * Fetch a CID and write its bytes to `filePath` (the BlobBackend.get path — the caller then reads
  * the file, e.g. via expo-file-system). local=false pulls from the network if not held locally.
  */
+/** Create the download session for a cid (fetches the manifest). Must precede a raw stream; downloadToFile does it internally. */
+export async function downloadInit(cid: string, chunkSize = 65536, local = false): Promise<string> {
+  return LS.downloadInit(need(), cid, chunkSize, local);
+}
 export async function downloadToFile(
   cid: string,
   filePath: string,

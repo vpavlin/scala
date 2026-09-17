@@ -125,8 +125,15 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
           promise.reject("storage_download_init", init.optString("err", "download init failed")); return@Thread
         }
         val stream = JSONObject(storageDownloadStream(c, cid, chunkSize.toLong(), local, filePath))
-        if (stream.optBoolean("ok", false)) promise.resolve(stream.optString("msg", ""))
-        else promise.reject("storage_download_stream", stream.optString("err", "storage error"))
+        if (!stream.optBoolean("ok", false)) {
+          promise.reject("storage_download_stream", stream.optString("err", "storage error")); return@Thread
+        }
+        // Content arrives as RET_PROGRESS chunks written to filePath (not in the terminal msg), so
+        // read the file back and return it (contract: resolves with the downloaded content). Cap the
+        // inline return so a large blob can't OOM the bridge — the file on disk is always complete.
+        val f = java.io.File(filePath)
+        val content = if (f.exists() && f.length() in 1..(1L shl 20)) f.readText(Charsets.UTF_8) else ""
+        promise.resolve(content)
       } catch (t: Throwable) {
         promise.reject("storage_download_stream", t.message ?: "storage call failed")
       }
