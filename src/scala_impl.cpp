@@ -410,7 +410,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.10"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.12"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -728,8 +728,11 @@ void ScalaImpl::ensureStorage() {
     // a listen port for the node's libp2p endpoint (needed to start); overridable to avoid conflicts.
     try { cfg["listen-port"] = std::stoi(getSetting("storage_listen_port", "8199")); } catch (...) { cfg["listen-port"] = 8199; }
     std::string boot = getSetting("storage_bootstrap", "");
-    if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot });   // ride our own network
-    else cfg["network"] = "logos.test";                                 // else a valid network so the node starts
+    std::string rootMode = getSetting("storage_root", "");
+    bool isRoot = (rootMode == "1" || rootMode == "true");
+    if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot });   // client: ride our own network
+    else if (isRoot) cfg["no-bootstrap-node"] = true;                   // hub: be the private-DHT root (needs extip)
+    else cfg["network"] = "logos.test";                                 // else a valid public network so the node starts
     std::string extip = getSetting("storage_extip", "");
     if (!extip.empty()) cfg["nat"] = "extip:" + extip;
     try { modules().storage_module.init(cfg.dump()); modules().storage_module.start(); }

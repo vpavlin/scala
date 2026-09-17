@@ -1,5 +1,29 @@
 {
   "nodes": {
+    "ble_mesh": {
+      "inputs": {
+        "logos-module-builder": [
+          "scala",
+          "loam_core",
+          "logos-module-builder"
+        ]
+      },
+      "locked": {
+        "dir": "ble_mesh",
+        "lastModified": 1786809912,
+        "narHash": "sha256-8AHbWbeu9YzARhucHelBfaXjF8mwhOplRgBY8nYPo7k=",
+        "owner": "vpavlin",
+        "repo": "loam-basecamp",
+        "rev": "19002e5a56f67c512984e49e90ec2bb7b5bc26c8",
+        "type": "github"
+      },
+      "original": {
+        "dir": "ble_mesh",
+        "owner": "vpavlin",
+        "repo": "loam-basecamp",
+        "type": "github"
+      }
+    },
     "default-container": {
       "inputs": {
         "logos-container": "logos-container",
@@ -79,22 +103,96 @@
         "logos-delivery": "logos-delivery",
         "logos-module-builder": [
           "scala",
+          "loam_core",
           "logos-module-builder"
         ],
         "nix-bundle-lgx": "nix-bundle-lgx_22"
       },
       "locked": {
-        "lastModified": 1784819810,
-        "narHash": "sha256-S8LT7l+uTWLGw4/CgcV+8o2Qy1WY87X6kzv95S9Owvw=",
+        "lastModified": 1785498464,
+        "narHash": "sha256-6shBduxH/12ph+Y2R1Kwq65rjK6QfZCwp5vBU5h0i5Y=",
         "owner": "logos-co",
         "repo": "logos-delivery-module",
-        "rev": "0fb3a7427b29c98ab0fa2465bcd1e90cbfdf50a3",
+        "rev": "3258cdb0132e37228aa2519e0c01c0e7429a20dd",
         "type": "github"
       },
       "original": {
         "owner": "logos-co",
+        "ref": "v0.2.0",
         "repo": "logos-delivery-module",
-        "rev": "0fb3a7427b29c98ab0fa2465bcd1e90cbfdf50a3",
+        "type": "github"
+      }
+    },
+    "keycard": {
+      "inputs": {
+        "keycard-qt-src": "keycard-qt-src",
+        "logos-module-builder": [
+          "scala",
+          "loam_core",
+          "logos-module-builder"
+        ],
+        "nixpkgs": [
+          "scala",
+          "loam_core",
+          "keycard",
+          "logos-module-builder",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1786454206,
+        "narHash": "sha256-BnnDNqXEFyzZQ8UnB7+jiACSlQ8V8aj8DeKKm5W3B60=",
+        "owner": "xAlisher",
+        "repo": "keycard-basecamp",
+        "rev": "7865e3fa189c31c81ca40bd434e745740e1114fe",
+        "type": "github"
+      },
+      "original": {
+        "owner": "xAlisher",
+        "repo": "keycard-basecamp",
+        "type": "github"
+      }
+    },
+    "keycard-qt-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1776197161,
+        "narHash": "sha256-dbp+Bt5Y+oiTOZzSDPS9Qf3l98hE8lGo123MWuaXIpE=",
+        "owner": "xAlisher",
+        "repo": "keycard-qt",
+        "rev": "5cd0b0d22659fd8564c749787fc86c1374b00223",
+        "type": "github"
+      },
+      "original": {
+        "owner": "xAlisher",
+        "repo": "keycard-qt",
+        "rev": "5cd0b0d22659fd8564c749787fc86c1374b00223",
+        "type": "github"
+      }
+    },
+    "loam_core": {
+      "inputs": {
+        "ble_mesh": "ble_mesh",
+        "delivery_module": "delivery_module",
+        "keycard": "keycard",
+        "logos-module-builder": [
+          "scala",
+          "logos-module-builder"
+        ]
+      },
+      "locked": {
+        "dir": "core",
+        "lastModified": 1787079460,
+        "narHash": "sha256-ckGjMdSFo8NSyGjLbUkJim2rDgkAGzy7jyQ2PI0ZiiA=",
+        "owner": "vpavlin",
+        "repo": "loam-basecamp",
+        "rev": "24758d7acf5e8e3bfa77f935754d4e0129e5c017",
+        "type": "github"
+      },
+      "original": {
+        "dir": "core",
+        "owner": "vpavlin",
+        "repo": "loam-basecamp",
         "type": "github"
       }
     },
@@ -1559,11 +1657,11 @@
         "zerokit": "zerokit"
       },
       "locked": {
-        "lastModified": 1784801161,
-        "narHash": "sha256-9CX+nd5MQXu0xQy+HjC8CvrLG2K7RklU0dqbHIeusGU=",
+        "lastModified": 1785443689,
+        "narHash": "sha256-MHPA2HSHjK6xeo+a1GrDQK80IBMmBShv7W10jZmeykI=",
         "ref": "refs/heads/master",
-        "rev": "8ad99f10f41e813253ba1146efc83ca4cfdb3510",
-        "revCount": 2411,
+        "rev": "f8b036594ea2a36b529e10b584b7d2851a3ac5c8",
+        "revCount": 2425,
         "submodules": true,
         "type": "git",
         "url": "https://github.com/logos-messaging/logos-delivery"
@@ -10626,6 +10724,7 @@
         "logos-nix": "logos-nix_297",
         "nixpkgs": [
           "scala",
+          "loam_core",
           "delivery_module",
           "nix-bundle-lgx",
           "logos-package",
@@ -12350,6 +12449,27 @@
         "owner": "logos-co",
         "repo": "logos-standalone-app",
         "type": "github"
+      }
+    },
+    "logos-storage": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_300",
+        "nixpkgs-windows": "nixpkgs-windows"
+      },
+      "locked": {
+        "lastModified": 1789570551,
+        "narHash": "sha256-intgBuOBTXJ+3bLqHtjgdTZf9o49kUsn1z2LLbfQLWM=",
+        "ref": "refs/heads/master",
+        "rev": "e3225940fca9b6660343f8002bd90e641d7a592c",
+        "revCount": 982,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/logos-storage/logos-storage-nim"
+      },
+      "original": {
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/logos-storage/logos-storage-nim"
       }
     },
     "logos-test-framework": {
@@ -14783,6 +14903,7 @@
         "logos-nix": "logos-nix_298",
         "nixpkgs": [
           "scala",
+          "loam_core",
           "delivery_module",
           "nix-bundle-lgx",
           "nix-bundle-dir",
@@ -15378,6 +15499,7 @@
         "nix-bundle-dir": "nix-bundle-dir_51",
         "nixpkgs": [
           "scala",
+          "loam_core",
           "delivery_module",
           "nix-bundle-lgx",
           "logos-nix",
@@ -15881,6 +16003,22 @@
       "original": {
         "owner": "NixOS",
         "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-windows": {
+      "locked": {
+        "lastModified": 1789027773,
+        "narHash": "sha256-peDPNhDs5kAX4b7jP71fsyEI6vM5DTFNXhnjd+7Ug6A=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "4b576876945404fa58704ebe13e4e72c50a4ccdc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "release-26.05",
         "repo": "nixpkgs",
         "type": "github"
       }
@@ -19453,6 +19591,22 @@
         "type": "github"
       }
     },
+    "nixpkgs_300": {
+      "locked": {
+        "lastModified": 1783375776,
+        "narHash": "sha256-pg6hLjDeAWaUOzh2JM2Cw0BwYpGtOyNr6A4FBwP9Ymo=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "cd648d6ea62bc0ffba91e61fcfe5e33c1e2004b1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "release-25.11",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "nixpkgs_31": {
       "locked": {
         "lastModified": 1759036355,
@@ -20925,6 +21079,7 @@
       "inputs": {
         "nixpkgs": [
           "scala",
+          "loam_core",
           "delivery_module",
           "logos-delivery",
           "nixpkgs"
@@ -20948,6 +21103,7 @@
       "inputs": {
         "nixpkgs": [
           "scala",
+          "loam_core",
           "delivery_module",
           "logos-delivery",
           "zerokit",
@@ -20970,22 +21126,45 @@
     },
     "scala": {
       "inputs": {
-        "delivery_module": "delivery_module",
+        "loam_core": "loam_core",
         "logos-module-builder": [
           "logos-module-builder"
-        ]
+        ],
+        "storage_module": "storage_module"
       },
       "locked": {
-        "lastModified": 1786108359,
-        "narHash": "sha256-NcUxSSIy2JCICtRZA0mrD/F/Bb6VNrmhmEZFfklPk3Q=",
-        "owner": "jimmy-claw",
+        "lastModified": 1789643781,
+        "narHash": "sha256-ia1F7VeyfMOkAFjk1xvIW4LSohFmt4G5ZTSO5fhZaOM=",
+        "owner": "vpavlin",
         "repo": "scala",
-        "rev": "1d5fc0d8d9f223740fb2c2516f742963c6c7e9af",
+        "rev": "63a2686fc2bc3ca354ae9b1de9e90128f18977a5",
         "type": "github"
       },
       "original": {
-        "owner": "jimmy-claw",
+        "owner": "vpavlin",
         "repo": "scala",
+        "type": "github"
+      }
+    },
+    "storage_module": {
+      "inputs": {
+        "logos-module-builder": [
+          "scala",
+          "logos-module-builder"
+        ],
+        "logos-storage": "logos-storage"
+      },
+      "locked": {
+        "lastModified": 1789621286,
+        "narHash": "sha256-dskL304btW1+gNcVC75ZUqLcslyjIixwpsx1+UvS6Uc=",
+        "owner": "logos-co",
+        "repo": "logos-storage-module",
+        "rev": "bcc29f05e2a7b4a2d215d09640aaa7436359906b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "logos-co",
+        "repo": "logos-storage-module",
         "type": "github"
       }
     },
@@ -20993,6 +21172,7 @@
       "inputs": {
         "nixpkgs": [
           "scala",
+          "loam_core",
           "delivery_module",
           "logos-delivery",
           "nixpkgs"

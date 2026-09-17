@@ -143,6 +143,12 @@ public:
     /// Directory downloaded (decrypted) attachments are written to (for the view to open).
     std::string attachmentsDir();
 
+    /// Poll the outcome of an upload/download `ref` (the poll-based view avoids async signal
+    /// handlers, per the no-blocking-IPC rule). Returns {"pending":true} until done, then the same
+    /// JSON the attachmentUploaded/attachmentReady event carried ({ok,cid,name,mime,size,blobId} or
+    /// {ok,path,name} or {ok:false,error}).
+    std::string attachmentStatus(const std::string& ref);
+
     // ── Context lifecycle ────────────────────────────────────────────────────
     /// Called when the module context is fully initialized (deps are live).
     void onContextReady() override;
@@ -205,6 +211,10 @@ private:
     std::map<std::string, PendingDown> m_pendDown; // storage sessionId -> pending download
     void onStorageUploadDone(const std::string& payload);
     void onStorageDownloadDone(const std::string& payload);
+    std::map<std::string, std::string> m_attachResults;   // ref -> result JSON, polled by attachmentStatus
+    // store the poll result AND emit the async event (view uses the poll; the event is for others)
+    void finishUpload(const std::string& calId, const std::string& ref, const std::string& json);
+    void finishDownload(const std::string& calId, const std::string& ref, const std::string& json);
     // ── catch-up (qaku SYNC_REQ + seed) ──────────────────────────────────────
     void onSyncReq(const std::string& calId, const nlohmann::json& req);  // serve ONLY the delta a peer lacks (logos_sync catch-up)
     void sendSyncReq(const std::string& calId);   // publish our id-summary so peers serve our gap (on join/connect + retries)
