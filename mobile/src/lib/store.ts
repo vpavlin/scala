@@ -25,6 +25,17 @@ export interface Calendar {
   open?: boolean; // may participants add events? (default true)
 }
 
+// An attachment REFERENCE carried in the event (ADR 0017). The bytes live in Logos Storage,
+// sealed with the calendar household key; the event only carries this lightweight handle so the
+// CRDT/sync stays small. `storageCid` is the content-addressed handle a fetcher discovers + pulls.
+export interface Attachment {
+  name: string;         // display filename
+  mime: string;         // content type (best-effort)
+  size: number;         // plaintext byte length (for UI; the stored blob is sealed)
+  storageCid?: string;  // Logos Storage CID of the SEALED bytes (set once uploaded)
+  blobId?: string;      // sha256(sealed) — stable local handle / cache key / dedup
+}
+
 export interface CalEvent {
   id: string;
   calendarId: string;
@@ -38,6 +49,7 @@ export interface CalEvent {
   reminderMin?: number;         // reminder lead in minutes (undefined = default 10; 0 = none)
   recur?: import("./recur").Recur; // recurrence rule (undefined = does not repeat)
   fields?: Record<string, any>; // #8: custom schema field values
+  attachments?: Attachment[];   // ADR 0017: files stored in Logos Storage, referenced by CID
   creatorId?: string;
   deleted?: boolean; // never set by the fold (tombstoned events are dropped)
 }
