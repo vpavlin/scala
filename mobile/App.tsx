@@ -84,11 +84,14 @@ export default function App() {
   const [newCalSchema, setNewCalSchema] = useState<FieldDef[]>([]); // custom fields, set at create
   const [newCalCanAdd, setNewCalCanAdd] = useState(false);    // "Open — anyone can add" (default CLOSED — opening is deliberate)
   const [joinIdentity, setJoinIdentity] = useState("");       // identity to author my events on a joined calendar
-  // DEV: editable Codex fetch target (default = box LAN IP; edit for mesh/relay without a rebuild).
-  const [codexAddr, setCodexAddr] = useState("/ip4/192.168.10.32/tcp/8070/p2p/16Uiu2HAmDBgWd2SeE7wZyX4VnZqHnBiGHscvKZZ43ZYBrrZS43NL");
-  const [codexCid, setCodexCid] = useState("zDvZRwzmAZ35ys1juAVEMsss158X5M3QfPMnwHdPbEMfiTdQkqWu");
-  // Bootstrap off our OWN Loam Storage node (node A on the box) instead of the public logos.test net.
-  const [codexBoot, setCodexBoot] = useState("spr:CiUIAhIhAkeexKEHwg3RgmFJ9f-ah3ygYsPkPjyWY74LVvdHa_XQEgIDARo7CicAJQgCEiECR57EoQfCDdGCYUn1_5qHfKBiw-Q-PJZjvgtW90dr9dAQl-Ou1QYaCgoIBMCoCiAGH4YqRjBEAiAJjP94u94UlnpHWm2z9S5FyL40QI90aTegdi_kgmrwiQIgTwfJ_lubh3uLppB8JAJwiO3nCqA7W-Lh4Oj-fi_jRg4");
+  // DEV: editable Codex fetch target. Default = the always-on scala VPS hub (public Storage provider
+  // 128.140.55.128:8199, systemd scala-hub.service) so attachments resolve out-of-the-box; still
+  // editable in the debug modal for a LAN/mesh/other bootstrap without a rebuild.
+  const [codexAddr, setCodexAddr] = useState("/ip4/128.140.55.128/tcp/8199/p2p/16Uiu2HAm9MihmCFk6rY2YdkNa78LU5xrdj4wBn5jUUea5ABqCVa8");
+  const [codexCid, setCodexCid] = useState("zDvZRwzm27RpKjiufRiwVrR8rgHm9ekioBPhcF6CPTRi1TKsZaKc");
+  // Bootstrap off our OWN Loam Storage network (the VPS hub's private DHT root) instead of the public
+  // logos.test net (kad-incompatible with our build). The hub advertises its public IP so any phone reaches it.
+  const [codexBoot, setCodexBoot] = useState("spr:CiUIAhIhAs8AX5JLuRffkJiqakPZmpE_WeRw_xFzpYfWF13jGgupEgIDARo7CicAJQgCEiECzwBfkku5F9-QmKpqQ9makT9Z5HD_EXOlh9YXXeMaC6kQiOWy1QYaCgoIBICMN4AGIAcqRzBFAiEApW6gyJWos3KuqcV6DfAYwnwddjGni2ryZqjI7ud6MtMCICqFNyyEC3YgjiYHN0Wr3XZRn0ESD8v00Sv6cWynXTvK");
   const [codexDbg, setCodexDbg] = useState(false);       // Codex debug modal open
   const [codexLog, setCodexLog] = useState<string[]>([]); // live step-by-step log
   const [codexBusy, setCodexBusy] = useState(false);
