@@ -120,6 +120,7 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
     Thread {
       try {
         val c = BigInteger(ctx).toLong()
+        java.io.File(filePath).parentFile?.mkdirs()   // native stream opens filePath for write → its dir must exist
         val init = JSONObject(storageDownloadInit(c, cid, chunkSize.toLong(), local))
         if (!init.optBoolean("ok", false)) {
           promise.reject("storage_download_init", init.optString("err", "download init failed")); return@Thread
