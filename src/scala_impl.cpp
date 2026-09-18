@@ -436,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.15"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.16"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -765,18 +765,21 @@ void ScalaImpl::ensureStorage() {
     else if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot }); // client: ride the hub's DHT (default = the hub)
     else cfg["network"] = "logos.test";                                 // (only if the default is explicitly cleared)
     std::string extip = getSetting("storage_extip", "");
-    // Shrooms mesh auto-config: if this host is on the mesh, ride it (no public IP / relay needed).
-    // A shrooms-connected CLIENT (e.g. Basecamp behind NAT) binds dual-stack (::) so it has the
-    // mesh's IPv6 transport, and advertises its own mesh IPv6 address so mesh peers — notably the
-    // hub doing cache-on-see — can dial it directly. The ROOT/hub is left on 0.0.0.0 + its own
-    // (public) extip so the phone's public-IP fetch path is untouched. Only triggers when a `logos*`
-    // mesh interface with a ULA IPv6 is present; a machine off the mesh behaves exactly as before.
-    // An explicit storage_extip setting always wins.
-    std::string meshV6 = detectShroomsMeshIPv6();
+    // Shrooms mesh mode is OPT-IN (setting `storage_mesh=1`), NOT auto — and only sound for a client
+    // that shares the HUB's mesh SEGMENT. Auto-enabling it regressed the common case: a node listening
+    // on `::` with an IPv6 extip on a DIFFERENT mesh prefix than the hub (e.g. Basecamp on fd3b:… vs
+    // hub on fdb0:…) can't complete block exchange with the hub over its public IPv4 — the blockexc
+    // stream opens then closes ("Stream Closed!") and the fetch stalls forever; it also advertises a
+    // provider address unreachable to off-segment/off-mesh peers, stranding THEIR fetches. Default =
+    // 0.0.0.0, which reliably fetches from the hub's public IP (the phone's proven path). Turn on
+    // storage_mesh only when the node is on the same mesh segment as the hub (enables hub cache-on-see
+    // to pull this node's uploads over the mesh). An explicit storage_extip always wins.
+    std::string meshMode = getSetting("storage_mesh", "");
+    std::string meshV6 = (meshMode == "1" || meshMode == "true") ? detectShroomsMeshIPv6() : std::string();
     if (!meshV6.empty() && !isRoot) {
         cfg["listen-ip"] = "::";
         if (extip.empty()) extip = meshV6;
-        fprintf(stderr, "[scala] shrooms mesh detected: Storage on mesh IPv6 %s\n", meshV6.c_str());
+        fprintf(stderr, "[scala] storage_mesh on: mesh IPv6 %s\n", meshV6.c_str());
     } else {
         cfg["listen-ip"] = "0.0.0.0";
     }
