@@ -398,6 +398,7 @@ export default function App() {
       draft: {
         id: m.id, title: m.title, startTime: m.startTime, endTime: m.endTime, description: m.description,
         location: m.location, url: m.url, allDay: m.allDay, reminderMin: m.reminderMin, recur: m.recur, fields: m.fields,
+        attachments: m.attachments,   // ADR 0017 — surface received attachments in the editor (was dropped → section never showed)
       },
     });
   };
