@@ -171,10 +171,22 @@ public:
             if (parsed.is_object()) cfg = parsed;
         }
         if (cfg.empty()) {
-            cfg["mode"] = "Core"; cfg["preset"] = m_cfg.preset;
-            LogosMap mo = LogosMap::object();
-            mo["logLevel"] = m_cfg.logLevel; mo["tcp-port"] = 30303; mo["discv5-udp-port"] = 9000;
-            cfg["messagingOverrides"] = mo;
+            // DEFAULT = the FLAT WakuNodeConf the fleet-deployed delivery (0.1.x, what the LAN/crib
+            // installs and Basecamp runs) accepts. The layered messagingOverrides shape below was for a
+            // newer delivery v0.2.0, but the deployed build REJECTS it → "Failed to create Delivery
+            // context" → the GUI never syncs (it can't set SCALA_DELIVERY_CFG). So default to flat —
+            // identical to what the headless hub/box nodes run. If the ecosystem moves to v0.2.0, set
+            // SCALA_DELIVERY_CFG (or flip this) to the layered shape.
+            cfg["mode"] = "Core";
+            cfg["preset"] = m_cfg.preset;            // logos.test → cluster 2
+            cfg["relay"] = true;
+            cfg["logLevel"] = m_cfg.logLevel;
+            cfg["entryNodes"] = LogosMap::array({
+                "/dns4/node-01.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmQ9X2xDfPG3uL77V9piYDhjq14JhKCtcmNYsTMKNqrKCj",
+                "/dns4/node-02.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmB8NYprrfQrgWVzsJtYWkfjsXbmJEGNMG6othXsQ53BwG",
+                "/dns4/node-01.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmF8WtwGPmeGHgYAX2277jHgy5cW9F7zsB8EqUjBZQAZQ3",
+                "/dns4/node-02.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmUuXhUW9bdJpzN1kfDziFiUZo4bszTk66cvr7uuyCHXR7"
+            });
         }
         const std::string cfgStr = cfg.dump();
         fprintf(stderr, "logos_transport bootstrap cfg=%s\n", cfgStr.c_str());
