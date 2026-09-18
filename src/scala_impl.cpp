@@ -410,7 +410,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.12"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.13"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -727,12 +727,18 @@ void ScalaImpl::ensureStorage() {
     cfg["listen-ip"] = "0.0.0.0";
     // a listen port for the node's libp2p endpoint (needed to start); overridable to avoid conflicts.
     try { cfg["listen-port"] = std::stoi(getSetting("storage_listen_port", "8199")); } catch (...) { cfg["listen-port"] = 8199; }
-    std::string boot = getSetting("storage_bootstrap", "");
+    // Default clients to OUR always-on VPS hub's private DHT (a public Storage provider on
+    // 128.140.55.128:8199), so shared-calendar attachments resolve with no per-user config —
+    // same SPR baked into mobile. Overridable via the storage_bootstrap setting. The hub itself
+    // sets storage_root=1, which is checked FIRST below so it stays a no-bootstrap root.
+    static const char* kDefaultHubSpr =
+        "spr:CiUIAhIhAs8AX5JLuRffkJiqakPZmpE_WeRw_xFzpYfWF13jGgupEgIDARo7CicAJQgCEiECzwBfkku5F9-QmKpqQ9makT9Z5HD_EXOlh9YXXeMaC6kQiOWy1QYaCgoIBICMN4AGIAcqRzBFAiEApW6gyJWos3KuqcV6DfAYwnwddjGni2ryZqjI7ud6MtMCICqFNyyEC3YgjiYHN0Wr3XZRn0ESD8v00Sv6cWynXTvK";
+    std::string boot = getSetting("storage_bootstrap", kDefaultHubSpr);
     std::string rootMode = getSetting("storage_root", "");
     bool isRoot = (rootMode == "1" || rootMode == "true");
-    if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot });   // client: ride our own network
-    else if (isRoot) cfg["no-bootstrap-node"] = true;                   // hub: be the private-DHT root (needs extip)
-    else cfg["network"] = "logos.test";                                 // else a valid public network so the node starts
+    if (isRoot) cfg["no-bootstrap-node"] = true;                        // hub: the private-DHT root (needs extip) — FIRST
+    else if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot }); // client: ride the hub's DHT (default = the hub)
+    else cfg["network"] = "logos.test";                                 // (only if the default is explicitly cleared)
     std::string extip = getSetting("storage_extip", "");
     if (!extip.empty()) cfg["nat"] = "extip:" + extip;
     try { modules().storage_module.init(cfg.dump()); modules().storage_module.start(); }
