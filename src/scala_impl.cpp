@@ -23,8 +23,34 @@
 #include <vector>
 #include <cctype>
 #include <cstring>
+#include <ifaddrs.h>       // shrooms-mesh auto-detect (getifaddrs)
+#include <net/if.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 using scala::json;
+
+// Detect a shrooms overlay-mesh address: the mesh presents itself as `logos*` interfaces
+// (logos01/logos02) carrying a global ULA IPv6 (fc00::/7, e.g. fdb0:…). Returns that address
+// (string) when this host is on the mesh, else "" — used to ride the mesh for Storage without
+// a public IP or relay. Link-local (fe80::/10) is skipped.
+static std::string detectShroomsMeshIPv6() {
+    struct ifaddrs* ifas = nullptr;
+    if (getifaddrs(&ifas) != 0) return "";
+    std::string found;
+    for (struct ifaddrs* ifa = ifas; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET6) continue;
+        if (!ifa->ifa_name || std::strncmp(ifa->ifa_name, "logos", 5) != 0) continue;
+        auto* sa = reinterpret_cast<struct sockaddr_in6*>(ifa->ifa_addr);
+        const unsigned char* b = sa->sin6_addr.s6_addr;
+        if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) continue;   // skip link-local fe80::/10
+        if ((b[0] & 0xfe) != 0xfc) continue;                    // ULA fc00::/7 only
+        char buf[INET6_ADDRSTRLEN] = {0};
+        if (inet_ntop(AF_INET6, &sa->sin6_addr, buf, sizeof(buf))) { found = buf; break; }
+    }
+    freeifaddrs(ifas);
+    return found;
+}
 
 // ── small helpers ────────────────────────────────────────────────────────────
 // RFC-4122-ish v4 UUID. MUST use a properly-seeded high-quality RNG: std::rand()
@@ -410,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.13"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.14"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -724,7 +750,6 @@ void ScalaImpl::ensureStorage() {
     json cfg;
     cfg["log-level"] = getSetting("storage_loglevel", "INFO");   // INFO so node startup + uploads are visible
     cfg["data-dir"] = m_storageDir + "/node";
-    cfg["listen-ip"] = "0.0.0.0";
     // a listen port for the node's libp2p endpoint (needed to start); overridable to avoid conflicts.
     try { cfg["listen-port"] = std::stoi(getSetting("storage_listen_port", "8199")); } catch (...) { cfg["listen-port"] = 8199; }
     // Default clients to OUR always-on VPS hub's private DHT (a public Storage provider on
@@ -740,6 +765,21 @@ void ScalaImpl::ensureStorage() {
     else if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot }); // client: ride the hub's DHT (default = the hub)
     else cfg["network"] = "logos.test";                                 // (only if the default is explicitly cleared)
     std::string extip = getSetting("storage_extip", "");
+    // Shrooms mesh auto-config: if this host is on the mesh, ride it (no public IP / relay needed).
+    // A shrooms-connected CLIENT (e.g. Basecamp behind NAT) binds dual-stack (::) so it has the
+    // mesh's IPv6 transport, and advertises its own mesh IPv6 address so mesh peers — notably the
+    // hub doing cache-on-see — can dial it directly. The ROOT/hub is left on 0.0.0.0 + its own
+    // (public) extip so the phone's public-IP fetch path is untouched. Only triggers when a `logos*`
+    // mesh interface with a ULA IPv6 is present; a machine off the mesh behaves exactly as before.
+    // An explicit storage_extip setting always wins.
+    std::string meshV6 = detectShroomsMeshIPv6();
+    if (!meshV6.empty() && !isRoot) {
+        cfg["listen-ip"] = "::";
+        if (extip.empty()) extip = meshV6;
+        fprintf(stderr, "[scala] shrooms mesh detected: Storage on mesh IPv6 %s\n", meshV6.c_str());
+    } else {
+        cfg["listen-ip"] = "0.0.0.0";
+    }
     if (!extip.empty()) cfg["nat"] = "extip:" + extip;
     try { modules().storage_module.init(cfg.dump()); modules().storage_module.start(); }
     catch (...) { /* best-effort; upload/fetch will retry the calls */ }
