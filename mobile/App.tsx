@@ -447,12 +447,9 @@ export default function App() {
       const sealed = toByteArray(await codexStorage.readFileB64(sealedPath));
       const plain = openSealed(cal.encryptionKey, sealed);
       if (!plain) { Alert.alert("Attachment ❌", "Decrypt failed (wrong calendar key?)."); return; }
-      const outPath = `${dir}/attachments/${att.name || att.storageCid}`;
-      await codexStorage.writeFileB64(outPath, fromByteArray(plain));
-      // Text preview if it looks like UTF-8; otherwise just confirm the bytes landed.
-      let preview = "";
-      try { const t = new TextDecoder("utf-8", { fatal: true }).decode(plain); if (t.length <= 500) preview = "\n\n" + t; } catch { /* binary */ }
-      Alert.alert("Attachment ✅", `Decrypted ${att.name || "file"} (${plain.length} bytes)\nSaved: ${outPath}${preview}`);
+      // Save the decrypted file into the device's public Downloads so the user actually has it.
+      const savedAt = await codexStorage.saveToDownloads(att.name || att.storageCid, att.mime || "application/octet-stream", fromByteArray(plain));
+      Alert.alert("Attachment ✅", `Saved ${att.name || "file"} (${plain.length} bytes)\nto ${savedAt}`);
     } catch (e: any) {
       Alert.alert("Attachment ❌", `[${e?.code ?? "?"}] ${e?.message ?? e}`);
     }

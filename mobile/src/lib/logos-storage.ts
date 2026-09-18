@@ -38,6 +38,11 @@ export async function writeFileB64(path: string, b64: string): Promise<string> {
   return LS.writeFileB64(path, b64);
 }
 
+/** Save decrypted bytes into the device's public Downloads folder. Returns a user-facing location. */
+export async function saveToDownloads(fileName: string, mime: string, b64: string): Promise<string> {
+  return LS.saveToDownloads(fileName, mime, b64);
+}
+
 /** Create + start the node. Idempotent-ish: a second call returns the existing ctx. */
 export async function init(cfg: StorageConfig = {}): Promise<string> {
   if (!LS) throw new Error("LogosStorage native module unavailable in this build");

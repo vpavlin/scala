@@ -170,6 +170,40 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
     }.start()
   }
 
+  // Save decrypted bytes into the device's public Downloads so the user actually gets the file (not
+  // just an in-app preview). API 29+ uses MediaStore (no runtime permission, scoped storage); older
+  // devices write the public Downloads dir directly (WRITE_EXTERNAL_STORAGE, declared maxSdk 32).
+  // Resolves with a user-facing location string.
+  @ReactMethod
+  fun saveToDownloads(fileName: String, mime: String, b64: String, promise: Promise) {
+    Thread {
+      try {
+        val bytes = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+        val name = if (fileName.isNotBlank()) fileName else "attachment"
+        val type = if (mime.isNotBlank()) mime else "application/octet-stream"
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+          val resolver = reactApplicationContext.contentResolver
+          val cv = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+            put(android.provider.MediaStore.Downloads.MIME_TYPE, type)
+            put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+          }
+          val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
+            ?: throw java.io.IOException("could not create a Downloads entry")
+          resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw java.io.IOException("could not open Downloads for write")
+          cv.clear(); cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+          resolver.update(uri, cv, null, null)
+          promise.resolve("Downloads/$name")
+        } else {
+          val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+          dir.mkdirs()
+          val f = java.io.File(dir, name); f.writeBytes(bytes)
+          promise.resolve(f.absolutePath)
+        }
+      } catch (t: Throwable) { promise.reject("save_downloads", t.message ?: "save failed") }
+    }.start()
+  }
+
   @ReactMethod fun addListener(eventName: String) { /* no-op (RN event-emitter contract) */ }
   @ReactMethod fun removeListeners(count: Int) { /* no-op */ }
 }
