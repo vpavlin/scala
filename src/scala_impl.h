@@ -123,8 +123,17 @@ public:
     std::string searchEvents(const std::string& query);
 
     // ── Reminders API ────────────────────────────────────────────────────────
-    /// Get events with pending reminders. Returns JSON array string.
+    /// Events whose reminder window is currently open, across all calendars, occurrence-expanded.
+    /// Returns a JSON array of {calendarId,id,title,startTime,occ,reminderMin,location}. `occ` is the
+    /// concrete occurrence start (ms) the reminder is for (== startTime for non-recurring events).
     std::string getPendingReminders();
+
+    // ── iCalendar (RFC 5545) interop ─────────────────────────────────────────
+    /// Export a calendar to an .ics document (VCALENDAR/VEVENT text). "" if the calendar is unknown.
+    std::string exportCalendarIcs(const std::string& calendarId);
+    /// Import VEVENTs from an .ics document into a calendar (each authored as a normal signed event).
+    /// Returns {"imported":N,"skipped":M} (or {"imported":0,"error":"…"}).
+    std::string importIcs(const std::string& calendarId, const std::string& icsText);
 
     // ── Settings API ─────────────────────────────────────────────────────────
     void setSetting(const std::string& key, const std::string& value);

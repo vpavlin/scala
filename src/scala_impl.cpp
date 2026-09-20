@@ -436,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.16"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.17"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -608,7 +608,221 @@ std::string ScalaImpl::searchEvents(const std::string& query) {
     }
     return out.dump();
 }
-std::string ScalaImpl::getPendingReminders() { return "[]"; }
+// ── reminders + iCalendar helpers ────────────────────────────────────────────
+namespace {
+constexpr long long kNoUntil = 4102444800000LL;   // ~year 2100, "no UNTIL" sentinel
+
+// Expand an event's occurrence start times (ms) overlapping [winStart, winEnd] — the same
+// daily/weekly/monthly/yearly rule the QML view + mobile recur.ts use, via local calendar math.
+std::vector<long long> expandOccurrences(const scala::json& ev, long long winStart, long long winEnd) {
+    std::vector<long long> occ;
+    if (!ev.contains("startTime") || !ev["startTime"].is_number()) return occ;
+    long long start = ev["startTime"].get<long long>();
+    long long end = (ev.contains("endTime") && ev["endTime"].is_number()) ? ev["endTime"].get<long long>() : start;
+    long long dur = end > start ? end - start : 0;
+    const scala::json* r = (ev.contains("recur") && ev["recur"].is_object()) ? &ev["recur"] : nullptr;
+    std::string freq = r ? r->value("freq", std::string()) : std::string();
+    if (freq.empty()) {
+        if (start + dur >= winStart && start <= winEnd) occ.push_back(start);
+        return occ;
+    }
+    int interval = 1;
+    if (r->contains("interval") && (*r)["interval"].is_number()) { int iv = (*r)["interval"].get<int>(); interval = iv > 1 ? iv : 1; }
+    long long until = (r->contains("until") && (*r)["until"].is_number()) ? (*r)["until"].get<long long>() : kNoUntil;
+    std::time_t t = (std::time_t)(start / 1000); std::tm cur{}; localtime_r(&t, &cur);
+    for (int guard = 0; guard < 5000; ++guard) {
+        std::tm tmp = cur; tmp.tm_isdst = -1;
+        long long occStart = (long long)std::mktime(&tmp) * 1000LL;
+        if (occStart > winEnd || occStart > until) break;
+        if (occStart + dur >= winStart) occ.push_back(occStart);
+        if (freq == "daily")        cur.tm_mday += interval;
+        else if (freq == "weekly")  cur.tm_mday += 7 * interval;
+        else if (freq == "monthly") cur.tm_mon  += interval;
+        else if (freq == "yearly")  cur.tm_year += interval;
+        else break;
+        cur.tm_isdst = -1; std::mktime(&cur);   // normalize (e.g. mday overflow → next month)
+    }
+    return occ;
+}
+
+std::string icsEscape(const std::string& s) {
+    std::string o; o.reserve(s.size() + 8);
+    for (char c : s) {
+        switch (c) {
+            case '\\': o += "\\\\"; break;
+            case ';':  o += "\\;";  break;
+            case ',':  o += "\\,";  break;
+            case '\n': o += "\\n";  break;
+            case '\r': break;
+            default:   o += c;
+        }
+    }
+    return o;
+}
+std::string icsUnescape(const std::string& s) {
+    std::string o; o.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) { char n = s[++i]; o += (n == 'n' || n == 'N') ? '\n' : n; }
+        else o += s[i];
+    }
+    return o;
+}
+// Fold a content line to <=75 octets with CRLF + leading-space continuation (RFC 5545 §3.1).
+std::string icsFold(const std::string& line) {
+    std::string o; size_t n = 0;
+    for (char c : line) { if (n >= 73) { o += "\r\n "; n = 1; } o += c; ++n; }
+    return o;
+}
+std::string icsFmtUtc(long long ms) {
+    std::time_t t = (std::time_t)(ms / 1000); std::tm g{}; gmtime_r(&t, &g);
+    char buf[20]; std::strftime(buf, sizeof(buf), "%Y%m%dT%H%M%SZ", &g); return buf;
+}
+std::string icsFmtDate(long long ms) {   // all-day: the local calendar date
+    std::time_t t = (std::time_t)(ms / 1000); std::tm lt{}; localtime_r(&t, &lt);
+    char buf[12]; std::strftime(buf, sizeof(buf), "%Y%m%d", &lt); return buf;
+}
+// Parse an ICS date/date-time value → ms epoch. Sets allDay for a bare YYYYMMDD (VALUE=DATE).
+// Handles YYYYMMDD (all-day, local midnight), YYYYMMDDTHHMMSSZ (UTC), YYYYMMDDTHHMMSS (floating→local).
+long long icsParseDate(const std::string& value, bool& allDay) {
+    std::string v = value; allDay = false;
+    if (v.size() == 8 && v.find('T') == std::string::npos) {
+        allDay = true; std::tm tmv{}; tmv.tm_isdst = -1;
+        try { tmv.tm_year = std::stoi(v.substr(0,4)) - 1900; tmv.tm_mon = std::stoi(v.substr(4,2)) - 1; tmv.tm_mday = std::stoi(v.substr(6,2)); }
+        catch (...) { return 0; }
+        return (long long)std::mktime(&tmv) * 1000LL;
+    }
+    bool utc = (!v.empty() && v.back() == 'Z'); if (utc) v.pop_back();
+    if (v.size() < 15 || v[8] != 'T') return 0;
+    std::tm tmv{}; tmv.tm_isdst = -1;
+    try {
+        tmv.tm_year = std::stoi(v.substr(0,4)) - 1900; tmv.tm_mon = std::stoi(v.substr(4,2)) - 1; tmv.tm_mday = std::stoi(v.substr(6,2));
+        tmv.tm_hour = std::stoi(v.substr(9,2)); tmv.tm_min = std::stoi(v.substr(11,2)); tmv.tm_sec = std::stoi(v.substr(13,2));
+    } catch (...) { return 0; }
+    return utc ? (long long)timegm(&tmv) * 1000LL : (long long)std::mktime(&tmv) * 1000LL;
+}
+} // namespace
+
+std::string ScalaImpl::getPendingReminders() {
+    long long now = nowMs();
+    long long horizon = now + 1440LL * 60000LL;   // widest lead we offer is 1 day
+    json out = json::array();
+    for (const auto& c : m_store->calendars()) {
+        json f = scala::foldCalendar(c.id, m_store->log(c.id));
+        for (const auto& ev : f["events"]) {
+            int lead = (ev.contains("reminderMin") && ev["reminderMin"].is_number()) ? ev["reminderMin"].get<int>() : 10;
+            if (lead <= 0) continue;
+            for (long long occ : expandOccurrences(ev, now, horizon)) {
+                long long fireAt = occ - (long long)lead * 60000LL;
+                if (now >= fireAt && now < occ) {
+                    out.push_back(json{{"calendarId", c.id}, {"id", ev.value("id", std::string())},
+                                       {"title", ev.value("title", std::string())}, {"startTime", occ},
+                                       {"occ", occ}, {"reminderMin", lead}, {"location", ev.value("location", std::string())}});
+                    break;   // one pending reminder per event is enough
+                }
+            }
+        }
+    }
+    return out.dump();
+}
+
+std::string ScalaImpl::exportCalendarIcs(const std::string& calendarId) {
+    scala::CalReg c = m_store->calendar(calendarId);
+    if (c.id.empty()) return "";
+    json f = scala::foldCalendar(c.id, m_store->log(c.id));
+    std::string nm = f.value("name", std::string()); if (nm.empty()) nm = c.name.empty() ? std::string("Scala Calendar") : c.name;
+    const std::string dtstamp = icsFmtUtc(nowMs());
+    std::string out;
+    out += "BEGIN:VCALENDAR\r\n";
+    out += "VERSION:2.0\r\n";
+    out += "PRODID:-//Scala//Secure CALendar//EN\r\n";
+    out += "CALSCALE:GREGORIAN\r\n";
+    out += icsFold("X-WR-CALNAME:" + icsEscape(nm)) + "\r\n";
+    for (const auto& ev : f["events"]) {
+        std::string id = ev.value("id", std::string());
+        long long st = (ev.contains("startTime") && ev["startTime"].is_number()) ? ev["startTime"].get<long long>() : 0;
+        long long en = (ev.contains("endTime") && ev["endTime"].is_number()) ? ev["endTime"].get<long long>() : st;
+        bool allDay = ev.value("allDay", false);
+        out += "BEGIN:VEVENT\r\n";
+        out += icsFold("UID:" + (id.empty() ? std::to_string(st) : id) + "@scala") + "\r\n";
+        out += "DTSTAMP:" + dtstamp + "\r\n";
+        if (allDay) {
+            out += "DTSTART;VALUE=DATE:" + icsFmtDate(st) + "\r\n";
+            out += "DTEND;VALUE=DATE:" + icsFmtDate((en > st ? en : st) + 86400000LL) + "\r\n";   // DTEND is exclusive
+        } else {
+            out += "DTSTART:" + icsFmtUtc(st) + "\r\n";
+            out += "DTEND:" + icsFmtUtc(en > 0 ? en : st) + "\r\n";
+        }
+        std::string title = ev.value("title", std::string());       if (!title.empty()) out += icsFold("SUMMARY:" + icsEscape(title)) + "\r\n";
+        std::string desc  = ev.value("description", std::string()); if (!desc.empty())  out += icsFold("DESCRIPTION:" + icsEscape(desc)) + "\r\n";
+        std::string loc   = ev.value("location", std::string());    if (!loc.empty())   out += icsFold("LOCATION:" + icsEscape(loc)) + "\r\n";
+        std::string url   = ev.value("url", std::string());         if (!url.empty())   out += icsFold("URL:" + icsEscape(url)) + "\r\n";
+        if (ev.contains("recur") && ev["recur"].is_object()) {
+            const auto& r = ev["recur"]; std::string freq = r.value("freq", std::string());
+            std::string F = freq == "daily" ? "DAILY" : freq == "weekly" ? "WEEKLY" : freq == "monthly" ? "MONTHLY" : freq == "yearly" ? "YEARLY" : "";
+            if (!F.empty()) {
+                std::string rr = "RRULE:FREQ=" + F;
+                if (r.contains("interval") && r["interval"].is_number() && r["interval"].get<int>() > 1) rr += ";INTERVAL=" + std::to_string(r["interval"].get<int>());
+                if (r.contains("until") && r["until"].is_number()) rr += ";UNTIL=" + icsFmtUtc(r["until"].get<long long>());
+                out += rr + "\r\n";
+            }
+        }
+        out += "END:VEVENT\r\n";
+    }
+    out += "END:VCALENDAR\r\n";
+    return out;
+}
+
+std::string ScalaImpl::importIcs(const std::string& calendarId, const std::string& icsText) {
+    if (m_store->calendar(calendarId).id.empty()) return json{{"imported", 0}, {"error", "unknown calendar"}}.dump();
+    // Unfold: a line beginning with space/tab continues the previous one (RFC 5545 §3.1).
+    std::vector<std::string> lines; { std::string cur, raw; std::stringstream ss(icsText);
+        while (std::getline(ss, raw)) {
+            if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+            if (!raw.empty() && (raw[0] == ' ' || raw[0] == '\t')) cur += raw.substr(1);
+            else { if (!cur.empty()) lines.push_back(cur); cur = raw; }
+        }
+        if (!cur.empty()) lines.push_back(cur);
+    }
+    int imported = 0, skipped = 0; bool inEvent = false; json ev;
+    for (const auto& line : lines) {
+        if (line == "BEGIN:VEVENT") { inEvent = true; ev = json::object(); continue; }
+        if (line == "END:VEVENT") {
+            inEvent = false;
+            if (ev.contains("startTime")) {
+                if (!ev.contains("endTime"))
+                    ev["endTime"] = ev.value("allDay", false) ? ev["startTime"].get<long long>() : ev["startTime"].get<long long>() + 3600000LL;
+                ev["id"] = generateUuid();
+                authorAndPublish(scala::ET::EVENT_PUT, ev, calendarId);
+                ++imported;
+            } else ++skipped;
+            continue;
+        }
+        if (!inEvent) continue;
+        auto colon = line.find(':'); if (colon == std::string::npos) continue;
+        std::string namepart = line.substr(0, colon), value = line.substr(colon + 1);
+        auto semi = namepart.find(';');
+        std::string name = (semi == std::string::npos) ? namepart : namepart.substr(0, semi);
+        for (auto& ch : name) ch = toupper(ch);
+        if      (name == "SUMMARY")     ev["title"] = icsUnescape(value);
+        else if (name == "DESCRIPTION") ev["description"] = icsUnescape(value);
+        else if (name == "LOCATION")    ev["location"] = icsUnescape(value);
+        else if (name == "URL")         ev["url"] = icsUnescape(value);
+        else if (name == "DTSTART")     { bool ad = false; long long ms = icsParseDate(value, ad); if (ms) { ev["startTime"] = ms; if (ad) ev["allDay"] = true; } }
+        else if (name == "DTEND")       { bool ad = false; long long ms = icsParseDate(value, ad); if (ms) { if (ad) ms -= 86400000LL; ev["endTime"] = ms; } }
+        else if (name == "RRULE") {
+            json r = json::object(); std::stringstream rs(value); std::string kv;
+            while (std::getline(rs, kv, ';')) {
+                auto eq = kv.find('='); if (eq == std::string::npos) continue;
+                std::string k = kv.substr(0, eq), val = kv.substr(eq + 1); for (auto& ch : k) ch = toupper(ch);
+                if (k == "FREQ") { for (auto& ch : val) ch = tolower(ch); if (val == "daily" || val == "weekly" || val == "monthly" || val == "yearly") r["freq"] = val; }
+                else if (k == "INTERVAL") { try { r["interval"] = std::stoi(val); } catch (...) {} }
+                else if (k == "UNTIL") { bool ad = false; long long ms = icsParseDate(val, ad); if (ms) r["until"] = ms; }
+            }
+            if (r.contains("freq")) ev["recur"] = r;
+        }
+    }
+    return json{{"imported", imported}, {"skipped", skipped}}.dump();
+}
 
 // ── sharing ──────────────────────────────────────────────────────────────────
 std::string ScalaImpl::shareCalendar(const std::string& calendarId) {
