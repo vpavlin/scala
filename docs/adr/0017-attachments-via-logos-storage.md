@@ -1,8 +1,11 @@
 # 17. Event attachments via Logos Storage (Codex) — decentralized, gated on a mobile fetch client
 
-- **Status:** decided / not yet built. Design accepted; adoption **blocked on a mobile Codex
-  fetch client** (see §Constraint + §Path). Interim fallback specified.
-- **Date:** 2026-09-11
+- **Status:** decided / **built** (2026-09; the mobile fetch client blocker was cleared — a
+  native libstorage fetch client on Android arm64). Shipped end-to-end: seal → Logos Storage →
+  content-addressed CID; cache-on-see; an always-on hub (VPS) replicates so members fetch even
+  when the author is offline. Cross-machine fetch+decrypt verified byte-identical. See the
+  `scala-vps-hub` note for the hub deployment.
+- **Date:** 2026-09-11 (built 2026-09-17)
 
 ## Context
 

@@ -50,6 +50,15 @@ moves sealed bytes).
   are self-describing (`pub`/`sig`/`dev`), this needs **no change to the fold or the wire**. Writing
   with an identity a calendar won't accept is **refused with a clear message**, never silently dropped.
   (ADR [0009](docs/adr/0009-per-calendar-identity.md).)
+- **Attachments — sealed, content-addressed.** Attach files to an event; bytes are sealed with the
+  calendar's key and stored on **Logos Storage** (content-addressed by CID), so the network only
+  moves ciphertext. Any member fetches by CID and *cache-on-see* makes them a provider too; an
+  always-on hub replicates so files resolve even when the author is offline. (ADR
+  [0017](docs/adr/0017-attachments-via-logos-storage.md).)
+- **iCalendar (.ics) import/export.** Bring events in from — and hand them out to — Google/Apple/
+  Thunderbird or a conference invite. Imported VEVENTs become ordinary signed scala events (times,
+  all-day, recurrence via RRULE); export a whole calendar to a shareable `.ics`. No server, no
+  account. (ADR [0018](docs/adr/0018-icalendar-interop.md).)
 
 **→ [Design decisions (ADRs)](docs/adr/)** — the *why* behind all of the above. Retired
 migration plans live in [`docs/archive/`](docs/archive/).
