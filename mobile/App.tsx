@@ -26,6 +26,7 @@ import { Drawer } from "./src/components/Drawer";
 import { IdentitiesPanel, KeycardTapOverlay, KeycardPinGate } from "./src/components/KeycardProbe";
 import { listIdentities, getDefaultIdentityId, identityForCalendar } from "./src/lib/identities";
 import * as codexStorage from "./src/lib/logos-storage";
+import { buildIcs, parseIcs, icsToBase64 } from "./src/lib/ics";
 import { open as openSealed } from "./src/lib/crypto";
 import { toByteArray, fromByteArray } from "base64-js";
 import type { Attachment } from "./src/lib/store";
@@ -254,6 +255,32 @@ export default function App() {
     if (JSON.stringify(calSet.schema) !== JSON.stringify(calSet.cal.schema || [])) await updateCalendarMeta(calSet.cal.id, { schema: calSet.schema });
     await setAlias(calSet.cal.id, calSet.alias);
     setCalSet(null);
+  };
+  // iCalendar (.ics): export this calendar to the device's Downloads; import from clipboard .ics text.
+  const exportCalIcs = async () => {
+    if (!calSet) return;
+    try {
+      const evs = events.filter((e) => e.calendarId === calSet.cal.id);
+      const ics = buildIcs(calSet.cal.name || "calendar", evs);
+      const fname = (calSet.cal.name || "calendar").replace(/[^\w.-]+/g, "_") + ".ics";
+      const at = await codexStorage.saveToDownloads(fname, "text/calendar", icsToBase64(ics));
+      Alert.alert("Exported ✅", `${evs.length} event(s)\nto ${at}`);
+    } catch (e: any) { Alert.alert("Export failed", e?.message ?? String(e)); }
+  };
+  const importCalIcs = async () => {
+    if (!calSet) return;
+    try {
+      const text = await Clipboard.getStringAsync();
+      if (!text || text.indexOf("BEGIN:VEVENT") < 0) {
+        Alert.alert("Import .ics", "Copy an iCalendar (.ics) document to the clipboard first, then tap Import."); return;
+      }
+      const parsed = parseIcs(text);
+      if (!parsed.length) { Alert.alert("Import .ics", "No events found in the clipboard .ics."); return; }
+      const cid = calSet.cal.id;
+      for (const ev of parsed) await createEvent(cid, ev as any);
+      await refresh();
+      Alert.alert("Imported ✅", `${parsed.length} event(s) added to ${calSet.cal.name}.`);
+    } catch (e: any) { Alert.alert("Import failed", e?.message ?? String(e)); }
   };
   // #8: custom-field schema editing (staged in calSet, written on Save).
   const addField = () => {
@@ -775,6 +802,13 @@ export default function App() {
                     </View>
                   </>
                 )}
+
+                <Text style={s.pLabel}>iCalendar</Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable style={[s.smBtn, { flex: 1, alignItems: "center", backgroundColor: "transparent", borderWidth: 1, borderColor: C.border }]} onPress={exportCalIcs}><Text style={s.smBtnT}>Export .ics</Text></Pressable>
+                  <Pressable style={[s.smBtn, { flex: 1, alignItems: "center", backgroundColor: "transparent", borderWidth: 1, borderColor: C.border }]} onPress={importCalIcs}><Text style={s.smBtnT}>Import .ics</Text></Pressable>
+                </View>
+                <Text style={[s.sub, { marginTop: 4 }]}>Export saves to Downloads. Import reads an .ics from the clipboard.</Text>
 
                 <Pressable style={[s.smBtn, { marginTop: 18, alignItems: "center", backgroundColor: C.accent }]} onPress={saveCalSettings}><Text style={[s.smBtnT, { color: C.bg }]}>Save</Text></Pressable>
                 <Pressable style={[s.smBtn, { marginTop: 8, alignItems: "center", backgroundColor: "transparent" }]} onPress={() => setCalSet(null)}><Text style={[s.smBtnT, { color: C.sub }]}>Cancel</Text></Pressable>
