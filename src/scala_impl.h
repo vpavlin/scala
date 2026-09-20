@@ -134,6 +134,10 @@ public:
     /// Import VEVENTs from an .ics document into a calendar (each authored as a normal signed event).
     /// Returns {"imported":N,"skipped":M} (or {"imported":0,"error":"…"}).
     std::string importIcs(const std::string& calendarId, const std::string& icsText);
+    /// Write a calendar's .ics to filePath (adds a .ics suffix if missing). {"ok":true,"path":…,"events":N}.
+    std::string exportCalendarIcsFile(const std::string& calendarId, const std::string& filePath);
+    /// Read an .ics file and import it. {"imported":N,"skipped":M} (or {"imported":0,"error":"…"}).
+    std::string importIcsFile(const std::string& calendarId, const std::string& filePath);
 
     // ── Settings API ─────────────────────────────────────────────────────────
     void setSetting(const std::string& key, const std::string& value);
