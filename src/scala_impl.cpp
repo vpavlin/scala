@@ -436,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.17"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.18"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -822,6 +822,26 @@ std::string ScalaImpl::importIcs(const std::string& calendarId, const std::strin
         }
     }
     return json{{"imported", imported}, {"skipped", skipped}}.dump();
+}
+
+std::string ScalaImpl::exportCalendarIcsFile(const std::string& calendarId, const std::string& filePath) {
+    std::string ics = exportCalendarIcs(calendarId);
+    if (ics.empty()) return json{{"ok", false}, {"error", "unknown calendar"}}.dump();
+    std::string path = filePath;
+    if (path.size() < 4 || path.substr(path.size() - 4) != ".ics") path += ".ics";
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return json{{"ok", false}, {"error", "cannot write file"}}.dump();
+    f.write(ics.data(), (std::streamsize)ics.size());
+    if (!f) return json{{"ok", false}, {"error", "write failed"}}.dump();
+    int n = 0; for (size_t pos = 0; (pos = ics.find("BEGIN:VEVENT", pos)) != std::string::npos; pos += 12) ++n;
+    return json{{"ok", true}, {"path", path}, {"events", n}}.dump();
+}
+
+std::string ScalaImpl::importIcsFile(const std::string& calendarId, const std::string& filePath) {
+    std::ifstream f(filePath, std::ios::binary);
+    if (!f) return json{{"imported", 0}, {"error", "cannot read file"}}.dump();
+    std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return importIcs(calendarId, text);
 }
 
 // ── sharing ──────────────────────────────────────────────────────────────────

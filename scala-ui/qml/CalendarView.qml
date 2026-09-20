@@ -836,6 +836,57 @@ Item {
     }
     Timer { id: attachPoll; interval: 600; repeat: true; onTriggered: root.pollAttach() }
 
+    // ── toast: surface outcomes/failures instead of the old silent "" swallow ──
+    property string toastMsg: ""
+    property bool toastErr: false
+    function notify(msg, isErr) { root.toastMsg = msg; root.toastErr = !!isErr; toastTimer.restart() }
+    Timer { id: toastTimer; interval: 4500; onTriggered: root.toastMsg = "" }
+    Rectangle {
+        visible: root.toastMsg !== ""
+        z: 99999
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom; anchors.bottomMargin: 24
+        width: Math.min(parent.width - 32, toastLbl.implicitWidth + 34)
+        height: toastLbl.implicitHeight + 20; radius: 10
+        color: root.toastErr ? Theme.palette.error : Theme.palette.backgroundSecondary
+        border.width: 1; border.color: root.toastErr ? Theme.palette.error : Theme.palette.borderHairline
+        LogosText {
+            id: toastLbl; anchors.centerIn: parent; width: Math.min(root.width - 60, implicitWidth)
+            text: root.toastMsg; color: root.toastErr ? "#ffffff" : Theme.palette.text
+            font.pixelSize: 13; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter
+        }
+        MouseArea { anchors.fill: parent; onClicked: root.toastMsg = "" }
+    }
+
+    // ── iCalendar (.ics) import/export (operates on root.setCalId) ─────────────
+    function onIcsExportPicked(fileUrl) {
+        var path = ("" + fileUrl).replace(/^file:\/\//, "")
+        var r = root.j(root.core("exportCalendarIcsFile", [root.setCalId, path]), null)
+        if (r && r.ok) root.notify("Exported " + (r.events || 0) + " event(s) → " + r.path, false)
+        else root.notify("Export failed: " + ((r && r.error) || "unknown"), true)
+    }
+    function onIcsImportPicked(fileUrl) {
+        var path = ("" + fileUrl).replace(/^file:\/\//, "")
+        var r = root.j(root.core("importIcsFile", [root.setCalId, path]), null)
+        if (r && typeof r.imported === "number") {
+            root.notify("Imported " + r.imported + " event(s)" + (r.skipped ? (", skipped " + r.skipped) : ""), false)
+            root.refresh()
+        } else root.notify("Import failed: " + ((r && r.error) || "unknown"), true)
+    }
+    FileDialog {
+        id: icsSaveDialog
+        title: "Export calendar to .ics"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["iCalendar (*.ics)", "All files (*)"]
+        onAccepted: root.onIcsExportPicked(icsSaveDialog.selectedFile)
+    }
+    FileDialog {
+        id: icsOpenDialog
+        title: "Import events from .ics"
+        nameFilters: ["iCalendar (*.ics)", "All files (*)"]
+        onAccepted: root.onIcsImportPicked(icsOpenDialog.selectedFile)
+    }
+
     Popup {
         id: eventPopup
         anchors.centerIn: Overlay.overlay
@@ -1415,7 +1466,7 @@ Item {
             // (the global default, but never silently a keycard). WYSIWYG: the highlighted chip owns +
             // signs the calendar; a keycard only owns it if the user explicitly taps it.
             var id = String(root.j(root.core("createCalendar", [newCalName.text.trim(), "", (root.newCalIdentity || root.createDefaultOwner)]), ""))
-            if (id === "") { newCalPopup.close(); root.refresh(); return }
+            if (id === "") { newCalPopup.close(); root.refresh(); root.notify("Couldn't create the calendar.", true); return }
             var sch = []
             for (var i = 0; i < newCalSchemaModel.count; i++) {
                 var it = newCalSchemaModel.get(i)
@@ -1839,6 +1890,13 @@ Item {
             }
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.small
+                LogosText { text: "iCalendar"; color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.alignment: Qt.AlignVCenter }
+                LogosButton { text: "Export .ics"; onClicked: { calSettingsPopup.close(); icsSaveDialog.open() } }
+                LogosButton { text: "Import .ics"; onClicked: { calSettingsPopup.close(); icsOpenDialog.open() } }
+                Item { Layout.fillWidth: true }
+            }
+            RowLayout {
+                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.small
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Cancel"; onClicked: calSettingsPopup.close() }
                 LogosButton { text: "Save"; onClicked: root.saveCalSettings() }
@@ -1881,7 +1939,7 @@ Item {
                 LogosButton { text: "Cancel"; onClicked: joinPopup.close() }
                 LogosButton {
                     text: "Join"; enabled: joinLink.text.trim().length > 0
-                    onClicked: { root.core("handleShareLink", [joinLink.text.trim(), (root.joinIdentity || root.defaultIdentityId)]); joinPopup.close(); root.refresh() }
+                    onClicked: { var ok = root.j(root.core("handleShareLink", [joinLink.text.trim(), (root.joinIdentity || root.defaultIdentityId)]), false); joinPopup.close(); root.refresh(); root.notify(ok ? "Calendar joined." : "Couldn't join — check the link.", !ok) }
                 }
             }
         }
