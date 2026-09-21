@@ -33,6 +33,48 @@ import type { Attachment } from "./src/lib/store";
 import * as sstat from "./src/lib/syncstatus";
 
 // Per-calendar sync freshness chip (offline / syncing N / up-to-date), fed by syncstatus.ts.
+// ── access tier (ADR 0019): one 3-way choice, not two independent toggles ─────
+// open + collab form a LADDER (Closed→Open→Collaborative), not independent axes; the fourth combo
+// (collab && !open) is off-ladder and confusing ("only editors add, but everyone edits existing").
+// A single selector only ever writes a valid {open,collab} pair. Mirrors desktop scala_ui ≥0.8.11.
+type AccessTier = "closed" | "open" | "collaborative";
+const ACCESS_TIERS: { tier: AccessTier; title: string; desc: string }[] = [
+  { tier: "closed", title: "Closed", desc: "Only editors add events; everyone edits only their own." },
+  { tier: "open", title: "Open", desc: "Anyone you invite can add events; everyone edits only their own." },
+  { tier: "collaborative", title: "Collaborative", desc: "Anyone you invite can add — and edit or delete ANY event." },
+];
+function tierOf(cal?: { open?: boolean; collab?: boolean }): AccessTier {
+  if (cal && (cal as any).collab) return "collaborative";
+  if (!cal || cal.open !== false) return "open";
+  return "closed";
+}
+function tierMeta(tier: AccessTier): { open: boolean; collab: boolean } {
+  if (tier === "collaborative") return { open: true, collab: true };
+  if (tier === "open") return { open: true, collab: false };
+  return { open: false, collab: false };
+}
+function AccessTierSelector({ value, onChange, C, s }: { value: AccessTier; onChange: (t: AccessTier) => void; C: any; s: any }) {
+  return (
+    <View>
+      {ACCESS_TIERS.map((t) => {
+        const sel = value === t.tier;
+        return (
+          <Pressable key={t.tier} onPress={() => onChange(t.tier)}
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: sel ? C.primary : C.border, backgroundColor: sel ? C.surface : "transparent", marginBottom: 6 }}>
+            <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: sel ? C.primary : C.border, alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+              {sel ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary }} /> : null}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: C.text }}>{t.title}</Text>
+              <Text style={s.sub}>{t.desc}</Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function SyncChip({ calId }: { calId: string }) {
   const [, bump] = useState(0);
   useEffect(() => sstat.onSyncChange(() => bump((n) => n + 1)), []);
@@ -83,7 +125,7 @@ export default function App() {
   const [identities, setIdentities] = useState<{ id: string; kind: string; label: string; address: string }[]>([]);
   const [newCalOpen, setNewCalOpen] = useState(false);        // full "new calendar" form modal
   const [newCalSchema, setNewCalSchema] = useState<FieldDef[]>([]); // custom fields, set at create
-  const [newCalCanAdd, setNewCalCanAdd] = useState(false);    // "Open — anyone can add" (default CLOSED — opening is deliberate)
+  const [newCalTier, setNewCalTier] = useState<AccessTier>("closed"); // access tier (ADR 0019) — default Closed
   const [joinIdentity, setJoinIdentity] = useState("");       // identity to author my events on a joined calendar
   // DEV: editable Codex fetch target. Default = the always-on scala VPS hub (public Storage provider
   // 128.140.55.128:8199, systemd scala-hub.service) so attachments resolve out-of-the-box; still
@@ -499,9 +541,9 @@ export default function App() {
   const doCreateCal = async () => {
     try {
       const cal = await createCalendar(newCalName || "My calendar", "#89b4fa", newCalDesc, newCalIdentity || undefined,
-        { schema: newCalSchema, open: newCalCanAdd });
+        { schema: newCalSchema, ...tierMeta(newCalTier) });
       setNewCalOpen(false);
-      setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalCanAdd(false);
+      setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalTier("closed");
       setNf({ key: "", label: "", type: "text" });
       setCurrentCalId(cal.id); setLastInvite(buildInvite(cal));
       // Fire-and-forget: the calendar is already saved locally. Awaiting node bring-up here stalled
@@ -674,7 +716,7 @@ export default function App() {
                 </Pressable>
               ))}
 
-              <Pressable style={[s.smBtn, { marginTop: 4, alignItems: "center" }]} onPress={() => { setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalCanAdd(false); setNf({ key: "", label: "", type: "text" }); setNewCalOpen(true); }}>
+              <Pressable style={[s.smBtn, { marginTop: 4, alignItems: "center" }]} onPress={() => { setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalTier("closed"); setNf({ key: "", label: "", type: "text" }); setNewCalOpen(true); }}>
                 <Text style={s.smBtnT}>+ New calendar</Text>
               </Pressable>
 
@@ -767,33 +809,15 @@ export default function App() {
 
                 {/* #3: sharing & roles — who can edit. Identity = an address; share yours to be added. */}
                 <Text style={s.pLabel}>Sharing &amp; roles</Text>
-                {/* Open toggle: may anyone with the invite ADD events? (owner/editors always can;
-                    everyone can only edit their OWN events; editors can edit anyone's). Owner-only. */}
+                {/* Access — one 3-way tier (ADR 0019 ladder: Closed→Open→Collaborative) instead of
+                    independent Open/Collaborative toggles, so "collaborative + closed" can't happen.
+                    Picking a tier writes the valid {open,collab} pair. Owner/editor only. */}
                 {canManage && (
-                  <View style={s.rowBetween}>
-                    <View style={{ flex: 1, paddingRight: 10 }}>
-                      <Text style={{ color: C.text }}>Open — anyone can add events</Text>
-                      <Text style={s.sub}>Off = only editors can add. Everyone can still edit only the events they created; editors edit anyone's.</Text>
-                    </View>
-                    <Switch
-                      value={calSet?.cal.open !== false}
-                      onValueChange={async (v) => { if (calSet) { await updateCalendarMeta(calSet.cal.id, { open: v }); setCalSet((s2) => s2 && { ...s2, cal: { ...s2.cal, open: v } }); } }}
-                      trackColor={{ true: C.primary, false: C.border }} thumbColor="#fff"
-                    />
-                  </View>
-                )}
-                {canManage && (
-                  <View style={s.rowBetween}>
-                    <View style={{ flex: 1, paddingRight: 10 }}>
-                      <Text style={{ color: C.text }}>Collaborative — anyone can edit any event</Text>
-                      <Text style={s.sub}>On = everyone who's in can edit/delete any event (also enables Open). Off = you can only edit your own.</Text>
-                    </View>
-                    <Switch
-                      value={(calSet?.cal as any)?.collab === true}
-                      onValueChange={async (v) => { if (calSet) { await updateCalendarMeta(calSet.cal.id, v ? { collab: true, open: true } : { collab: false }); setCalSet((s2) => s2 && { ...s2, cal: { ...s2.cal, collab: v, open: v ? true : s2.cal.open } }); } }}
-                      trackColor={{ true: C.primary, false: C.border }} thumbColor="#fff"
-                    />
-                  </View>
+                  <AccessTierSelector
+                    value={tierOf(calSet?.cal)}
+                    onChange={async (t) => { if (calSet) { const m = tierMeta(t); await updateCalendarMeta(calSet.cal.id, m); setCalSet((s2) => s2 && { ...s2, cal: { ...s2.cal, open: m.open, collab: m.collab } }); } }}
+                    C={C} s={s}
+                  />
                 )}
                 <Text style={[s.sub, { marginBottom: 6, marginTop: 8 }]}>
                   {calSet ? `Your role: ${roleOf(calSet.cal)}${roleOf(calSet.cal) === "viewer" ? " — read-only." : "."}` : ""}
@@ -879,15 +903,9 @@ export default function App() {
                 </ScrollView>
                 <Pressable style={[s.smBtn, { marginTop: 8, alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]} onPress={addNewCalField}><Text style={[s.smBtnT, { color: C.text }]}>+ Add field</Text></Pressable>
 
-                {/* Open + signatures-required — same toggles as settings, chosen up front. */}
+                {/* Access — one 3-way tier (ADR 0019), chosen up front; same widget as settings. */}
                 <Text style={s.pLabel}>Access</Text>
-                <View style={s.rowBetween}>
-                  <View style={{ flex: 1, paddingRight: 10 }}>
-                    <Text style={{ color: C.text }}>Open — anyone can add events</Text>
-                    <Text style={s.sub}>Off = only editors can add. Everyone can still edit only the events they created.</Text>
-                  </View>
-                  <Switch value={newCalCanAdd} onValueChange={setNewCalCanAdd} trackColor={{ true: C.primary, false: C.border }} thumbColor="#fff" />
-                </View>
+                <AccessTierSelector value={newCalTier} onChange={setNewCalTier} C={C} s={s} />
 
                 <View style={{ flexDirection: "row", gap: 12, marginTop: 20, justifyContent: "flex-end" }}>
                   <Pressable style={[s.smBtn, { backgroundColor: C.surface }]} onPress={() => setNewCalOpen(false)}><Text style={s.smBtnT}>Cancel</Text></Pressable>

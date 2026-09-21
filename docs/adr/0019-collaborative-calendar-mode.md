@@ -1,6 +1,6 @@
 # 19. Collaborative calendar mode — the third permission tier
 
-- **Status:** decided / built (scala core 0.9.20, scala_ui 0.8.9, mobile 0.9.63).
+- **Status:** decided / built (scala core 0.9.20, scala_ui 0.8.11 — single 3-way selector, mobile 0.9.64).
 - **Date:** 2026-09-21
 
 ## Context
@@ -27,8 +27,16 @@ Add a **third calendar-level mode**, a single LWW meta flag `collab` (like `open
 One branch in the fold: `canEditExisting` returns true when `collab` is set (after the editor/viewer
 checks). Enforced deterministically in **both folds** (`scala_engine.hpp` and mobile `engine.ts`) so
 it converges — signatures are still always required, so "anyone" means any authenticated member.
-The UI shows it as a second toggle under Open (turning Collaborative on also turns Open on); the
-edit-ability gates (`canEditEvent`) honour it so the editor opens for everyone.
+The edit-ability gates (`canEditEvent`) honour it so the editor opens for everyone.
+
+**UI (desktop scala_ui ≥0.8.11): a single 3-way selector, not two toggles.** `open` and `collab`
+are two flags but *not* two independent axes — they form the ladder above, and the fourth combination
+`collab:true, open:false` is off-ladder ("only editors add, but everyone edits existing"), a
+confusing state that independent Open + Collaborative toggles let a user create by accident. So both
+the New-calendar dialog and the calendar Settings present **one Closed / Open / Collaborative radio**
+(helpers `calTierOf` / `calTierMeta`, model `accessTiers`), which only ever writes a valid
+`{open,collab}` pair. Picking a tier from Settings writes it immediately; New writes it into the
+create-time `cal.meta`. (The two-toggle form shipped briefly in 0.8.9/0.8.10 and was replaced.)
 
 ## Consequences
 

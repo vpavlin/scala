@@ -228,7 +228,7 @@ export async function createCalendar(
   // Extra meta set AT CREATE so the full form is one signed cal.meta (one Keycard tap), not
   // create-then-edit. schema = custom fields; open = anyone-with-invite-can-add.
   // = fold drops unsigned writes.
-  opts?: { schema?: any[]; open?: boolean },
+  opts?: { schema?: any[]; open?: boolean; collab?: boolean },
 ): Promise<Calendar> {
   const id = Crypto.randomUUID();
   const encryptionKey = Crypto.randomUUID() + Crypto.randomUUID();
@@ -243,6 +243,7 @@ export async function createCalendar(
   if (description.trim()) meta.description = description.trim();
   if (opts?.schema && opts.schema.length) meta.schema = opts.schema;
   if (opts?.open !== undefined) meta.open = opts.open;
+  if (opts?.collab !== undefined) meta.collab = opts.collab;
   await publishAndApply(id, await mkEvent(ET.CAL_META, meta, id));
   notifyChange();
   return { id, name: nm, color, isShared: true, encryptionKey, creatorId: author };
