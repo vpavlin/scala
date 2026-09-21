@@ -71,6 +71,7 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     std::map<std::string, std::string> creatorOf; // event id -> ORIGINAL author (edit-your-own)
     bool rolesConfigured = false;
     bool openCal = true;                          // cal.meta "open" (LWW): may participants add? default yes
+    bool collabCal = false;                       // cal.meta "collab" (LWW): may any non-viewer edit ANY event?
 
     auto isEditor = [&](const std::string& dev, bool verified) -> bool {
         if (rolesConfigured && !verified) return false;    // privileged claim must be authenticated
@@ -90,6 +91,7 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     auto canEditExisting = [&](const std::string& dev, const std::string& creator, bool verified) -> bool {
         if (isEditor(dev, verified)) return true;
         if (isViewer(dev)) return false;
+        if (collabCal) return true;                        // Collaborative: any non-viewer edits anything
         return !creator.empty() && dev == creator;         // else edit only your OWN
     };
 
@@ -109,6 +111,7 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
             if (e.payload.contains("description")) description = e.payload.value("description", description);
             if (e.payload.contains("schema") && e.payload["schema"].is_array()) schema = e.payload["schema"];
             if (e.payload.contains("open"))               openCal     = e.payload.value("open", true);
+            if (e.payload.contains("collab"))             collabCal   = e.payload.value("collab", false);
         } else if (e.type == ET::MEMBER_SET) {
             // A role grant is admitted only from an AUTHENTICATED owner/editor.
             bool authed = verified && (author == owner || (roleOf.count(author) && (roleOf[author] == "editor" || roleOf[author] == "admin")));
@@ -146,7 +149,7 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     return json{{"id", calId}, {"name", name}, {"color", color},
                 {"description", description}, {"schema", schema},
                 {"owner", owner}, {"roles", roles}, {"rolesConfigured", rolesConfigured},
-                {"open", openCal}, {"events", evArr}};
+                {"open", openCal}, {"collab", collabCal}, {"events", evArr}};
 }
 
 } // namespace scala

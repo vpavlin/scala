@@ -436,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.19"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.20"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -475,6 +475,7 @@ bool ScalaImpl::updateCalendarMeta(const std::string& calId, const std::string& 
         if (in.contains(k) && in[k].is_string()) p[k] = in[k];
     if (in.contains("schema") && in["schema"].is_array()) p["schema"] = in["schema"];
     if (in.contains("open") && in["open"].is_boolean()) p["open"] = in["open"];  // Open/Restricted toggle (two-rule perms)
+    if (in.contains("collab") && in["collab"].is_boolean()) p["collab"] = in["collab"];  // Collaborative editing toggle
     if (p.empty()) return false;
     authorAndPublish(scala::ET::CAL_META, p, calId);
     return true;
@@ -525,7 +526,8 @@ std::string ScalaImpl::listCalendars() {
                            {"rolesConfigured", f.value("rolesConfigured", false)},
                            // Surface the Open/Restricted flag so the view's toggle + canAddTo see it
                            // (without this it reads `undefined` → always "open", and the toggle snaps back).
-                           {"open", f.value("open", true)}});
+                           {"open", f.value("open", true)},
+                           {"collab", f.value("collab", false)}});
     }
     return arr.dump();
 }
