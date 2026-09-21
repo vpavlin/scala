@@ -23,6 +23,7 @@ export interface Calendar {
   roles?: Record<string, string>; // address -> "editor"|"viewer"
   rolesConfigured?: boolean;
   open?: boolean; // may participants add events? (default true)
+  collab?: boolean; // Collaborative: may any non-viewer edit ANY event? (default false)
 }
 
 // An attachment REFERENCE carried in the event (ADR 0017). The bytes live in Logos Storage,
@@ -156,6 +157,7 @@ export const store = {
         roles: f.roles,
         rolesConfigured: f.rolesConfigured,
         open: f.open,
+        collab: f.collab,
       });
     }
     return out;

@@ -94,6 +94,7 @@ export interface FoldedCalendar {
   roles: Record<string, string>;
   rolesConfigured: boolean;
   open: boolean;
+  collab: boolean;
   events: any[];
 }
 
@@ -118,6 +119,7 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   const creatorOf = new Map<string, string>(); // event id -> ORIGINAL author (edit-your-own)
   let rolesConfigured = false;
   let openCal = true; // cal.meta "open" (LWW): may participants add? default yes
+  let collabCal = false; // cal.meta "collab" (LWW): may any non-viewer edit ANY event?
   const isEditor = (dev: string, verified: boolean): boolean => {
     if (rolesConfigured && !verified) return false; // privileged claim must be authenticated
     if (dev === owner) return true;
@@ -133,6 +135,7 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   const canEditExisting = (dev: string, creator: string, verified: boolean): boolean => {
     if (isEditor(dev, verified)) return true;
     if (isViewer(dev)) return false;
+    if (collabCal) return true; // Collaborative: any non-viewer edits anything
     return !!creator && dev === creator;
   };
 
@@ -153,6 +156,7 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
       if (Object.prototype.hasOwnProperty.call(p, "description")) description = p.description ?? description;
       if (Array.isArray(p.schema)) schema = p.schema;
       if (Object.prototype.hasOwnProperty.call(p, "open")) openCal = p.open !== false;
+      if (Object.prototype.hasOwnProperty.call(p, "collab")) collabCal = p.collab === true;
     } else if (e.type === ET.MEMBER_SET) {
       // A role grant is admitted only from an AUTHENTICATED owner/editor.
       const authed = verified && (author === owner || roleOf.get(author) === "editor" || roleOf.get(author) === "admin");
@@ -185,7 +189,7 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   const ids = [...events.keys()].sort();
   const roles: Record<string, string> = {};
   [...roleOf.keys()].sort().forEach((k) => (roles[k] = roleOf.get(k)!));
-  return { id: calId, name, color, description, schema, owner, roles, rolesConfigured, open: openCal, events: ids.map((id) => events.get(id)) };
+  return { id: calId, name, color, description, schema, owner, roles, rolesConfigured, open: openCal, collab: collabCal, events: ids.map((id) => events.get(id)) };
 }
 
 // ── Clock: stamps local events, advances past ingested causes ────────────────

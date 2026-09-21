@@ -229,7 +229,7 @@ export default function App() {
   const isEditorMe = useCallback((c?: Calendar) => { if (!c) return true; const a = addrFor(c); return c.owner === a || c.roles?.[a] === "editor" || c.roles?.[a] === "admin"; }, [addrFor]);
   const isViewerMe = useCallback((c?: Calendar) => { if (!c) return false; return c.roles?.[addrFor(c)] === "viewer"; }, [addrFor]);
   const canAddTo = useCallback((c?: Calendar) => isEditorMe(c) || (!isViewerMe(c) && c?.open !== false), [isEditorMe, isViewerMe]);
-  const canEditEvent = useCallback((c?: Calendar, ev?: CalEvent) => isEditorMe(c) || (!isViewerMe(c) && !!ev && ev.creatorId === addrFor(c)), [isEditorMe, isViewerMe, addrFor]);
+  const canEditEvent = useCallback((c?: Calendar, ev?: CalEvent) => isEditorMe(c) || (!isViewerMe(c) && ((c as any)?.collab === true || (!!ev && ev.creatorId === addrFor(c)))), [isEditorMe, isViewerMe, addrFor]);
   // Human "why can't I edit this" — the identity that WOULD author here (addrFor) vs owner/roles.
   const shortA = (a?: string) => (a ? a.replace(/^scala-/, "").slice(0, 10) + "…" : "?");
   const readonlyReason = useCallback((c?: Calendar, ev?: CalEvent): string => {
@@ -778,6 +778,19 @@ export default function App() {
                     <Switch
                       value={calSet?.cal.open !== false}
                       onValueChange={async (v) => { if (calSet) { await updateCalendarMeta(calSet.cal.id, { open: v }); setCalSet((s2) => s2 && { ...s2, cal: { ...s2.cal, open: v } }); } }}
+                      trackColor={{ true: C.primary, false: C.border }} thumbColor="#fff"
+                    />
+                  </View>
+                )}
+                {canManage && (
+                  <View style={s.rowBetween}>
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                      <Text style={{ color: C.text }}>Collaborative — anyone can edit any event</Text>
+                      <Text style={s.sub}>On = everyone who's in can edit/delete any event (also enables Open). Off = you can only edit your own.</Text>
+                    </View>
+                    <Switch
+                      value={(calSet?.cal as any)?.collab === true}
+                      onValueChange={async (v) => { if (calSet) { await updateCalendarMeta(calSet.cal.id, v ? { collab: true, open: true } : { collab: false }); setCalSet((s2) => s2 && { ...s2, cal: { ...s2.cal, collab: v, open: v ? true : s2.cal.open } }); } }}
                       trackColor={{ true: C.primary, false: C.border }} thumbColor="#fff"
                     />
                   </View>

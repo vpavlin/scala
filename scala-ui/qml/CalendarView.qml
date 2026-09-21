@@ -615,7 +615,7 @@ Item {
     function isEditorMe(c) { if (!c) return true; var a = addrFor(c); if (c.owner === a) return true; var r = c.roles || {}; return r[a] === "editor" || r[a] === "admin" }
     function isViewerMe(c) { if (!c) return false; return (c.roles || {})[addrFor(c)] === "viewer" }
     function canAddTo(c) { if (isEditorMe(c)) return true; if (isViewerMe(c)) return false; return !c || c.open !== false }
-    function canEditEvent(c, ev) { if (isEditorMe(c)) return true; if (isViewerMe(c)) return false; return !!ev && ev.creatorId === addrFor(c) }
+    function canEditEvent(c, ev) { if (isEditorMe(c)) return true; if (isViewerMe(c)) return false; if (c && c.collab) return true; return !!ev && ev.creatorId === addrFor(c) }
     // Event editor read-only: a NEW event needs add rights; an EXISTING event needs edit
     // rights on THAT event (yours, or you're an editor). Reactive to editCalId/editingEvent.
     readonly property bool eventReadOnly: editingEvent ? !canEditEvent(calById(editCalId), editingEvent) : !canAddTo(calById(editCalId))
@@ -1826,6 +1826,20 @@ Item {
                         Switch {
                             checked: { var c = root.calById(root.setCalId); return !c || c.open !== false }
                             onToggled: { root.core("updateCalendarMeta", [root.setCalId, JSON.stringify({ open: checked })]); root.refresh() }
+                        }
+                    }
+                    // Collaborative toggle: may ANY non-viewer edit ANY event? (also implies Open.)
+                    RowLayout {
+                        visible: root.canManage(root.setCalId)
+                        Layout.fillWidth: true; spacing: Theme.spacing.small
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            LogosText { text: "Collaborative — anyone can edit any event"; color: Theme.palette.text; font.pixelSize: 13 }
+                            LogosText { text: "On = everyone who's in can edit/delete any event (also enables Open). Off = you can only edit your own."; color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        }
+                        Switch {
+                            checked: { var c = root.calById(root.setCalId); return !!(c && c.collab) }
+                            onToggled: { root.core("updateCalendarMeta", [root.setCalId, JSON.stringify(checked ? { collab: true, open: true } : { collab: false })]); root.refresh() }
                         }
                     }
                     LogosText {

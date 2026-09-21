@@ -259,7 +259,7 @@ export async function deleteCalendar(calId: string): Promise<void> {
 // travel in the event log to every device. Only the changed fields are written.
 export async function updateCalendarMeta(
   calId: string,
-  fields: { name?: string; color?: string; description?: string; schema?: any[]; open?: boolean },
+  fields: { name?: string; color?: string; description?: string; schema?: any[]; open?: boolean; collab?: boolean },
 ): Promise<void> {
   const p: any = {};
   if (fields.name !== undefined) p.name = fields.name.trim();
@@ -267,6 +267,7 @@ export async function updateCalendarMeta(
   if (fields.description !== undefined) p.description = fields.description.trim();
   if (fields.schema !== undefined) p.schema = fields.schema;
   if (fields.open !== undefined) p.open = fields.open;
+  if (fields.collab !== undefined) p.collab = fields.collab;
   if (Object.keys(p).length === 0) return;
   if (p.name !== undefined || p.color !== undefined) {
     const reg = (await store.getRegistry()).find((r) => r.id === calId);
