@@ -616,6 +616,19 @@ Item {
     function isViewerMe(c) { if (!c) return false; return (c.roles || {})[addrFor(c)] === "viewer" }
     function canAddTo(c) { if (isEditorMe(c)) return true; if (isViewerMe(c)) return false; return !c || c.open !== false }
     function canEditEvent(c, ev) { if (isEditorMe(c)) return true; if (isViewerMe(c)) return false; if (c && c.collab) return true; return !!ev && ev.creatorId === addrFor(c) }
+    // Access tier (ADR 0019) — the three valid {open,collab} combos, presented as one choice so the
+    // off-ladder "collaborative + closed" state can't be created. Closed→Open→Collaborative is a ladder.
+    function calTierOf(c) { if (c && c.collab) return "collaborative"; if (!c || c.open !== false) return "open"; return "closed" }
+    function calTierMeta(tier) {
+        if (tier === "collaborative") return { open: true, collab: true }
+        if (tier === "open") return { open: true, collab: false }
+        return { open: false, collab: false } // closed
+    }
+    readonly property var accessTiers: [
+        { tier: "closed",        title: "Closed",        desc: "Only editors add events; everyone edits only their own." },
+        { tier: "open",          title: "Open",          desc: "Anyone you invite can add events; everyone edits only their own." },
+        { tier: "collaborative", title: "Collaborative", desc: "Anyone you invite can add — and edit or delete ANY event." }
+    ]
     // Event editor read-only: a NEW event needs add rights; an EXISTING event needs edit
     // rights on THAT event (yours, or you're an editor). Reactive to editCalId/editingEvent.
     readonly property bool eventReadOnly: editingEvent ? !canEditEvent(calById(editCalId), editingEvent) : !canAddTo(calById(editCalId))
@@ -1421,7 +1434,7 @@ Item {
     }
 
     // ── new-calendar popup ───────────────────────────────────────────────────
-    property bool newCalOpen: false         // default CLOSED — opening a calendar up is a deliberate choice
+    property string newCalTier: "closed"    // access tier (ADR 0019): closed | open | collaborative — default Closed
     property string newCalIdentity: ""      // "author as" (loam identity) — "" = pick createDefaultOwner
     // The owner a NEW calendar gets when the user hasn't explicitly tapped a chip: the global default —
     // UNLESS that default is a keycard. A keycard must be an EXPLICIT choice, never the silent default,
@@ -1454,7 +1467,7 @@ Item {
         width: 500; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
         onOpened: {
-            newCalName.text = ""; newCalDesc.text = ""; root.newCalOpen = false; root.newCalIdentity = ""
+            newCalName.text = ""; newCalDesc.text = ""; root.newCalTier = "closed"; root.newCalIdentity = ""
             newCalSchemaModel.clear(); ncNewKey.text = ""; ncNewLabel.text = ""; ncNewOptions.text = ""; root.ncNewType = "text"
         }
         function createNow() {
@@ -1481,7 +1494,11 @@ Item {
             var meta = {}
             if (d !== "") meta.description = d
             if (sch.length > 0) meta.schema = sch
-            if (!root.newCalOpen) meta.open = false
+            // Access tier (ADR 0019) → the {open,collab} pair. Closed needs open:false written
+            // explicitly (the fold defaults open=true); collaborative writes both true.
+            var tm = root.calTierMeta(root.newCalTier)
+            meta.open = tm.open
+            meta.collab = tm.collab
             if (Object.keys(meta).length > 0) root.core("updateCalendarMeta", [id, JSON.stringify(meta)])
             newCalPopup.close(); root.refresh()
         }
@@ -1587,19 +1604,35 @@ Item {
                 }
             }
 
-            // Open vs Restricted — who may ADD events (editors always can; everyone can edit
-            // only their own). Default Open; flip before Create for a locked-down calendar.
-            RowLayout {
-                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
-                ColumnLayout {
-                    Layout.fillWidth: true; spacing: 0
-                    LogosText { text: "Open — anyone can add events"; color: Theme.palette.text; font.pixelSize: 13 }
-                    LogosText {
-                        text: root.newCalOpen ? "Anyone you invite can add events." : "Only editors can add; others edit only their own."
-                        color: Theme.palette.textSecondary; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap
+            // Access — one 3-way tier (ADR 0019 ladder: Closed→Open→Collaborative) instead of two
+            // independent toggles, so the off-ladder "collaborative + closed" combo can't be created.
+            LogosText { text: "Access"; color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small }
+            Repeater {
+                model: root.accessTiers
+                Rectangle {
+                    Layout.fillWidth: true
+                    radius: Theme.spacing.radiusSmall
+                    color: (root.newCalTier === modelData.tier) ? Theme.palette.backgroundSecondary : "transparent"
+                    border.width: 1
+                    border.color: (root.newCalTier === modelData.tier) ? Theme.palette.primary : Theme.palette.borderHairline
+                    implicitHeight: ncTierRow.implicitHeight + 2 * Theme.spacing.small
+                    RowLayout {
+                        id: ncTierRow
+                        anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
+                        Rectangle {
+                            Layout.alignment: Qt.AlignTop; width: 16; height: 16; radius: 8; color: "transparent"
+                            border.width: 2; border.color: (root.newCalTier === modelData.tier) ? Theme.palette.primary : Theme.palette.borderHairline
+                            Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: Theme.palette.primary; visible: root.newCalTier === modelData.tier }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true; spacing: 0
+                            LogosText { text: modelData.title; color: Theme.palette.text; font.pixelSize: 13 }
+                            LogosText { text: modelData.desc; color: Theme.palette.textSecondary; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                        }
                     }
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.newCalTier = modelData.tier }
                 }
-                Switch { checked: root.newCalOpen; onToggled: root.newCalOpen = checked }
             }
 
             // Signatures-required — the fold DROPS any unsigned event (ADR 0015). The core enforces
@@ -1813,33 +1846,39 @@ Item {
 
                     // ── sharing & roles ──
                     LogosText { text: "Sharing & roles"; color: Theme.palette.text; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
-                    // Open toggle: may anyone with the invite ADD events? Everyone can still edit
-                    // only the events they created; editors edit anyone's. Owner/editor only.
-                    RowLayout {
+                    // Access tier (ADR 0019) — one 3-way choice (Closed→Open→Collaborative) instead of
+                    // independent Open/Collaborative toggles, so the off-ladder "collaborative + closed"
+                    // combo can't be produced. Same widget as the New-calendar dialog. Owner/editor only.
+                    ColumnLayout {
                         visible: root.canManage(root.setCalId)
                         Layout.fillWidth: true; spacing: Theme.spacing.small
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            LogosText { text: "Open — anyone can add events"; color: Theme.palette.text; font.pixelSize: 13 }
-                            LogosText { text: "Off = only editors can add. Everyone edits only events they created; editors edit anyone's."; color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                        }
-                        Switch {
-                            checked: { var c = root.calById(root.setCalId); return !c || c.open !== false }
-                            onToggled: { root.core("updateCalendarMeta", [root.setCalId, JSON.stringify({ open: checked })]); root.refresh() }
-                        }
-                    }
-                    // Collaborative toggle: may ANY non-viewer edit ANY event? (also implies Open.)
-                    RowLayout {
-                        visible: root.canManage(root.setCalId)
-                        Layout.fillWidth: true; spacing: Theme.spacing.small
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            LogosText { text: "Collaborative — anyone can edit any event"; color: Theme.palette.text; font.pixelSize: 13 }
-                            LogosText { text: "On = everyone who's in can edit/delete any event (also enables Open). Off = you can only edit your own."; color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                        }
-                        Switch {
-                            checked: { var c = root.calById(root.setCalId); return !!(c && c.collab) }
-                            onToggled: { root.core("updateCalendarMeta", [root.setCalId, JSON.stringify(checked ? { collab: true, open: true } : { collab: false })]); root.refresh() }
+                        LogosText { text: "Access"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                        Repeater {
+                            model: root.accessTiers
+                            Rectangle {
+                                Layout.fillWidth: true
+                                radius: Theme.spacing.radiusSmall
+                                color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? Theme.palette.backgroundSecondary : "transparent"
+                                border.width: 1
+                                border.color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? Theme.palette.primary : Theme.palette.borderHairline
+                                implicitHeight: setTierRow.implicitHeight + 2 * Theme.spacing.small
+                                RowLayout {
+                                    id: setTierRow
+                                    anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
+                                    Rectangle {
+                                        Layout.alignment: Qt.AlignTop; width: 16; height: 16; radius: 8; color: "transparent"
+                                        border.width: 2; border.color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? Theme.palette.primary : Theme.palette.borderHairline
+                                        Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: Theme.palette.primary; visible: root.calTierOf(root.calById(root.setCalId)) === modelData.tier }
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; spacing: 0
+                                        LogosText { text: modelData.title; color: Theme.palette.text; font.pixelSize: 13 }
+                                        LogosText { text: modelData.desc; color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                    }
+                                }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.core("updateCalendarMeta", [root.setCalId, JSON.stringify(root.calTierMeta(modelData.tier))]); root.refresh() } }
+                            }
                         }
                     }
                     LogosText {
