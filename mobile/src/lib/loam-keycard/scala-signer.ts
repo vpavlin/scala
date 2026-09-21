@@ -8,7 +8,7 @@
 // are untouched. To share with kym/qaku/perun: vendor keycard.ts + session.ts and write a shim like
 // this one against your own event's canonical form + domain.
 import { sha256 } from "@noble/hashes/sha256";
-import { canonicalMessage, hex } from "../identity";
+import { canonicalMessage, hex, addressFor, verifyEvent } from "../identity";
 import { utf8Bytes } from "../utf8";
 import { createKeycardSession, type KCState } from "./session";
 
@@ -41,7 +41,30 @@ export async function signEventWithKeycard(ev: any): Promise<any> {
   if (ev.hlc) ev.hlc.dev = addr;
   const digest = sha256(utf8Bytes(canonicalMessage(ev)));
   const sig = await kc.signDigest(digest);
-  ev.pub = sig.pubHex;
+  // GUARD 1 — the card must sign with the SAME key it enrolled (its identity). If the LIVE key the
+  // card produces at the scala signing path differs from the enrolled one (a card re-seeded, or
+  // enrolled under an older signing path), the event's signature won't verify against the enrolled
+  // pubkey, so EVERY peer's fold (and our own on reload) silently DROPS it → "no error, event never
+  // appears". Catch that here with a clear, actionable message instead of a silent no-show.
+  const liveAddr = addressFor(sig.pubCompressed);
+  if (liveAddr !== addr) {
+    throw new Error(
+      `Keycard identity mismatch — the card is signing as ${liveAddr.slice(0, 10)}… but is enrolled as ` +
+      `${addr.slice(0, 10)}…. Its saved identity is stale: re-enrol the card in Settings → Identities. Nothing was saved.`,
+    );
+  }
+  ev.pub = sig.pubHex; // == the enrolled key, now proven to match the live signing key (guard 1)
   ev.sig = hex(sig.compact);
+  // GUARD 2 — prove the fully-stamped event verifies locally before it is stored/published.
+  // Signatures are ALWAYS required by the fold (engine.ts / scala_engine.hpp), so an event that
+  // fails verification here would be rejected on sync AND dropped on our next reload — never store
+  // it silently. Reaching this branch means the card key matches (guard 1) but @noble still rejects
+  // the sig/digest → a signature-adapter or canonical-form problem, and the message says so.
+  if (!verifyEvent(ev)) {
+    throw new Error(
+      "Keycard signature failed local verification — the signed event would be rejected on sync, so " +
+      "nothing was saved. Try the tap again; if it keeps failing, re-enrol the card in Settings → Identities.",
+    );
+  }
   return ev;
 }
