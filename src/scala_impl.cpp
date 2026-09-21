@@ -436,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.18"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.19"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -485,6 +485,11 @@ bool ScalaImpl::setMemberRole(const std::string& calId, const std::string& membe
     if (member.empty()) return false;
     authorAndPublish(scala::ET::MEMBER_SET, json{{"member", member}, {"role", role}}, calId);
     return true;
+}
+bool ScalaImpl::manageMember(const std::string& jsonArg) {
+    json in = json::parse(jsonArg, nullptr, false);
+    if (in.is_discarded() || !in.is_object()) return false;
+    return setMemberRole(in.value("calId", std::string()), in.value("member", std::string()), in.value("role", std::string()));
 }
 // #4: per-event edit history — every event.put/del touching this id, in log order,
 // as [{author,at,action,payload}]. Reads the raw log (not the fold) so nothing collapses.

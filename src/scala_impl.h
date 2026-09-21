@@ -62,6 +62,9 @@ public:
 
     /// #3: grant/revoke a member — role is "admin"|"viewer"|"remove" (fold enforces owner/admin).
     bool setMemberRole(const std::string& calId, const std::string& member, const std::string& role);
+    /// Same as setMemberRole but with all fields in one JSON arg {calId,member,role} — so a 0x… member
+    /// address survives a CLI/headless caller (bare-arg role setting hits logoscore's hex-number typing).
+    bool manageMember(const std::string& json);
 
     // ── Event CRUD ───────────────────────────────────────────────────────────
     /// Create an event in a calendar. Returns the event ID.
