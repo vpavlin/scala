@@ -3,14 +3,14 @@
     "name": "Scala",
     "slug": "scala",
     "scheme": "scala",
-    "version": "0.9.61",
+    "version": "0.9.62",
     "platforms": [
       "android"
     ],
     "icon": "./assets/icon.png",
     "android": {
       "package": "xyz.vpavlin.scala",
-      "versionCode": 82,
+      "versionCode": 83,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#11111b"

@@ -169,13 +169,17 @@ export default function App() {
   useEffect(() => {
     refresh();
     ensureNotifyPermission(); // #1: ask once so reminders can be scheduled
-    const off = onChange(refresh);
+    // Debounce store changes: a sync/catch-up burst fires onChange many times in a row; running the
+    // full refresh (listEvents + scheduleReminders) on each one saturates the JS thread and makes the
+    // UI (e.g. tapping a day) lag. Coalesce bursts into one refresh.
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const off = onChange(() => { if (refreshTimer) clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 200); });
     (async () => {
       setShared(await getSharedNode());
       if (!deliveryAvailable()) { setStatus("no delivery node in this build"); return; }
       try { await startSyncing(undefined, setStatus); } catch (e) { setStatus("sync error: " + msg(e)); }
     })();
-    return off;
+    return () => { if (refreshTimer) clearTimeout(refreshTimer); if (off) off(); };
   }, [refresh]);
 
   const writable = useMemo(() => cals.filter((c) => c.encryptionKey), [cals]);

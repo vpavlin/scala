@@ -13,7 +13,7 @@ function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-export function MonthGrid({
+export const MonthGrid = React.memo(function MonthGrid({
   month, year, events, selected, colorFor, onSelect,
 }: {
   month: number; year: number;
@@ -62,7 +62,7 @@ export function MonthGrid({
       ))}
     </View>
   );
-}
+});
 
 const s = StyleSheet.create({
   weekRow: { flexDirection: "row" },
