@@ -18,7 +18,6 @@ import { FieldDef } from "./src/components/EventModal";
 const FIELD_TYPES = ["text", "longtext", "number", "date", "datetime", "bool", "url", "enum", "color"];
 import { deliveryAvailable, getDebug, refreshDebug } from "./src/lib/scala-sync";
 import { SharedNodeStatus } from "./src/lib/loam-transport-pkg/src/SharedNodeStatus";
-import { SharedNodeBanner } from "./src/lib/loam-transport-pkg/src/SharedNodeBanner";
 import { ensureNotifyPermission, scheduleReminders } from "./src/lib/notify";
 import { MonthGrid } from "./src/components/MonthGrid";
 import { expandEvents } from "./src/lib/recur";
@@ -621,11 +620,9 @@ export default function App() {
           <Text style={s.status}>{status} · {cals.length} calendar(s) · <Text style={{ textDecorationLine: "underline" }}>debug</Text></Text>
         </Pressable>
 
+        {/* SharedNodeStatus renders BOTH the peer dot AND the SDK SharedNodeBanner (Loam not
+            running / not approved / connected-but-0-peers peer-drop) — don't add a second banner. */}
         <SharedNodeStatus appName="Scala" style={{ marginHorizontal: 14 }} />
-
-        {/* SDK-owned shout: Loam not running / not approved / connected-but-0-peers (the silent
-            peer-drop) — taps through to open Loam. Renders nothing when the node is healthy. */}
-        <SharedNodeBanner appName="Scala" style={{ marginHorizontal: 14 }} />
 
         {/* view toggle + search */}
         <View style={s.viewBar}>
