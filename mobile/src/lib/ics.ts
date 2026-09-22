@@ -14,10 +14,16 @@ export function icsToBase64(ics: string): string {
     if (c < 0x80) bytes.push(c);
     else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
     else if (c >= 0xd800 && c <= 0xdbff) {
-      const c2 = ics.charCodeAt(++i);
-      const cp = 0x10000 + ((c & 0x3ff) << 10) + (c2 & 0x3ff);
-      bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
-    } else bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      // High surrogate: only combine with a valid following low surrogate. A lone/unpaired high
+      // surrogate (e.g. a truncated emoji at end-of-string) becomes U+FFFD, not garbage bytes.
+      const c2 = i + 1 < ics.length ? ics.charCodeAt(i + 1) : 0;
+      if (c2 >= 0xdc00 && c2 <= 0xdfff) {
+        i++;
+        const cp = 0x10000 + ((c & 0x3ff) << 10) + (c2 & 0x3ff);
+        bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+      } else bytes.push(0xef, 0xbf, 0xbd); // U+FFFD
+    } else if (c >= 0xdc00 && c <= 0xdfff) bytes.push(0xef, 0xbf, 0xbd); // unpaired low surrogate → U+FFFD
+    else bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
   }
   return fromByteArray(new Uint8Array(bytes));
 }
@@ -100,7 +106,8 @@ function parseIcsDate(value: string): { ms: number; allDay: boolean } | null {
   return { ms, allDay: false };
 }
 
-/** Parse VEVENTs from an .ics document into partial CalEvents (no id/calendarId — caller authors them). */
+/** Parse VEVENTs from an .ics document into partial CalEvents. `id` is derived from the VEVENT UID
+ *  when present (stable, so re-import dedups); calendarId is set by the caller when authoring. */
 export function parseIcs(text: string): Array<Partial<CalEvent>> {
   const raw = text.split(/\r?\n/); const lines: string[] = []; let cur = "";
   for (const line of raw) {                       // unfold continuation lines
@@ -123,7 +130,12 @@ export function parseIcs(text: string): Array<Partial<CalEvent>> {
     const c = line.indexOf(":"); if (c < 0) continue;
     const name = (line.slice(0, c).split(";")[0] || "").toUpperCase();
     const value = line.slice(c + 1);
-    if (name === "SUMMARY") ev.title = unesc(value);
+    if (name === "UID") {
+      // Idempotent import: carry a stable id from the UID so re-importing upserts instead of
+      // duplicating. Our export writes UID:<id>@scala — strip that suffix; foreign UIDs used verbatim.
+      ev.id = value.endsWith("@scala") ? value.slice(0, -"@scala".length) : value;
+    }
+    else if (name === "SUMMARY") ev.title = unesc(value);
     else if (name === "DESCRIPTION") ev.description = unesc(value);
     else if (name === "LOCATION") ev.location = unesc(value);
     else if (name === "URL") ev.url = unesc(value);

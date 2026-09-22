@@ -323,9 +323,24 @@ export default function App() {
       const parsed = parseIcs(text);
       if (!parsed.length) { Alert.alert("Import .ics", "No events found in the clipboard .ics."); return; }
       const cid = calSet.cal.id;
-      for (const ev of parsed) await createEvent(cid, ev as any);
-      await refresh();
-      Alert.alert("Imported ✅", `${parsed.length} event(s) added to ${calSet.cal.name}.`);
+      const runImport = async () => {
+        // Pass the parsed id (derived from the VEVENT UID) so re-importing upserts by id instead of
+        // duplicating (idempotent round-trip of our own export).
+        for (const ev of parsed) await createEvent(cid, ev as any, (ev as any).id);
+        await refresh();
+        Alert.alert("Imported ✅", `${parsed.length} event(s) added to ${calSet.cal.name}.`);
+      };
+      // A Keycard-bound calendar signs each event with a physical tap — a silent N-tap bulk import
+      // is easy to abandon half-done, so warn (and let the user bail) before starting.
+      const boundId = (await calendarIdentityId(cid)) || (await getDefaultIdentityId());
+      if (parsed.length > 1 && boundId && kcFor[boundId]) {
+        Alert.alert("Keycard calendar",
+          `This calendar signs with a Keycard, so importing ${parsed.length} events needs ${parsed.length} card taps (one per event). Continue?`,
+          [{ text: "Cancel", style: "cancel" },
+           { text: `Import (${parsed.length} taps)`, onPress: () => { runImport().catch((e) => Alert.alert("Import failed", e?.message ?? String(e))); } }]);
+        return;
+      }
+      await runImport();
     } catch (e: any) { Alert.alert("Import failed", e?.message ?? String(e)); }
   };
   // #8: custom-field schema editing (staged in calSet, written on Save).

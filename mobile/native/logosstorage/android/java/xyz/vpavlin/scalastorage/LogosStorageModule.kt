@@ -195,7 +195,19 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
           resolver.update(uri, cv, null, null)
           promise.resolve("Downloads/$name")
         } else {
-          val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+          // Pre-Q: writing the PUBLIC Downloads dir needs the runtime WRITE_EXTERNAL_STORAGE grant.
+          // We only declare it in the manifest — a headless native module can't prompt for it — so if
+          // it isn't granted we'd throw and every export/attachment-save would silently "fail". Fall
+          // back to the app-specific external dir (needs no permission) so the save always succeeds.
+          val ctx = reactApplicationContext
+          val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+          ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+          val dir = if (granted)
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+          else
+            (ctx.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+              ?: throw java.io.IOException("no external storage available"))
           dir.mkdirs()
           val f = java.io.File(dir, name); f.writeBytes(bytes)
           promise.resolve(f.absolutePath)

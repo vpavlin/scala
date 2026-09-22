@@ -881,7 +881,7 @@ Item {
     function onIcsImportPicked(fileUrl) {
         var path = ("" + fileUrl).replace(/^file:\/\//, "")
         var r = root.j(root.core("importIcsFile", [root.setCalId, path]), null)
-        if (r && typeof r.imported === "number") {
+        if (r && !r.error && typeof r.imported === "number") {
             root.notify("Imported " + r.imported + " event(s)" + (r.skipped ? (", skipped " + r.skipped) : ""), false)
             root.refresh()
         } else root.notify("Import failed: " + ((r && r.error) || "unknown"), true)
