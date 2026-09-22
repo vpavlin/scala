@@ -22,9 +22,6 @@ const C = {
   primary: "#89b4fa", border: "#313244", danger: "#f38ba8", accent: "#a6e3a1",
 };
 
-// Per-event colour swatches (Catppuccin accents). Default = fall back to the calendar colour.
-const SWATCHES = ["#89b4fa", "#a6e3a1", "#f9e2af", "#fab387", "#f38ba8", "#cba6f7", "#94e2d5", "#f5c2e7"];
-
 export interface EventDraft {
   id?: string;
   title: string;
@@ -36,7 +33,6 @@ export interface EventDraft {
   allDay?: boolean;
   reminderMin?: number;
   recur?: Recur;
-  color?: string;               // per-event colour override (falls back to the calendar colour)
   fields?: Record<string, any>; // #8: custom schema field values
   attachments?: Attachment[];   // ADR 0017: files in Logos Storage (desktop uploads; phone fetches)
 }
@@ -75,7 +71,6 @@ export function EventModal({
   const [tz, setTz] = useState<"local" | "utc">("local"); // enter start/end times in local or UTC
   const [reminderMin, setReminderMin] = useState(initial.reminderMin ?? 10);
   const [recur, setRecur] = useState<Recur | undefined>(initial.recur);
-  const [color, setColor] = useState<string | undefined>(initial.color);
   const [fields, setFields] = useState<Record<string, any>>(initial.fields || {});
   const [attachments, setAttachments] = useState<Attachment[]>(initial.attachments || []);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -96,7 +91,6 @@ export function EventModal({
       setAllDay(!!initial.allDay);
       setReminderMin(initial.reminderMin ?? 10);
       setRecur(initial.recur);
-      setColor(initial.color);
       setFields(initial.fields || {});
       setHistory([]);
       if (initial.id && loadHistory) loadHistory().then(setHistory).catch(() => setHistory([]));
@@ -171,7 +165,6 @@ export function EventModal({
       allDay: allDay || undefined,
       reminderMin,
       recur,
-      color,
       fields: schema.length ? fields : undefined,
       attachments: attachments.length ? attachments : undefined,   // preserve (mobile doesn't author yet)
     });
@@ -249,25 +242,6 @@ export function EventModal({
             <Text style={s.label}>Meeting link</Text>
             <TextInput style={s.input} value={url} editable={canEdit} onChangeText={setUrl} placeholder="https://…" placeholderTextColor={C.sub} autoCapitalize="none" keyboardType="url" />
 
-            {/* Per-event colour — code events by type/venue/status. Default = the calendar's colour. */}
-            <Text style={s.label}>Colour</Text>
-            <View style={s.calRow}>
-              <Pressable
-                onPress={() => canEdit && setColor(undefined)}
-                style={[s.swatch, { backgroundColor: selCal?.color || C.border }, !color && s.swatchOn]}
-              >
-                {!color && <Text style={s.swatchTick}>✓</Text>}
-              </Pressable>
-              {SWATCHES.map((sw) => (
-                <Pressable
-                  key={sw}
-                  onPress={() => canEdit && setColor(sw)}
-                  style={[s.swatch, { backgroundColor: sw }, color === sw && s.swatchOn]}
-                >
-                  {color === sw && <Text style={s.swatchTick}>✓</Text>}
-                </Pressable>
-              ))}
-            </View>
 
             {attachments.length > 0 && (
               <>
@@ -445,8 +419,5 @@ const s = StyleSheet.create({
   calChipOn: { borderColor: C.primary, backgroundColor: C.surface },
   calChipT: { color: C.sub, fontSize: 13, fontWeight: "600" },
   calDot: { width: 10, height: 10, borderRadius: 5 },
-  swatch: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
-  swatchOn: { borderColor: C.text },
-  swatchTick: { color: "#11111b", fontSize: 15, fontWeight: "900" },
   histLine: { color: C.sub, fontSize: 12, marginTop: 4 },
 });

@@ -220,10 +220,10 @@ Item {
         for (var i = 0; i < calendars.length; i++) if (calendars[i].id === calId) return calendars[i].name
         return ""
     }
-    // An event's display colour: its own override (ev.color), else its calendar's colour.
-    function evColor(ev) { return (ev && ev.color) ? ev.color : root.calColor(ev ? ev.calendarId : "") }
-    // Per-event colour swatches (Catppuccin accents); "" = default = the calendar colour.
-    readonly property var evSwatches: ["#89b4fa","#a6e3a1","#f9e2af","#fab387","#f38ba8","#cba6f7","#94e2d5","#f5c2e7"]
+    // An event's colour IS its calendar's colour — the calendar is the event's identity here.
+    // (A Frequencies-style app maps a custom-field value to colour itself; scala shows the field
+    // value as a badge but keeps the event the calendar's colour — no per-event override.)
+    function evColor(ev) { return root.calColor(ev ? ev.calendarId : "") }
     // Day timeline (calMode "day"): all-day band + hour-bucketed schedule for a day.
     function dayAllDay(d) { var a = root.eventsOnDay(d); var out = []; for (var i = 0; i < a.length; i++) if (a[i].allDay) out.push(a[i]); return out }
     function dayTimeline(d) {
@@ -1033,7 +1033,6 @@ Item {
     readonly property var reminderOpts: [{ l: "None", v: 0 }, { l: "10 min", v: 10 }, { l: "30 min", v: 30 }, { l: "1 hour", v: 60 }, { l: "1 day", v: 1440 }]
     // ── attachments (ADR 0017 — stored in Logos Storage, sealed with the calendar key) ──
     property var evAttachments: []          // refs on the current event draft: {name,mime,size,storageCid,blobId}
-    property string evColorSel: ""          // per-event colour override on the draft ("" = calendar colour)
     property bool attachBusy: false
     property string attachMsg: ""
     property string attachPollRef: ""       // ref currently being polled (upload blobId / download cid)
@@ -1137,7 +1136,6 @@ Item {
         evStart.text = fmtTimeInput(start); evEnd.text = fmtTimeInput(end); evNotes.text = ""
         evAllDay = false; evReminder = 10; evRecurFreq = ""
         evLocation.text = ""; evUrl.text = ""; evRecurInterval.text = "1"; evRecurUntil.text = ""
-        root.evColorSel = ""
         seedFieldVals(editCalId, null)
         root.evAttachments = []; root.attachBusy = false; root.attachMsg = ""
         eventPopup.open()
@@ -1161,7 +1159,6 @@ Item {
         evRecurFreq = (r && r.freq) ? r.freq : ""
         evRecurInterval.text = (r && r.interval) ? String(r.interval) : "1"
         evRecurUntil.text = (r && typeof r.until === "number") ? fmtDateInput(new Date(r.until)) : ""
-        root.evColorSel = ev.color || ""
         seedFieldVals(ev.calendarId, ev)
         root.evAttachments = (ev.attachments && ev.attachments.length) ? ev.attachments.slice() : []
         root.attachBusy = false; root.attachMsg = ""
@@ -1189,7 +1186,6 @@ Item {
             up.url = evUrl.text.trim()
             up.reminderMin = root.evReminder
             up.recur = recur    // null clears a previous recurrence
-            up.color = root.evColorSel || ""   // "" clears a previous override (evColor falls back to the calendar)
             if (hasSchema) up.fields = collectFieldVals(editCalId)
             up.attachments = root.evAttachments
             core("updateEvent", [JSON.stringify(up)])
@@ -1200,7 +1196,6 @@ Item {
                 location: evLocation.text.trim(), url: evUrl.text.trim(), reminderMin: root.evReminder
             }
             if (recur) nv.recur = recur
-            if (root.evColorSel) nv.color = root.evColorSel
             if (hasSchema) nv.fields = collectFieldVals(editCalId)
             if (root.evAttachments.length) nv.attachments = root.evAttachments
             core("createEvent", [editCalId, JSON.stringify(nv)])
@@ -1221,7 +1216,6 @@ Item {
             reminderMin: src.reminderMin || 0
         }
         if (src.recur) nv.recur = src.recur
-        if (src.color) nv.color = src.color
         if (src.fields) nv.fields = src.fields
         if (src.attachments && src.attachments.length) nv.attachments = src.attachments
         core("createEvent", [root.editCalId, JSON.stringify(nv)])
@@ -1458,30 +1452,6 @@ Item {
                 text: root.attachBusy ? "Working…" : "＋ Attach file"
                 enabled: !root.attachBusy
                 onClicked: attachFileDialog.open()
-            }
-
-            // per-event colour — code events by type/venue/status; default = the calendar colour
-            LogosText { text: "Colour"; color: root.cFaint; font.pixelSize: 11 }
-            Flow {
-                Layout.fillWidth: true; spacing: 8
-                // default (calendar colour)
-                Rectangle {
-                    width: 26; height: 26; radius: 13
-                    color: root.calColor(root.editCalId)
-                    border.width: root.evColorSel === "" ? 2 : 0; border.color: root.cText
-                    LogosText { anchors.centerIn: parent; visible: root.evColorSel === ""; text: "✓"; color: root.cCrust; font.pixelSize: 13; font.weight: Theme.typography.weightBold }
-                    MouseArea { anchors.fill: parent; enabled: !root.eventReadOnly; cursorShape: Qt.PointingHandCursor; onClicked: root.evColorSel = "" }
-                }
-                Repeater {
-                    model: root.evSwatches
-                    delegate: Rectangle {
-                        width: 26; height: 26; radius: 13
-                        color: modelData
-                        border.width: root.evColorSel === modelData ? 2 : 0; border.color: root.cText
-                        LogosText { anchors.centerIn: parent; visible: root.evColorSel === modelData; text: "✓"; color: root.cCrust; font.pixelSize: 13; font.weight: Theme.typography.weightBold }
-                        MouseArea { anchors.fill: parent; enabled: !root.eventReadOnly; cursorShape: Qt.PointingHandCursor; onClicked: root.evColorSel = modelData }
-                    }
-                }
             }
 
             // reminder chips

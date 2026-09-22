@@ -456,8 +456,10 @@ export default function App() {
     );
   };
   const colorFor = useCallback((id: string) => colorForId(id), []);
-  // An event's display colour: its own override, else its calendar's colour.
-  const evColor = useCallback((ev: any) => (ev && ev.color) || colorForId(ev && ev.calendarId), []);
+  // An event's colour IS its calendar's colour — the calendar is the event's identity here.
+  // (A Frequencies-style app maps a custom-field value to colour on its own side; scala shows
+  // the field value as a badge but keeps the event the calendar's colour — no per-event override.)
+  const evColor = useCallback((ev: any) => colorForId(ev && ev.calendarId), []);
   // Expand recurrence occurrences for the selected day (non-recurring events pass through once).
   const dayEvents = useMemo(() => {
     const ds = new Date(selected); ds.setHours(0, 0, 0, 0);
@@ -579,7 +581,7 @@ export default function App() {
       open: true, editing: m, calId: m.calendarId,
       draft: {
         id: m.id, title: m.title, startTime: m.startTime, endTime: m.endTime, description: m.description,
-        location: m.location, url: m.url, allDay: m.allDay, reminderMin: m.reminderMin, recur: m.recur, color: m.color, fields: m.fields,
+        location: m.location, url: m.url, allDay: m.allDay, reminderMin: m.reminderMin, recur: m.recur, fields: m.fields,
         attachments: m.attachments,   // ADR 0017 — surface received attachments in the editor (was dropped → section never showed)
       },
     });
@@ -601,7 +603,7 @@ export default function App() {
   const saveEvent = async (d: EventDraft) => {
     const common = {
       title: d.title, startTime: d.startTime, endTime: d.endTime, description: d.description,
-      location: d.location, url: d.url, allDay: d.allDay, reminderMin: d.reminderMin, recur: d.recur, color: d.color, fields: d.fields,
+      location: d.location, url: d.url, allDay: d.allDay, reminderMin: d.reminderMin, recur: d.recur, fields: d.fields,
       attachments: d.attachments,   // ADR 0017 — preserve attachment refs through edits
     };
     try {
@@ -624,7 +626,7 @@ export default function App() {
     const copy = {
       title: (s.title || "(untitled)") + " (copy)", startTime: s.startTime, endTime: s.endTime,
       allDay: s.allDay, description: s.description, location: s.location, url: s.url,
-      reminderMin: s.reminderMin, recur: s.recur, color: s.color, fields: (s as any).fields, attachments: s.attachments,
+      reminderMin: s.reminderMin, recur: s.recur, fields: (s as any).fields, attachments: s.attachments,
     };
     try {
       await createEvent(cid, copy as any);
