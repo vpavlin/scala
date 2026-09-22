@@ -534,6 +534,21 @@ export default function App() {
     if (!modal.editing) return;
     try { await deleteEvent(modal.editing); setModal((m) => ({ ...m, open: false })); } catch (e: any) { onKeycardAbort(e, () => removeEvent()); }
   };
+  // Duplicate the event being edited → a new event with the same fields (same time; move/edit after).
+  const duplicateEvent = async () => {
+    if (!modal.editing) return;
+    const s = modal.editing;
+    const copy = {
+      title: (s.title || "(untitled)") + " (copy)", startTime: s.startTime, endTime: s.endTime,
+      allDay: s.allDay, description: s.description, location: s.location, url: s.url,
+      reminderMin: s.reminderMin, recur: s.recur, fields: (s as any).fields, attachments: s.attachments,
+    };
+    try {
+      await createEvent(modal.calId, copy as any);
+      await refresh();
+      setModal((m) => ({ ...m, open: false }));
+    } catch (e: any) { onKeycardAbort(e, () => duplicateEvent()); }
+  };
   // ADR 0017: fetch a sealed attachment from Logos Storage, decrypt it with the calendar key, save.
   const openAttachment = async (att: Attachment) => {
     const cal = cals.find((c) => c.id === modal.calId);
@@ -1057,6 +1072,7 @@ export default function App() {
           readonlyReason={readonlyReason(cals.find((c) => c.id === modal.calId), modal.editing)}
           onSave={saveEvent}
           onDelete={modal.editing ? removeEvent : undefined}
+          onDuplicate={modal.editing && canAddTo(cals.find((c) => c.id === modal.calId)) ? duplicateEvent : undefined}
           onClose={() => setModal((m) => ({ ...m, open: false }))}
           schema={cals.find((c) => c.id === modal.calId)?.schema || []}
           loadHistory={modal.editing ? () => getEventHistory(modal.calId, modal.editing!.id) : undefined}

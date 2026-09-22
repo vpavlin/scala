@@ -912,6 +912,24 @@ Item {
         }
         eventPopup.close(); refresh()
     }
+    // Duplicate an existing event in one click → a new event with the same fields (same time; the
+    // user moves/edits it after). Frequencies: fast setup of similar nights. Needs add rights.
+    function duplicateEvent() {
+        if (!root.editingEvent) return
+        var src = root.editingEvent
+        var nv = {
+            title: (src.title || "(untitled)") + " (copy)",
+            startTime: src.startTime, endTime: src.endTime, allDay: !!src.allDay,
+            description: src.description || "", location: src.location || "", url: src.url || "",
+            reminderMin: src.reminderMin || 0
+        }
+        if (src.recur) nv.recur = src.recur
+        if (src.fields) nv.fields = src.fields
+        if (src.attachments && src.attachments.length) nv.attachments = src.attachments
+        core("createEvent", [root.editCalId, JSON.stringify(nv)])
+        root.lastCalId = root.editCalId
+        eventPopup.close(); refresh()
+    }
     function deleteEvent() {
         if (editingEvent) core("deleteEvent", [editingEvent.id])
         eventPopup.close(); refresh()
@@ -1265,6 +1283,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.small
                 LogosButton { visible: root.editingEvent !== null && !root.eventReadOnly; text: "Delete"; onClicked: root.deleteEvent() }
+                LogosButton { visible: root.editingEvent !== null && root.canAddTo(root.calById(root.editCalId)); text: "Duplicate"; onClicked: root.duplicateEvent() }
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Cancel"; onClicked: eventPopup.close() }
                 LogosButton { visible: !root.eventReadOnly; text: root.editingEvent ? "Save" : "Create"; enabled: root.eventError() === ""; onClicked: root.saveEvent() }

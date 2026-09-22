@@ -42,7 +42,7 @@ export interface FieldDef { key: string; label?: string; type?: string; options?
 export interface HistoryEntry { author: string; at: number; action: string; payload: any }
 
 export function EventModal({
-  visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onClose,
+  visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onDuplicate, onClose,
   schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment,
 }: {
   visible: boolean;
@@ -53,6 +53,7 @@ export function EventModal({
   canPickCalendar: boolean;      // false when editing (can't move an event)
   onSave: (d: EventDraft) => void;
   onDelete?: () => void;
+  onDuplicate?: () => void;      // clone this event as a new one (shown when editing + add rights)
   onClose: () => void;
   schema?: FieldDef[];           // #8: the calendar's custom-field definitions (empty = none)
   loadHistory?: () => Promise<HistoryEntry[]>; // #4: async edit-history loader (when editing)
@@ -356,6 +357,11 @@ export function EventModal({
             {canEdit && (
               <Pressable style={[s.btn, { backgroundColor: C.accent }]} onPress={save}>
                 <Text style={[s.btnT, { color: C.bg }]}>{initial.id ? "Save" : "Create"}</Text>
+              </Pressable>
+            )}
+            {initial.id && onDuplicate && (
+              <Pressable style={[s.btn, { backgroundColor: "transparent", borderWidth: 1, borderColor: C.border }]} onPress={onDuplicate}>
+                <Text style={[s.btnT, { color: C.text }]}>Duplicate</Text>
               </Pressable>
             )}
             {initial.id && onDelete && canEdit && (
