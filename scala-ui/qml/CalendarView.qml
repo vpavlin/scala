@@ -667,6 +667,15 @@ Item {
                             }
                         }
                         MouseArea { id: cellMA; anchors.fill: parent; hoverEnabled: true; onClicked: root.selectedDay = cell.cellDate }
+                        DropArea {
+                            anchors.fill: parent
+                            onEntered: cell.color = root.cSurface2
+                            onExited: if (!cell.isSel) cell.color = "transparent"
+                            onDropped: function (drop) {
+                                if (!cell.isSel) cell.color = "transparent"
+                                if (drop.source && drop.source.dragEv) root.moveEventToDay(drop.source.dragEv, cell.cellDate)
+                            }
+                        }
                     }
                 }
             }
@@ -794,7 +803,22 @@ Item {
                                     }
                                 }
                             }
-                            MouseArea { id: evMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
+                            MouseArea {
+                                id: evMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                property bool dragging: false; property real px: 0; property real py: 0
+                                onPressed: function (m) { px = m.x; py = m.y; dragging = false }
+                                onPositionChanged: function (m) {
+                                    if (!pressed) return
+                                    if (!dragging && (Math.abs(m.x - px) + Math.abs(m.y - py)) < 8) return
+                                    if (!dragging) { dragging = true; dragProxy.dragEv = modelData; dragProxy.visible = true }
+                                    var gp = mapToItem(root, m.x, m.y)
+                                    dragProxy.x = gp.x - dragProxy.width / 2; dragProxy.y = gp.y - dragProxy.height / 2
+                                }
+                                onReleased: function (m) {
+                                    if (dragging) { dragProxy.Drag.drop(); dragProxy.visible = false; dragProxy.dragEv = null; dragging = false }
+                                    else root.openEditEvent(modelData)
+                                }
+                            }
                         }
                     }
                     LogosText {
@@ -1065,6 +1089,22 @@ Item {
         eventPopup.close(); refresh()
         root.notify("Event duplicated")
     }
+    // Drag & drop: move an event's occurrence to another day, preserving its time-of-day + duration.
+    // Edits the underlying event (LWW upsert). Refuses (with a toast) if you can't edit it.
+    function moveEventToDay(ev, day) {
+        if (!ev || !day) return
+        var s = new Date(ev.startTime)
+        if (root.sameDay(s, day)) return   // dropped on its own day — no-op
+        var c = root.calById(ev.calendarId)
+        if (!root.canEditEvent(c, ev)) { root.notify("You can't move this event.", true); return }
+        var dur = ev.endTime - ev.startTime
+        var ns = new Date(day.getFullYear(), day.getMonth(), day.getDate(), s.getHours(), s.getMinutes(), 0, 0)
+        var up = JSON.parse(JSON.stringify(ev))
+        delete up.seriesId; delete up.occ
+        up.startTime = ns.getTime(); up.endTime = ns.getTime() + dur
+        core("updateEvent", [JSON.stringify(up)])
+        refresh(); root.notify("Moved to " + Qt.formatDate(ns, "MMM d"))
+    }
     function deleteEvent() {
         if (editingEvent) core("deleteEvent", [editingEvent.id])
         eventPopup.close(); refresh()
@@ -1098,6 +1138,21 @@ Item {
             font.pixelSize: 13; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter
         }
         MouseArea { anchors.fill: parent; onClicked: root.toastMsg = "" }
+    }
+
+    // Drag proxy — a floating card following the cursor while dragging an agenda event onto a day.
+    Rectangle {
+        id: dragProxy; z: 100000; visible: false
+        width: 170; height: 40; radius: 10; opacity: 0.92
+        color: root.cSurface; border.width: 1; border.color: root.cBlue
+        property var dragEv: null
+        Drag.active: dragProxy.visible
+        Drag.hotSpot.x: width / 2; Drag.hotSpot.y: height / 2
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 6; spacing: 5
+            Rectangle { width: 3; height: 24; radius: 1.5; color: dragProxy.dragEv ? root.calColor(dragProxy.dragEv.calendarId) : "transparent"; Layout.alignment: Qt.AlignVCenter }
+            LogosText { text: dragProxy.dragEv ? (dragProxy.dragEv.title || "(untitled)") : ""; color: root.cText; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter }
+        }
     }
 
     // ── iCalendar (.ics) import/export (operates on root.setCalId) ─────────────
