@@ -200,7 +200,7 @@ export default function App() {
   const [currentCalId, setCurrentCalId] = useState<string>("");     // #5: last-tapped calendar (preselected for new events)
   const [aliasMap, setAliasMap] = useState<Record<string, string>>({}); // #7: device-local name overrides
   const [calSet, setCalSet] = useState<{ cal: Calendar; name: string; desc: string; alias: string; schema: FieldDef[] } | null>(null); // #7 settings sheet
-  const [nf, setNf] = useState<{ key: string; label: string; type: string }>({ key: "", label: "", type: "text" }); // #8 new custom field
+  const [nf, setNf] = useState<{ key: string; label: string; type: string; options: string }>({ key: "", label: "", type: "text", options: "" }); // #8 new custom field (options: comma-separated, for enum)
   const [nm, setNm] = useState<{ id: string; role: "editor" | "viewer" }>({ id: "", role: "editor" }); // #3 new member
   const [invite, setInvite] = useState("");
   const [lastInvite, setLastInvite] = useState("");
@@ -323,7 +323,7 @@ export default function App() {
   const addableCals = useMemo(() => writable.filter((c) => canAddTo(c)), [writable, canAddTo]);
   const pickCals = addableCals.length ? addableCals : writable;
   const openCalSettings = (c: Calendar) => {
-    setNf({ key: "", label: "", type: "text" }); setNm({ id: "", role: "editor" });
+    setNf({ key: "", label: "", type: "text", options: "" }); setNm({ id: "", role: "editor" });
     setCalSet({ cal: c, name: c.name, desc: c.description || "", alias: aliasMap[c.id] || "", schema: c.schema ? [...c.schema] : [] });
   };
   const saveCalSettings = async () => {
@@ -376,12 +376,25 @@ export default function App() {
     } catch (e: any) { Alert.alert("Import failed", e?.message ?? String(e)); }
   };
   // #8: custom-field schema editing (staged in calSet, written on Save).
-  const addField = () => {
+  // Build a FieldDef from the `nf` inputs. Enum needs comma-separated options, or it can't be picked.
+  const buildFieldDef = (): FieldDef | null => {
     const key = nf.key.trim().replace(/\s+/g, "_");
-    if (!key || !calSet) return;
-    if (calSet.schema.some((f) => f.key === key)) { Alert.alert("Field exists", `"${key}" is already defined.`); return; }
-    setCalSet((v) => v && { ...v, schema: [...v.schema, { key, label: nf.label.trim() || key, type: nf.type }] });
-    setNf({ key: "", label: "", type: "text" });
+    if (!key) return null;
+    const def: FieldDef = { key, label: nf.label.trim() || key, type: nf.type };
+    if (nf.type === "enum") {
+      const options = nf.options.split(",").map((o) => o.trim()).filter(Boolean);
+      if (!options.length) { Alert.alert("Enum needs options", "Add at least one comma-separated option (e.g. Draft, Confirmed, Cancelled)."); return null; }
+      def.options = options;
+    }
+    return def;
+  };
+  const addField = () => {
+    if (!calSet) return;
+    const def = buildFieldDef();
+    if (!def) return;
+    if (calSet.schema.some((f) => f.key === def.key)) { Alert.alert("Field exists", `"${def.key}" is already defined.`); return; }
+    setCalSet((v) => v && { ...v, schema: [...v.schema, def] });
+    setNf({ key: "", label: "", type: "text", options: "" });
   };
   const removeField = (key: string) => setCalSet((v) => v && { ...v, schema: v.schema.filter((f) => f.key !== key) });
   // #3: role management — writes a member.set event immediately (owner/admin only; the fold enforces it).
@@ -608,11 +621,11 @@ export default function App() {
   // Custom-field editing for the NEW-calendar form (mirrors settings' addField/removeField, staged
   // in newCalSchema and written into the single cal.meta on Create). Reuses the `nf` input.
   const addNewCalField = () => {
-    const key = nf.key.trim().replace(/\s+/g, "_");
-    if (!key) return;
-    if (newCalSchema.some((f) => f.key === key)) { Alert.alert("Field exists", `"${key}" is already defined.`); return; }
-    setNewCalSchema((v) => [...v, { key, label: nf.label.trim() || key, type: nf.type }]);
-    setNf({ key: "", label: "", type: "text" });
+    const def = buildFieldDef();
+    if (!def) return;
+    if (newCalSchema.some((f) => f.key === def.key)) { Alert.alert("Field exists", `"${def.key}" is already defined.`); return; }
+    setNewCalSchema((v) => [...v, def]);
+    setNf({ key: "", label: "", type: "text", options: "" });
   };
   const removeNewCalField = (key: string) => setNewCalSchema((v) => v.filter((f) => f.key !== key));
   const doCreateCal = async () => {
@@ -621,7 +634,7 @@ export default function App() {
         { schema: newCalSchema, ...tierMeta(newCalTier) });
       setNewCalOpen(false);
       setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalTier("closed");
-      setNf({ key: "", label: "", type: "text" });
+      setNf({ key: "", label: "", type: "text", options: "" });
       setCurrentCalId(cal.id); setLastInvite(buildInvite(cal));
       // Fire-and-forget: the calendar is already saved locally. Awaiting node bring-up here stalled
       // ~10s offline and, if it threw, surfaced a false "nothing was saved" + duplicate-creating Retry.
@@ -830,7 +843,7 @@ export default function App() {
                 </Pressable>
               ))}
 
-              <Pressable style={[s.smBtn, { marginTop: 4, alignItems: "center" }]} onPress={() => { setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalTier("closed"); setNf({ key: "", label: "", type: "text" }); setNewCalOpen(true); }}>
+              <Pressable style={[s.smBtn, { marginTop: 4, alignItems: "center" }]} onPress={() => { setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalTier("closed"); setNf({ key: "", label: "", type: "text", options: "" }); setNewCalOpen(true); }}>
                 <Text style={s.smBtnT}>+ New calendar</Text>
               </Pressable>
 
@@ -919,6 +932,9 @@ export default function App() {
                     ))}
                   </View>
                 </ScrollView>
+                {nf.type === "enum" && (
+                  <TextInput style={[s.input, { marginTop: 6 }]} value={nf.options} onChangeText={(t) => setNf((v) => ({ ...v, options: t }))} placeholder="options, comma-separated (e.g. Draft, Confirmed, Cancelled)" placeholderTextColor={C.sub} autoCapitalize="none" />
+                )}
                 <Pressable style={[s.smBtn, { marginTop: 8, alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]} onPress={addField}><Text style={[s.smBtnT, { color: C.text }]}>+ Add field</Text></Pressable>
 
                 {/* #3: sharing & roles — who can edit. Identity = an address; share yours to be added. */}
@@ -1015,6 +1031,9 @@ export default function App() {
                     ))}
                   </View>
                 </ScrollView>
+                {nf.type === "enum" && (
+                  <TextInput style={[s.input, { marginTop: 6 }]} value={nf.options} onChangeText={(t) => setNf((v) => ({ ...v, options: t }))} placeholder="options, comma-separated (e.g. Draft, Confirmed, Cancelled)" placeholderTextColor={C.sub} autoCapitalize="none" />
+                )}
                 <Pressable style={[s.smBtn, { marginTop: 8, alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]} onPress={addNewCalField}><Text style={[s.smBtnT, { color: C.text }]}>+ Add field</Text></Pressable>
 
                 {/* Access — one 3-way tier (ADR 0019), chosen up front; same widget as settings. */}
