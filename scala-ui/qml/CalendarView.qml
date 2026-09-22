@@ -204,7 +204,7 @@ Item {
     // so a calendar looks consistent across devices regardless of a stored color.
     readonly property var calPalette: ["#a6e3a1","#89b4fa","#f9e2af","#f38ba8","#cba6f7","#94e2d5","#fab387","#74c7ec","#eba0ac","#b4befe"]
     function calColor(calId) {
-        if (!calId) return Theme.palette.primary
+        if (!calId) return root.cBlue
         var h = 0
         for (var i = 0; i < calId.length; i++) h = (h * 31 + calId.charCodeAt(i)) >>> 0
         return root.calPalette[h % root.calPalette.length]
@@ -319,7 +319,7 @@ Item {
     }
 
     // ── layout ───────────────────────────────────────────────────────────────
-    Rectangle { anchors.fill: parent; color: Theme.palette.background }
+    Rectangle { anchors.fill: parent; color: root.cBase }
 
     // Stale-core warning: core + view are separate Basecamp packages, so a fresh view can run over an
     // old core that signs with the wrong identity. Warn loudly at the top rather than fail silently.
@@ -373,19 +373,19 @@ Item {
         height: (root.soonVisible && root.soonText.length > 0) ? 40 : 0
         visible: height > 0
         clip: true
-        color: Theme.palette.primary
+        color: root.cBlue
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: Theme.spacing.medium; anchors.rightMargin: Theme.spacing.small
             spacing: Theme.spacing.small
-            Rectangle { width: 8; height: 8; radius: 4; color: Theme.palette.background; Layout.alignment: Qt.AlignVCenter }
+            Rectangle { width: 8; height: 8; radius: 4; color: root.cBase; Layout.alignment: Qt.AlignVCenter }
             LogosText {
-                text: root.soonText; color: Theme.palette.background
+                text: root.soonText; color: root.cBase
                 font.pixelSize: 13; font.weight: Theme.typography.weightMedium
                 Layout.fillWidth: true; elide: Text.ElideRight; Layout.alignment: Qt.AlignVCenter
             }
             LogosText {
-                text: "✕"; color: Theme.palette.background; font.pixelSize: 14; Layout.alignment: Qt.AlignVCenter
+                text: "✕"; color: root.cBase; font.pixelSize: 14; Layout.alignment: Qt.AlignVCenter
                 MouseArea {
                     anchors.fill: parent; anchors.margins: -6
                     onClicked: {
@@ -937,11 +937,11 @@ Item {
         anchors.bottom: parent.bottom; anchors.bottomMargin: 24
         width: Math.min(parent.width - 32, toastLbl.implicitWidth + 34)
         height: toastLbl.implicitHeight + 20; radius: 10
-        color: root.toastErr ? Theme.palette.error : Theme.palette.backgroundSecondary
-        border.width: 1; border.color: root.toastErr ? Theme.palette.error : Theme.palette.borderHairline
+        color: root.toastErr ? root.cRed : root.cSurface
+        border.width: 1; border.color: root.toastErr ? root.cRed : root.cSurface2
         LogosText {
             id: toastLbl; anchors.centerIn: parent; width: Math.min(root.width - 60, implicitWidth)
-            text: root.toastMsg; color: root.toastErr ? "#ffffff" : Theme.palette.text
+            text: root.toastMsg; color: root.toastErr ? "#ffffff" : root.cText
             font.pixelSize: 13; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter
         }
         MouseArea { anchors.fill: parent; onClicked: root.toastMsg = "" }
@@ -980,12 +980,12 @@ Item {
         id: eventPopup
         anchors.centerIn: Overlay.overlay
         width: 420; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
-            LogosText { text: root.editingEvent ? "Edit event" : "New event"; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText { text: root.editingEvent ? "Edit event" : "New event"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
 
-            LogosText { text: "Calendar"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Calendar"; color: root.cFaint; font.pixelSize: 11 }
             ComboBox {
                 id: evCalSelect
                 Layout.fillWidth: true
@@ -1011,12 +1011,12 @@ Item {
                 contentItem: LogosText {
                     leftPadding: 10; rightPadding: 28
                     text: evCalSelect.displayText || "(calendar)"
-                    color: Theme.palette.text; font.pixelSize: 14
+                    color: root.cText; font.pixelSize: 14
                     verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
                 }
                 background: Rectangle {
-                    implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: Theme.palette.background
-                    border.width: 1; border.color: Theme.palette.borderHairline
+                    implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: root.cBase
+                    border.width: 1; border.color: root.cSurface2
                 }
                 delegate: ItemDelegate {
                     width: evCalSelect.width
@@ -1024,16 +1024,16 @@ Item {
                     contentItem: RowLayout {
                         spacing: 6
                         Rectangle { width: 10; height: 10; radius: 5; color: root.calColor(modelData.id); Layout.alignment: Qt.AlignVCenter }
-                        LogosText { text: modelData.name || "(cal)"; color: Theme.palette.text; font.pixelSize: 14; elide: Text.ElideRight; Layout.fillWidth: true }
+                        LogosText { text: modelData.name || "(cal)"; color: root.cText; font.pixelSize: 14; elide: Text.ElideRight; Layout.fillWidth: true }
                     }
-                    background: Rectangle { color: highlighted ? Theme.palette.backgroundSecondary : Theme.palette.backgroundElevated }
+                    background: Rectangle { color: highlighted ? root.cSurface : root.cSurface }
                 }
                 popup: Popup {
                     y: evCalSelect.height
                     width: evCalSelect.width
                     implicitHeight: Math.min(contentItem.implicitHeight + 2, 260)
                     padding: 1
-                    background: Rectangle { radius: Theme.spacing.radiusSmall; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+                    background: Rectangle { radius: Theme.spacing.radiusSmall; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
                     contentItem: ListView {
                         clip: true
                         implicitHeight: contentHeight
@@ -1044,7 +1044,7 @@ Item {
                 }
             }
 
-            LogosText { text: "Title"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Title"; color: root.cFaint; font.pixelSize: 11 }
             Field { id: evTitle; readOnly: root.eventReadOnly; Layout.fillWidth: true; placeholderText: "Event title" }
 
             // all-day toggle — hides the time inputs when on
@@ -1052,41 +1052,41 @@ Item {
                 spacing: 8
                 Rectangle {
                     width: 22; height: 22; radius: 5
-                    color: root.evAllDay ? Theme.palette.primary : Theme.palette.background
-                    border.width: 1; border.color: Theme.palette.borderHairline
-                    LogosText { anchors.centerIn: parent; visible: root.evAllDay; text: "✓"; color: Theme.palette.background; font.pixelSize: 14 }
+                    color: root.evAllDay ? root.cBlue : root.cBase
+                    border.width: 1; border.color: root.cSurface2
+                    LogosText { anchors.centerIn: parent; visible: root.evAllDay; text: "✓"; color: root.cBase; font.pixelSize: 14 }
                     MouseArea { anchors.fill: parent; onClicked: root.evAllDay = !root.evAllDay }
                 }
-                LogosText { text: "All-day"; color: Theme.palette.text; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                LogosText { text: "All-day"; color: root.cText; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
             }
 
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
-                ColumnLayout { Layout.fillWidth: true; LogosText { text: "Date"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                ColumnLayout { Layout.fillWidth: true; LogosText { text: "Date"; color: root.cFaint; font.pixelSize: 11 }
                     Field { id: evDate; readOnly: true; Layout.fillWidth: true; placeholderText: "YYYY-MM-DD"
                         MouseArea { anchors.fill: parent; enabled: !root.eventReadOnly; cursorShape: Qt.PointingHandCursor; onClicked: datePicker.openFor(evDate, evDate.text) } } }
-                ColumnLayout { visible: !root.evAllDay; LogosText { text: "Start"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                ColumnLayout { visible: !root.evAllDay; LogosText { text: "Start"; color: root.cFaint; font.pixelSize: 11 }
                     Field { id: evStart; readOnly: true; Layout.preferredWidth: 80; placeholderText: "HH:MM"
                         MouseArea { anchors.fill: parent; enabled: !root.eventReadOnly; cursorShape: Qt.PointingHandCursor; onClicked: timePicker.openFor(evStart, evStart.text) } } }
-                ColumnLayout { visible: !root.evAllDay; LogosText { text: "End"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                ColumnLayout { visible: !root.evAllDay; LogosText { text: "End"; color: root.cFaint; font.pixelSize: 11 }
                     Field { id: evEnd; readOnly: true; Layout.preferredWidth: 80; placeholderText: "HH:MM"
                         MouseArea { anchors.fill: parent; enabled: !root.eventReadOnly; cursorShape: Qt.PointingHandCursor; onClicked: timePicker.openFor(evEnd, evEnd.text) } } }
             }
 
-            LogosText { text: "Notes"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Notes"; color: root.cFaint; font.pixelSize: 11 }
             Field { id: evNotes; readOnly: root.eventReadOnly; Layout.fillWidth: true; placeholderText: "Optional" }
 
-            LogosText { text: "Location"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Location"; color: root.cFaint; font.pixelSize: 11 }
             Field { id: evLocation; readOnly: root.eventReadOnly; Layout.fillWidth: true; placeholderText: "Where" }
 
-            LogosText { text: "Meeting link"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Meeting link"; color: root.cFaint; font.pixelSize: 11 }
             Field {
                 id: evUrl; readOnly: root.eventReadOnly; Layout.fillWidth: true; placeholderText: "https://…"
                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
             }
 
             // ── attachments (Logos Storage, sealed with the calendar key) ──
-            LogosText { text: "Attachments"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Attachments"; color: root.cFaint; font.pixelSize: 11 }
             Repeater {
                 model: root.evAttachments
                 delegate: RowLayout {
@@ -1094,17 +1094,17 @@ Item {
                     LogosText {
                         Layout.fillWidth: true
                         text: "📎 " + (modelData.name || "file") + (modelData.size ? "  (" + root.humanSize(modelData.size) + ")" : "")
-                        color: Theme.palette.primary; font.pixelSize: 13; elide: Text.ElideMiddle
+                        color: root.cBlue; font.pixelSize: 13; elide: Text.ElideMiddle
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: root.openAttachment(root.editCalId, modelData.storageCid, modelData.name) }
                     }
                     LogosText {
-                        visible: !root.eventReadOnly; text: "✕"; color: Theme.palette.warning; font.pixelSize: 14
+                        visible: !root.eventReadOnly; text: "✕"; color: root.cYellow; font.pixelSize: 14
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.removeAttachment(index) }
                     }
                 }
             }
-            LogosText { visible: root.attachMsg !== ""; text: root.attachMsg; color: Theme.palette.textSecondary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            LogosText { visible: root.attachMsg !== ""; text: root.attachMsg; color: root.cSub; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             LogosButton {
                 visible: !root.eventReadOnly
                 text: root.attachBusy ? "Working…" : "＋ Attach file"
@@ -1113,34 +1113,34 @@ Item {
             }
 
             // reminder chips
-            LogosText { text: "Reminder"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Reminder"; color: root.cFaint; font.pixelSize: 11 }
             Flow {
                 Layout.fillWidth: true; spacing: 6
                 Repeater {
                     model: root.reminderOpts
                     delegate: Rectangle {
                         height: 28; radius: 14; width: remLbl.width + 20
-                        color: root.evReminder === modelData.v ? Theme.palette.backgroundSecondary : Theme.palette.background
+                        color: root.evReminder === modelData.v ? root.cSurface : root.cBase
                         border.width: 1
-                        border.color: root.evReminder === modelData.v ? Theme.palette.primary : Theme.palette.borderHairline
-                        LogosText { id: remLbl; anchors.centerIn: parent; text: modelData.l; color: Theme.palette.text; font.pixelSize: 13 }
+                        border.color: root.evReminder === modelData.v ? root.cBlue : root.cSurface2
+                        LogosText { id: remLbl; anchors.centerIn: parent; text: modelData.l; color: root.cText; font.pixelSize: 13 }
                         MouseArea { anchors.fill: parent; onClicked: root.evReminder = modelData.v }
                     }
                 }
             }
 
             // recurrence
-            LogosText { text: "Repeat"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Repeat"; color: root.cFaint; font.pixelSize: 11 }
             Flow {
                 Layout.fillWidth: true; spacing: 6
                 Repeater {
                     model: root.recurOpts
                     delegate: Rectangle {
                         height: 28; radius: 14; width: recLbl.width + 20
-                        color: root.evRecurFreq === modelData.v ? Theme.palette.backgroundSecondary : Theme.palette.background
+                        color: root.evRecurFreq === modelData.v ? root.cSurface : root.cBase
                         border.width: 1
-                        border.color: root.evRecurFreq === modelData.v ? Theme.palette.primary : Theme.palette.borderHairline
-                        LogosText { id: recLbl; anchors.centerIn: parent; text: modelData.l; color: Theme.palette.text; font.pixelSize: 13 }
+                        border.color: root.evRecurFreq === modelData.v ? root.cBlue : root.cSurface2
+                        LogosText { id: recLbl; anchors.centerIn: parent; text: modelData.l; color: root.cText; font.pixelSize: 13 }
                         MouseArea { anchors.fill: parent; onClicked: root.evRecurFreq = modelData.v }
                     }
                 }
@@ -1148,20 +1148,20 @@ Item {
             RowLayout {
                 visible: root.evRecurFreq !== ""
                 Layout.fillWidth: true; spacing: Theme.spacing.small
-                ColumnLayout { LogosText { text: "Every N"; color: Theme.palette.textTertiary; font.pixelSize: 11 } Field { id: evRecurInterval; Layout.preferredWidth: 70; text: "1"; inputMethodHints: Qt.ImhFormattedNumbersOnly; placeholderText: "1" } }
-                ColumnLayout { Layout.fillWidth: true; LogosText { text: "Until (optional)"; color: Theme.palette.textTertiary; font.pixelSize: 11 } Field { id: evRecurUntil; Layout.fillWidth: true; placeholderText: "YYYY-MM-DD" } }
+                ColumnLayout { LogosText { text: "Every N"; color: root.cFaint; font.pixelSize: 11 } Field { id: evRecurInterval; Layout.preferredWidth: 70; text: "1"; inputMethodHints: Qt.ImhFormattedNumbersOnly; placeholderText: "1" } }
+                ColumnLayout { Layout.fillWidth: true; LogosText { text: "Until (optional)"; color: root.cFaint; font.pixelSize: 11 } Field { id: evRecurUntil; Layout.fillWidth: true; placeholderText: "YYYY-MM-DD" } }
             }
             LogosText {
                 visible: root.evRecurFreq !== ""
                 text: root.recurLabel(root.buildRecur())
-                color: Theme.palette.textSecondary; font.pixelSize: 12
+                color: root.cSub; font.pixelSize: 12
             }
 
             // note when editing a recurring series
             LogosText {
                 visible: !!root.editingRecurring()
                 text: "Part of a repeating event — changes apply to the whole series."
-                color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                color: root.cFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
             }
 
             // ── custom fields (schema-driven) — nothing rendered for a plain calendar ──
@@ -1177,7 +1177,7 @@ Item {
                     property string optsJson: model.opts
                     LogosText {
                         text: (model.label || model.key) + (model.ftype === "number" ? " (number)" : (model.ftype === "url" ? " (url)" : ""))
-                        color: Theme.palette.textTertiary; font.pixelSize: 11
+                        color: root.cFaint; font.pixelSize: 11
                     }
                     // bool → checkbox toggle
                     Row {
@@ -1185,12 +1185,12 @@ Item {
                         spacing: 8
                         Rectangle {
                             width: 22; height: 22; radius: 5
-                            color: fieldRow.curBool ? Theme.palette.primary : Theme.palette.background
-                            border.width: 1; border.color: Theme.palette.borderHairline
-                            LogosText { anchors.centerIn: parent; visible: fieldRow.curBool; text: "✓"; color: Theme.palette.background; font.pixelSize: 14 }
+                            color: fieldRow.curBool ? root.cBlue : root.cBase
+                            border.width: 1; border.color: root.cSurface2
+                            LogosText { anchors.centerIn: parent; visible: fieldRow.curBool; text: "✓"; color: root.cBase; font.pixelSize: 14 }
                             MouseArea { anchors.fill: parent; onClicked: evFieldsModel.setProperty(fieldRow.rowIndex, "bval", !fieldRow.curBool) }
                         }
-                        LogosText { text: fieldRow.curBool ? "Yes" : "No"; color: Theme.palette.text; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        LogosText { text: fieldRow.curBool ? "Yes" : "No"; color: root.cText; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
                     }
                     // enum → selectable chips from options
                     Flow {
@@ -1200,10 +1200,10 @@ Item {
                             model: JSON.parse(fieldRow.optsJson || "[]")
                             delegate: Rectangle {
                                 height: 28; radius: 14; width: chipLbl.width + 20
-                                color: fieldRow.curVal === modelData ? Theme.palette.backgroundSecondary : Theme.palette.background
+                                color: fieldRow.curVal === modelData ? root.cSurface : root.cBase
                                 border.width: 1
-                                border.color: fieldRow.curVal === modelData ? Theme.palette.primary : Theme.palette.borderHairline
-                                LogosText { id: chipLbl; anchors.centerIn: parent; text: modelData; color: Theme.palette.text; font.pixelSize: 13 }
+                                border.color: fieldRow.curVal === modelData ? root.cBlue : root.cSurface2
+                                LogosText { id: chipLbl; anchors.centerIn: parent; text: modelData; color: root.cText; font.pixelSize: 13 }
                                 MouseArea { anchors.fill: parent; onClicked: evFieldsModel.setProperty(fieldRow.rowIndex, "sval", modelData) }
                             }
                         }
@@ -1228,14 +1228,14 @@ Item {
             ColumnLayout {
                 visible: root.editingEvent !== null && root.evHistory && root.evHistory.length > 0
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: 2
-                LogosText { text: "History"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                LogosText { text: "History"; color: root.cFaint; font.pixelSize: 11 }
                 Repeater {
                     model: root.evHistory || []
                     delegate: LogosText {
                         Layout.fillWidth: true
                         text: "· " + (modelData.action || "changed") + " by " + root.shortAuthor(modelData.author)
                               + " — " + Qt.formatDateTime(new Date(modelData.at), "MMM d, hh:mm")
-                        color: Theme.palette.textSecondary; font.pixelSize: 11; elide: Text.ElideRight
+                        color: root.cSub; font.pixelSize: 11; elide: Text.ElideRight
                     }
                 }
             }
@@ -1244,21 +1244,21 @@ Item {
             LogosText {
                 visible: !root.eventReadOnly && root.eventError() !== ""
                 text: root.eventError()
-                color: Theme.palette.warning; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                color: root.cYellow; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
             }
             // Read-only reason (ADR 0013): say WHY you can't edit instead of a silent locked form.
             Rectangle {
                 visible: root.eventReadOnly
                 Layout.fillWidth: true; radius: Theme.spacing.radiusSmall
-                color: Qt.rgba(0.98, 0.89, 0.55, 0.10); border.width: 1; border.color: Theme.palette.warning
+                color: Qt.rgba(0.98, 0.89, 0.55, 0.10); border.width: 1; border.color: root.cYellow
                 implicitHeight: roLabel.implicitHeight + 2 * Theme.spacing.small
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: Theme.spacing.small; spacing: 2
-                    LogosText { text: "🔒 Read-only"; color: Theme.palette.warning; font.pixelSize: 12; font.weight: Theme.typography.weightMedium }
+                    LogosText { text: "🔒 Read-only"; color: root.cYellow; font.pixelSize: 12; font.weight: Theme.typography.weightMedium }
                     LogosText {
                         id: roLabel
                         text: root.readonlyReason(root.calById(root.editCalId), root.editingEvent)
-                        color: Theme.palette.warning; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        color: root.cYellow; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
                 }
             }
@@ -1285,18 +1285,18 @@ Item {
         }
         anchors.centerIn: Overlay.overlay
         width: 300; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
             RowLayout {
                 Layout.fillWidth: true
                 LogosButton { text: "‹"; onClicked: datePicker.pickMonth = new Date(datePicker.pickMonth.getFullYear(), datePicker.pickMonth.getMonth() - 1, 1) }
-                LogosText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: root.monthNames[datePicker.pickMonth.getMonth()] + " " + datePicker.pickMonth.getFullYear(); color: Theme.palette.text; font.pixelSize: 15 }
+                LogosText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: root.monthNames[datePicker.pickMonth.getMonth()] + " " + datePicker.pickMonth.getFullYear(); color: root.cText; font.pixelSize: 15 }
                 LogosButton { text: "›"; onClicked: datePicker.pickMonth = new Date(datePicker.pickMonth.getFullYear(), datePicker.pickMonth.getMonth() + 1, 1) }
             }
             Row {
                 Layout.alignment: Qt.AlignHCenter
-                Repeater { model: root.weekDays; delegate: LogosText { width: 38; horizontalAlignment: Text.AlignHCenter; text: modelData.substring(0, 1); color: Theme.palette.textTertiary; font.pixelSize: 10 } }
+                Repeater { model: root.weekDays; delegate: LogosText { width: 38; horizontalAlignment: Text.AlignHCenter; text: modelData.substring(0, 1); color: root.cFaint; font.pixelSize: 10 } }
             }
             Grid {
                 columns: 7; Layout.alignment: Qt.AlignHCenter; rowSpacing: 2; columnSpacing: 2
@@ -1311,9 +1311,9 @@ Item {
                         }
                         property bool inMonth: cd.getMonth() === datePicker.pickMonth.getMonth()
                         property bool today: root.sameDay(cd, new Date())
-                        color: today ? Theme.palette.backgroundSecondary : "transparent"
-                        border.width: today ? 1 : 0; border.color: Theme.palette.primary
-                        LogosText { anchors.centerIn: parent; text: cd.getDate(); color: inMonth ? Theme.palette.text : Theme.palette.textTertiary; font.pixelSize: 12 }
+                        color: today ? root.cSurface : "transparent"
+                        border.width: today ? 1 : 0; border.color: root.cBlue
+                        LogosText { anchors.centerIn: parent; text: cd.getDate(); color: inMonth ? root.cText : root.cFaint; font.pixelSize: 12 }
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (datePicker.targetField) datePicker.targetField.text = root.fmtDateInput(cd); datePicker.close() } }
                     }
                 }
@@ -1337,10 +1337,10 @@ Item {
         }
         anchors.centerIn: Overlay.overlay
         width: 260; height: 340; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
-            LogosText { text: "Pick time"; color: Theme.palette.text; font.pixelSize: 15; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "Pick time"; color: root.cText; font.pixelSize: 15; font.weight: Theme.typography.weightMedium }
             RowLayout {
                 Layout.fillWidth: true; Layout.fillHeight: true; spacing: Theme.spacing.small
                 ListView {
@@ -1349,12 +1349,12 @@ Item {
                     ScrollBar.vertical: ScrollBar {}
                     delegate: Rectangle {
                         width: ListView.view.width; height: 30; radius: 5
-                        color: timePicker.selHour === index ? Theme.palette.primary : "transparent"
-                        LogosText { anchors.centerIn: parent; text: root.pad(index); color: timePicker.selHour === index ? Theme.palette.background : Theme.palette.text; font.pixelSize: 13 }
+                        color: timePicker.selHour === index ? root.cBlue : "transparent"
+                        LogosText { anchors.centerIn: parent; text: root.pad(index); color: timePicker.selHour === index ? root.cBase : root.cText; font.pixelSize: 13 }
                         MouseArea { anchors.fill: parent; onClicked: timePicker.selHour = index }
                     }
                 }
-                LogosText { text: ":"; color: Theme.palette.text; font.pixelSize: 18 }
+                LogosText { text: ":"; color: root.cText; font.pixelSize: 18 }
                 ListView {
                     id: minList; Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                     model: 12; currentIndex: Math.round(timePicker.selMin / 5)
@@ -1362,8 +1362,8 @@ Item {
                     delegate: Rectangle {
                         width: ListView.view.width; height: 30; radius: 5
                         property int mv: index * 5
-                        color: timePicker.selMin === mv ? Theme.palette.primary : "transparent"
-                        LogosText { anchors.centerIn: parent; text: root.pad(index * 5); color: timePicker.selMin === mv ? Theme.palette.background : Theme.palette.text; font.pixelSize: 13 }
+                        color: timePicker.selMin === mv ? root.cBlue : "transparent"
+                        LogosText { anchors.centerIn: parent; text: root.pad(index * 5); color: timePicker.selMin === mv ? root.cBase : root.cText; font.pixelSize: 13 }
                         MouseArea { anchors.fill: parent; onClicked: timePicker.selMin = mv }
                     }
                 }
@@ -1383,12 +1383,12 @@ Item {
         id: identitiesPopup
         anchors.centerIn: Overlay.overlay
         width: 460; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         ColumnLayout {
             width: parent.width; spacing: Theme.spacing.medium
-            LogosText { text: "Identities"; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "Identities"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
             LogosText { text: "Keys live in loam_core and never leave it. ★ = default for new calendars — tap an identity to make it the default."
-                color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                color: root.cFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             Repeater {
                 model: root.identities
                 RowLayout {
@@ -1401,9 +1401,9 @@ Item {
                             LogosText {
                                 text: (modelData.id === root.defaultIdentityId ? "★ " : "  ") + modelData.label
                                       + "  ·  " + (modelData.kind === "keycard" ? "💳 Keycard" : modelData.kind)
-                                color: Theme.palette.text; font.pixelSize: 13
+                                color: root.cText; font.pixelSize: 13
                             }
-                            LogosText { text: (modelData.address || "").substring(0, 14) + "…" + (modelData.address || "").slice(-4); color: Theme.palette.textTertiary; font.pixelSize: 10; font.family: "monospace" }
+                            LogosText { text: (modelData.address || "").substring(0, 14) + "…" + (modelData.address || "").slice(-4); color: root.cFaint; font.pixelSize: 10; font.family: "monospace" }
                         }
                     }
                     LogosButton {
@@ -1453,10 +1453,10 @@ Item {
         id: idRenamePopup
         anchors.centerIn: Overlay.overlay
         width: 360; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         ColumnLayout {
             width: parent.width; spacing: Theme.spacing.medium
-            LogosText { text: "Rename identity"; color: Theme.palette.text; font.pixelSize: 16; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "Rename identity"; color: root.cText; font.pixelSize: 16; font.weight: Theme.typography.weightMedium }
             LogosTextField { id: renameField; Layout.fillWidth: true; placeholderText: "Identity name" }
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
@@ -1479,14 +1479,14 @@ Item {
         id: idRemovePopup
         anchors.centerIn: Overlay.overlay
         width: 400; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         readonly property int owned: root.identitySignsCount(root.idRemoveAddr)
         ColumnLayout {
             width: parent.width; spacing: Theme.spacing.medium
-            LogosText { text: "Remove “" + root.idRemoveLabel + "”?"; color: Theme.palette.text; font.pixelSize: 16; font.weight: Theme.typography.weightMedium; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            LogosText { text: "Remove “" + root.idRemoveLabel + "”?"; color: root.cText; font.pixelSize: 16; font.weight: Theme.typography.weightMedium; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             LogosText {
                 Layout.fillWidth: true; wrapMode: Text.WordWrap; font.pixelSize: 13
-                color: idRemovePopup.owned > 0 ? Theme.palette.error : Theme.palette.textTertiary
+                color: idRemovePopup.owned > 0 ? root.cRed : root.cFaint
                 text: idRemovePopup.owned > 0
                     ? "⚠️ This identity signs " + idRemovePopup.owned + " calendar" + (idRemovePopup.owned === 1 ? "" : "s") + " on this device. Removing it orphans them — you won't be able to author there until you rebind another identity (a calendar's ⚙ → Signs as)."
                     : (root.idRemoveKind === "keycard"
@@ -1541,7 +1541,7 @@ Item {
         id: newCalPopup
         anchors.centerIn: Overlay.overlay
         width: 500; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         onOpened: {
             newCalName.text = ""; newCalDesc.text = ""; root.newCalTier = "closed"; root.newCalIdentity = ""
             newCalSchemaModel.clear(); ncNewKey.text = ""; ncNewLabel.text = ""; ncNewOptions.text = ""; root.ncNewType = "text"
@@ -1581,7 +1581,7 @@ Item {
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
 
-            LogosText { text: "New calendar"; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "New calendar"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
 
             Flickable {
                 Layout.fillWidth: true
@@ -1593,14 +1593,14 @@ Item {
                     id: newCalBody
                     width: parent.width; spacing: Theme.spacing.small
 
-                    LogosText { text: "Name"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                    LogosText { text: "Name"; color: root.cFaint; font.pixelSize: 11 }
                     Field { id: newCalName; Layout.fillWidth: true; placeholderText: "Calendar name" }
 
-                    LogosText { text: "Description"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                    LogosText { text: "Description"; color: root.cFaint; font.pixelSize: 11 }
                     Field { id: newCalDesc; Layout.fillWidth: true; placeholderText: "Optional description" }
 
                     // Author as — which loam identity OWNS + signs this calendar (loam ADR 0004).
-                    LogosText { text: "Author as"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                    LogosText { text: "Author as"; color: root.cFaint; font.pixelSize: 11 }
                     Flow {
                         Layout.fillWidth: true; spacing: Theme.spacing.small
                         Repeater {
@@ -1609,43 +1609,43 @@ Item {
                                 // selected = explicitly picked, or (nothing picked yet) the default. Inlined
                                 // like the working field-type chips so the binding re-evaluates on click.
                                 radius: Theme.spacing.radiusSmall
-                                color: (root.newCalIdentity === modelData.id || (root.newCalIdentity === "" && modelData.id === root.createDefaultOwner)) ? Theme.palette.primary : Theme.palette.backgroundSecondary
+                                color: (root.newCalIdentity === modelData.id || (root.newCalIdentity === "" && modelData.id === root.createDefaultOwner)) ? root.cBlue : root.cSurface
                                 border.width: 1
-                                border.color: (root.newCalIdentity === modelData.id || (root.newCalIdentity === "" && modelData.id === root.createDefaultOwner)) ? Theme.palette.primary : Theme.palette.borderHairline
+                                border.color: (root.newCalIdentity === modelData.id || (root.newCalIdentity === "" && modelData.id === root.createDefaultOwner)) ? root.cBlue : root.cSurface2
                                 implicitHeight: chipT.implicitHeight + 10; implicitWidth: chipT.implicitWidth + 22
-                                LogosText { id: chipT; anchors.centerIn: parent; text: modelData.label; font.pixelSize: 12; color: Theme.palette.text }
+                                LogosText { id: chipT; anchors.centerIn: parent; text: modelData.label; font.pixelSize: 12; color: root.cText }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.newCalIdentity = modelData.id }
                             }
                         }
                     }
-                    LogosText { text: "This identity owns the calendar and signs its events."; color: Theme.palette.textTertiary; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    LogosText { text: "This identity owns the calendar and signs its events."; color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     // Explain the divergence when the global default is a Keycard: we pre-select This device
                     // so creating a calendar doesn't force a card tap. Pick the Keycard chip to own it with the card.
                     LogosText {
                         visible: root.createDefaultOwner !== root.defaultIdentityId && root.newCalIdentity === ""
                         text: "Your default is a 🔑 Keycard — new calendars use This device unless you pick the card, so you're not asked to tap on every calendar."
-                        color: Theme.palette.textTertiary; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderHairline; Layout.topMargin: 4 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2; Layout.topMargin: 4 }
 
                     // ── custom fields editor (same as Calendar settings) ──
-                    LogosText { text: "Custom fields"; color: Theme.palette.text; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
+                    LogosText { text: "Custom fields"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
                     LogosText {
                         visible: newCalSchemaModel.count === 0
                         text: "Optional. Add typed fields to collect extra info on each event (venue, lineup…). You can also edit these later in the calendar's ⚙ settings."
-                        color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        color: root.cFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
                     Repeater {
                         model: newCalSchemaModel
                         delegate: Rectangle {
-                            Layout.fillWidth: true; implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: Theme.palette.backgroundInset
+                            Layout.fillWidth: true; implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: root.cMantle
                             RowLayout {
                                 anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                                LogosText { text: (model.label || model.key); color: Theme.palette.text; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
-                                LogosText { text: model.ftype; color: Theme.palette.textSecondary; font.pixelSize: 12 }
+                                LogosText { text: (model.label || model.key); color: root.cText; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
+                                LogosText { text: model.ftype; color: root.cSub; font.pixelSize: 12 }
                                 LogosText {
-                                    text: "✕"; color: Theme.palette.textTertiary; font.pixelSize: 14
+                                    text: "✕"; color: root.cFaint; font.pixelSize: 14
                                     MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: newCalSchemaModel.remove(index) }
                                 }
                             }
@@ -1662,9 +1662,9 @@ Item {
                             model: root.fieldTypes
                             delegate: Rectangle {
                                 height: 26; radius: 13; width: ncTLbl.width + 18
-                                color: root.ncNewType === modelData ? Theme.palette.backgroundSecondary : Theme.palette.background
-                                border.width: 1; border.color: root.ncNewType === modelData ? Theme.palette.primary : Theme.palette.borderHairline
-                                LogosText { id: ncTLbl; anchors.centerIn: parent; text: modelData; color: Theme.palette.text; font.pixelSize: 12 }
+                                color: root.ncNewType === modelData ? root.cSurface : root.cBase
+                                border.width: 1; border.color: root.ncNewType === modelData ? root.cBlue : root.cSurface2
+                                LogosText { id: ncTLbl; anchors.centerIn: parent; text: modelData; color: root.cText; font.pixelSize: 12 }
                                 MouseArea { anchors.fill: parent; onClicked: root.ncNewType = modelData }
                             }
                         }
@@ -1682,15 +1682,15 @@ Item {
 
             // Access — one 3-way tier (ADR 0019 ladder: Closed→Open→Collaborative) instead of two
             // independent toggles, so the off-ladder "collaborative + closed" combo can't be created.
-            LogosText { text: "Access"; color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small }
+            LogosText { text: "Access"; color: root.cFaint; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small }
             Repeater {
                 model: root.accessTiers
                 Rectangle {
                     Layout.fillWidth: true
                     radius: Theme.spacing.radiusSmall
-                    color: (root.newCalTier === modelData.tier) ? Theme.palette.backgroundSecondary : "transparent"
+                    color: (root.newCalTier === modelData.tier) ? root.cSurface : "transparent"
                     border.width: 1
-                    border.color: (root.newCalTier === modelData.tier) ? Theme.palette.primary : Theme.palette.borderHairline
+                    border.color: (root.newCalTier === modelData.tier) ? root.cBlue : root.cSurface2
                     implicitHeight: ncTierRow.implicitHeight + 2 * Theme.spacing.small
                     RowLayout {
                         id: ncTierRow
@@ -1698,13 +1698,13 @@ Item {
                         anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
                         Rectangle {
                             Layout.alignment: Qt.AlignTop; width: 16; height: 16; radius: 8; color: "transparent"
-                            border.width: 2; border.color: (root.newCalTier === modelData.tier) ? Theme.palette.primary : Theme.palette.borderHairline
-                            Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: Theme.palette.primary; visible: root.newCalTier === modelData.tier }
+                            border.width: 2; border.color: (root.newCalTier === modelData.tier) ? root.cBlue : root.cSurface2
+                            Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: root.cBlue; visible: root.newCalTier === modelData.tier }
                         }
                         ColumnLayout {
                             Layout.fillWidth: true; spacing: 0
-                            LogosText { text: modelData.title; color: Theme.palette.text; font.pixelSize: 13 }
-                            LogosText { text: modelData.desc; color: Theme.palette.textSecondary; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                            LogosText { text: modelData.title; color: root.cText; font.pixelSize: 13 }
+                            LogosText { text: modelData.desc; color: root.cSub; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                         }
                     }
                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.newCalTier = modelData.tier }
@@ -1818,11 +1818,11 @@ Item {
         id: calSettingsPopup
         anchors.centerIn: Overlay.overlay
         width: 500; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
 
-            LogosText { text: "Calendar settings"; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "Calendar settings"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
 
             // scrollable body — this popup can get tall
             Flickable {
@@ -1835,57 +1835,57 @@ Item {
                     id: settingsBody
                     width: parent.width; spacing: Theme.spacing.small
 
-                    LogosText { text: "Name"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                    LogosText { text: "Name"; color: root.cFaint; font.pixelSize: 11 }
                     Field { id: setName; Layout.fillWidth: true; placeholderText: "Calendar name" }
 
-                    LogosText { text: "Description"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                    LogosText { text: "Description"; color: root.cFaint; font.pixelSize: 11 }
                     Field { id: setDesc; Layout.fillWidth: true; placeholderText: "Optional description" }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderHairline; Layout.topMargin: 4 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2; Layout.topMargin: 4 }
 
                     // ── signing identity (rebind) — which of MY identities signs my events here. The
                     // OWNER is fixed at creation; this only changes who I author as. Tapping a Keycard
                     // makes my future writes need a card tap.
-                    LogosText { text: "Signs as"; color: Theme.palette.text; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
+                    LogosText { text: "Signs as"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
                     Flow {
                         Layout.fillWidth: true; spacing: Theme.spacing.small
                         Repeater {
                             model: root.identities
                             Rectangle {
                                 radius: Theme.spacing.radiusSmall
-                                color: (root.calSetIdentity === modelData.id) ? Theme.palette.primary : Theme.palette.backgroundSecondary
+                                color: (root.calSetIdentity === modelData.id) ? root.cBlue : root.cSurface
                                 border.width: 1
-                                border.color: (root.calSetIdentity === modelData.id) ? Theme.palette.primary : Theme.palette.borderHairline
+                                border.color: (root.calSetIdentity === modelData.id) ? root.cBlue : root.cSurface2
                                 implicitHeight: setIdChipT.implicitHeight + 10; implicitWidth: setIdChipT.implicitWidth + 22
                                 LogosText { id: setIdChipT; anchors.centerIn: parent
-                                    text: (modelData.kind === "keycard" ? "🔑 " : "") + modelData.label; font.pixelSize: 12; color: Theme.palette.text }
+                                    text: (modelData.kind === "keycard" ? "🔑 " : "") + modelData.label; font.pixelSize: 12; color: root.cText }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                     onClicked: { root.loamCore("bindContainer", [root.setCalId, modelData.id]); root.calSetIdentity = modelData.id; root.refresh() } }
                             }
                         }
                     }
                     LogosText { text: "Changes who signs your future events on this calendar; the owner is unchanged."
-                        color: Theme.palette.textTertiary; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderHairline; Layout.topMargin: 4 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2; Layout.topMargin: 4 }
 
                     // ── custom fields editor ──
-                    LogosText { text: "Custom fields"; color: Theme.palette.text; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
+                    LogosText { text: "Custom fields"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
                     LogosText {
                         visible: setSchemaModel.count === 0
                         text: "No custom fields yet. Add one below to collect extra info on each event."
-                        color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        color: root.cFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
                     Repeater {
                         model: setSchemaModel
                         delegate: Rectangle {
-                            Layout.fillWidth: true; implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: Theme.palette.backgroundInset
+                            Layout.fillWidth: true; implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: root.cMantle
                             RowLayout {
                                 anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                                LogosText { text: (model.label || model.key); color: Theme.palette.text; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
-                                LogosText { text: model.ftype; color: Theme.palette.textSecondary; font.pixelSize: 12 }
+                                LogosText { text: (model.label || model.key); color: root.cText; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
+                                LogosText { text: model.ftype; color: root.cSub; font.pixelSize: 12 }
                                 LogosText {
-                                    text: "✕"; color: Theme.palette.textTertiary; font.pixelSize: 14
+                                    text: "✕"; color: root.cFaint; font.pixelSize: 14
                                     MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: setSchemaModel.remove(index) }
                                 }
                             }
@@ -1904,9 +1904,9 @@ Item {
                             model: root.fieldTypes
                             delegate: Rectangle {
                                 height: 26; radius: 13; width: tLbl.width + 18
-                                color: root.setNewType === modelData ? Theme.palette.backgroundSecondary : Theme.palette.background
-                                border.width: 1; border.color: root.setNewType === modelData ? Theme.palette.primary : Theme.palette.borderHairline
-                                LogosText { id: tLbl; anchors.centerIn: parent; text: modelData; color: Theme.palette.text; font.pixelSize: 12 }
+                                color: root.setNewType === modelData ? root.cSurface : root.cBase
+                                border.width: 1; border.color: root.setNewType === modelData ? root.cBlue : root.cSurface2
+                                LogosText { id: tLbl; anchors.centerIn: parent; text: modelData; color: root.cText; font.pixelSize: 12 }
                                 MouseArea { anchors.fill: parent; onClicked: root.setNewType = modelData }
                             }
                         }
@@ -1918,25 +1918,25 @@ Item {
                     }
                     LogosButton { text: "+ Add field"; enabled: setNewKey.text.trim().length > 0; onClicked: root.addSchemaField() }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderHairline; Layout.topMargin: 4 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2; Layout.topMargin: 4 }
 
                     // ── sharing & roles ──
-                    LogosText { text: "Sharing & roles"; color: Theme.palette.text; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
+                    LogosText { text: "Sharing & roles"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
                     // Access tier (ADR 0019) — one 3-way choice (Closed→Open→Collaborative) instead of
                     // independent Open/Collaborative toggles, so the off-ladder "collaborative + closed"
                     // combo can't be produced. Same widget as the New-calendar dialog. Owner/editor only.
                     ColumnLayout {
                         visible: root.canManage(root.setCalId)
                         Layout.fillWidth: true; spacing: Theme.spacing.small
-                        LogosText { text: "Access"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                        LogosText { text: "Access"; color: root.cFaint; font.pixelSize: 11 }
                         Repeater {
                             model: root.accessTiers
                             Rectangle {
                                 Layout.fillWidth: true
                                 radius: Theme.spacing.radiusSmall
-                                color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? Theme.palette.backgroundSecondary : "transparent"
+                                color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? root.cSurface : "transparent"
                                 border.width: 1
-                                border.color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? Theme.palette.primary : Theme.palette.borderHairline
+                                border.color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? root.cBlue : root.cSurface2
                                 implicitHeight: setTierRow.implicitHeight + 2 * Theme.spacing.small
                                 RowLayout {
                                     id: setTierRow
@@ -1944,13 +1944,13 @@ Item {
                                     anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
                                     Rectangle {
                                         Layout.alignment: Qt.AlignTop; width: 16; height: 16; radius: 8; color: "transparent"
-                                        border.width: 2; border.color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? Theme.palette.primary : Theme.palette.borderHairline
-                                        Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: Theme.palette.primary; visible: root.calTierOf(root.calById(root.setCalId)) === modelData.tier }
+                                        border.width: 2; border.color: (root.calTierOf(root.calById(root.setCalId)) === modelData.tier) ? root.cBlue : root.cSurface2
+                                        Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: root.cBlue; visible: root.calTierOf(root.calById(root.setCalId)) === modelData.tier }
                                     }
                                     ColumnLayout {
                                         Layout.fillWidth: true; spacing: 0
-                                        LogosText { text: modelData.title; color: Theme.palette.text; font.pixelSize: 13 }
-                                        LogosText { text: modelData.desc; color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                        LogosText { text: modelData.title; color: root.cText; font.pixelSize: 13 }
+                                        LogosText { text: modelData.desc; color: root.cFaint; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                                     }
                                 }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.core("updateCalendarMeta", [root.setCalId, JSON.stringify(root.calTierMeta(modelData.tier))]); root.refresh() } }
@@ -1959,26 +1959,26 @@ Item {
                     }
                     LogosText {
                         text: "Add someone by their identity (they'll find it in Diagnostics ⚙ → This device id). Editors can edit any event; viewers are read-only."
-                        color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        color: root.cFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
 
                     LogosText {
                         visible: { var c = root.calById(root.setCalId); return !!c && c.rolesConfigured === false }
                         text: "No members yet — anyone with the invite can add events (and edit their own). Add an editor to let someone edit everyone's; add a viewer for read-only."
-                        color: Theme.palette.warning; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        color: root.cYellow; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
 
                     Repeater {
                         model: root.membersFor(root.setCalId)
                         delegate: Rectangle {
-                            Layout.fillWidth: true; implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: Theme.palette.backgroundInset
+                            Layout.fillWidth: true; implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: root.cMantle
                             RowLayout {
                                 anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                                LogosText { text: root.shortAuthor(modelData.id); color: Theme.palette.text; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
-                                LogosText { text: modelData.role; color: Theme.palette.textSecondary; font.pixelSize: 12 }
+                                LogosText { text: root.shortAuthor(modelData.id); color: root.cText; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
+                                LogosText { text: modelData.role; color: root.cSub; font.pixelSize: 12 }
                                 LogosText {
                                     visible: modelData.removable && root.canManage(root.setCalId)
-                                    text: "✕"; color: Theme.palette.textTertiary; font.pixelSize: 14
+                                    text: "✕"; color: root.cFaint; font.pixelSize: 14
                                     MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: root.removeMember(modelData.id) }
                                 }
                             }
@@ -1996,9 +1996,9 @@ Item {
                                 model: ["editor", "viewer"]
                                 delegate: Rectangle {
                                     height: 26; radius: 13; width: rLbl.width + 18
-                                    color: root.setNewRole === modelData ? Theme.palette.backgroundSecondary : Theme.palette.background
-                                    border.width: 1; border.color: root.setNewRole === modelData ? Theme.palette.primary : Theme.palette.borderHairline
-                                    LogosText { id: rLbl; anchors.centerIn: parent; text: modelData; color: Theme.palette.text; font.pixelSize: 12 }
+                                    color: root.setNewRole === modelData ? root.cSurface : root.cBase
+                                    border.width: 1; border.color: root.setNewRole === modelData ? root.cBlue : root.cSurface2
+                                    LogosText { id: rLbl; anchors.centerIn: parent; text: modelData; color: root.cText; font.pixelSize: 12 }
                                     MouseArea { anchors.fill: parent; onClicked: root.setNewRole = modelData }
                                 }
                             }
@@ -2014,12 +2014,12 @@ Item {
             LogosText {
                 visible: root.setSaveError !== ""
                 text: root.setSaveError
-                color: Theme.palette.warning; font.pixelSize: 12; wrapMode: Text.WordWrap
+                color: root.cYellow; font.pixelSize: 12; wrapMode: Text.WordWrap
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
             }
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                LogosText { text: "iCalendar"; color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.alignment: Qt.AlignVCenter }
+                LogosText { text: "iCalendar"; color: root.cFaint; font.pixelSize: 11; Layout.alignment: Qt.AlignVCenter }
                 LogosButton { text: "Export .ics"; onClicked: { calSettingsPopup.close(); icsSaveDialog.open() } }
                 LogosButton { text: "Import .ics"; onClicked: { calSettingsPopup.close(); icsOpenDialog.open() } }
                 Item { Layout.fillWidth: true }
@@ -2038,26 +2038,26 @@ Item {
         id: joinPopup
         anchors.centerIn: Overlay.overlay
         width: 420; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         onOpened: { joinLink.text = ""; root.joinIdentity = "" }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
-            LogosText { text: "Join a shared calendar"; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
-            LogosText { text: "Paste the scala:// invite link"; color: Theme.palette.textTertiary; font.pixelSize: 12 }
+            LogosText { text: "Join a shared calendar"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "Paste the scala:// invite link"; color: root.cFaint; font.pixelSize: 12 }
             Field { id: joinLink; Layout.fillWidth: true; placeholderText: "scala://join?..." }
             // Author as — which identity signs YOUR events on this calendar (owner stays the inviter).
-            LogosText { text: "Author as"; color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small }
+            LogosText { text: "Author as"; color: root.cFaint; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small }
             Flow {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
                 Repeater {
                     model: root.identities
                     Rectangle {
                         radius: Theme.spacing.radiusSmall
-                        color: (root.joinIdentity === modelData.id || (root.joinIdentity === "" && modelData.id === root.defaultIdentityId)) ? Theme.palette.primary : Theme.palette.backgroundSecondary
+                        color: (root.joinIdentity === modelData.id || (root.joinIdentity === "" && modelData.id === root.defaultIdentityId)) ? root.cBlue : root.cSurface
                         border.width: 1
-                        border.color: (root.joinIdentity === modelData.id || (root.joinIdentity === "" && modelData.id === root.defaultIdentityId)) ? Theme.palette.primary : Theme.palette.borderHairline
+                        border.color: (root.joinIdentity === modelData.id || (root.joinIdentity === "" && modelData.id === root.defaultIdentityId)) ? root.cBlue : root.cSurface2
                         implicitHeight: jChipT.implicitHeight + 10; implicitWidth: jChipT.implicitWidth + 22
-                        LogosText { id: jChipT; anchors.centerIn: parent; text: modelData.label; font.pixelSize: 12; color: Theme.palette.text }
+                        LogosText { id: jChipT; anchors.centerIn: parent; text: modelData.label; font.pixelSize: 12; color: root.cText }
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.joinIdentity = modelData.id }
                     }
                 }
@@ -2093,12 +2093,12 @@ Item {
         id: sharePopup
         anchors.centerIn: Overlay.overlay
         width: 460; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         onOpened: qrCanvas.requestPaint()
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
-            LogosText { id: shareTitle; text: ""; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
-            LogosText { text: "Scan this on the phone, or copy the link:"; color: Theme.palette.textTertiary; font.pixelSize: 12 }
+            LogosText { id: shareTitle; text: ""; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "Scan this on the phone, or copy the link:"; color: root.cFaint; font.pixelSize: 12 }
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
                 width: 220; height: 220; radius: Theme.spacing.radiusSmall; color: "#ffffff"
@@ -2143,13 +2143,13 @@ Item {
         id: deletePopup
         anchors.centerIn: Overlay.overlay
         width: 380; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
-            LogosText { text: "Delete calendar?"; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "Delete calendar?"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
             LogosText {
                 text: "Remove \"" + (root.pendingDeleteCal ? (root.pendingDeleteCal.name || "calendar") : "") + "\" from this device. Its local events are deleted. Peers who joined keep their own copy."
-                color: Theme.palette.textTertiary; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                color: root.cFaint; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
             }
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
@@ -2167,51 +2167,51 @@ Item {
         id: diagPopup
         anchors.centerIn: Overlay.overlay
         width: 460; height: 460; modal: true; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         onOpened: root.diag = root.j(root.core("diagnostics", []), null)
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
-            LogosText { text: "Diagnostics"; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText { text: "Diagnostics"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
 
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.medium
-                Rectangle { width: 10; height: 10; radius: 5; color: (root.diag && root.diag.nodeReady) ? Theme.palette.success : Theme.palette.warning; Layout.alignment: Qt.AlignVCenter }
-                LogosText { text: (root.diag && root.diag.nodeReady) ? "Delivery node connected" : "Node not ready"; color: Theme.palette.text; font.pixelSize: 14 }
+                Rectangle { width: 10; height: 10; radius: 5; color: (root.diag && root.diag.nodeReady) ? root.cGreen : root.cYellow; Layout.alignment: Qt.AlignVCenter }
+                LogosText { text: (root.diag && root.diag.nodeReady) ? "Delivery node connected" : "Node not ready"; color: root.cText; font.pixelSize: 14 }
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Refresh"; onClicked: root.diag = root.j(root.core("diagnostics", []), null) }
             }
             LogosText {
                 text: root.diag ? ("delivery: " + (root.diag.deliveryStatus || "(none)") + "   ·   context ready: " + (root.diag.ctxReady ? "yes" : "NO")) : "—"
-                color: Theme.palette.textSecondary; font.pixelSize: 12
+                color: root.cSub; font.pixelSize: 12
             }
             LogosText {
                 text: root.diag ? (root.diag.calendarCount + " calendar(s) · " + root.diag.eventCount + " event(s) total") : "—"
-                color: Theme.palette.textSecondary; font.pixelSize: 12
+                color: root.cSub; font.pixelSize: 12
             }
             LogosText {
                 text: root.diag ? ("data: " + (root.diag.dataDir || "?")) : ""
-                color: Theme.palette.textTertiary; font.pixelSize: 11; elide: Text.ElideMiddle; Layout.fillWidth: true
+                color: root.cFaint; font.pixelSize: 11; elide: Text.ElideMiddle; Layout.fillWidth: true
             }
-            LogosText { text: "Your identity (share this to be added to a calendar)"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { text: "Your identity (share this to be added to a calendar)"; color: root.cFaint; font.pixelSize: 11 }
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
                 Field { id: diagIdField; text: root.diag ? (root.diag.identity || root.myIdentity || "(none)") : root.myIdentity; Layout.fillWidth: true; readOnly: true; selectByMouse: true }
                 LogosButton { text: "Copy"; onClicked: { diagIdField.selectAll(); diagIdField.copy() } }
             }
 
-            LogosText { text: "Per-calendar sync"; color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small }
+            LogosText { text: "Per-calendar sync"; color: root.cFaint; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small }
             ListView {
                 Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                 model: (root.diag && root.diag.calendars) ? root.diag.calendars : []
                 spacing: 4
                 delegate: Rectangle {
-                    width: ListView.view.width; height: 40; radius: Theme.spacing.radiusSmall; color: Theme.palette.backgroundInset
+                    width: ListView.view.width; height: 40; radius: Theme.spacing.radiusSmall; color: root.cMantle
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                        Rectangle { width: 8; height: 8; radius: 4; color: modelData.syncing ? Theme.palette.success : Theme.palette.textTertiary }
-                        LogosText { text: modelData.name || modelData.id; color: Theme.palette.text; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
-                        LogosText { text: (modelData.events || 0) + " ev"; color: Theme.palette.textTertiary; font.pixelSize: 12 }
-                        LogosText { text: modelData.shared ? (modelData.syncing ? "syncing" : "offline") : "local"; color: modelData.syncing ? Theme.palette.success : Theme.palette.textTertiary; font.pixelSize: 12 }
+                        Rectangle { width: 8; height: 8; radius: 4; color: modelData.syncing ? root.cGreen : root.cFaint }
+                        LogosText { text: modelData.name || modelData.id; color: root.cText; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
+                        LogosText { text: (modelData.events || 0) + " ev"; color: root.cFaint; font.pixelSize: 12 }
+                        LogosText { text: modelData.shared ? (modelData.syncing ? "syncing" : "offline") : "local"; color: modelData.syncing ? root.cGreen : root.cFaint; font.pixelSize: 12 }
                     }
                 }
             }
@@ -2224,7 +2224,7 @@ Item {
         id: keycardOverlay
         anchors.centerIn: Overlay.overlay
         width: 420; modal: true; closePolicy: Popup.NoAutoClose; padding: Theme.spacing.large
-        background: Rectangle { radius: Theme.spacing.radiusMedium; color: Theme.palette.backgroundElevated; border.width: 1; border.color: Theme.palette.borderHairline }
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         readonly property bool failed: root.kc && root.kc.phase === "failed"
         readonly property bool enrolling: root.kc && root.kc.purpose === "enroll"
         ColumnLayout {
@@ -2232,22 +2232,22 @@ Item {
             LogosText {
                 text: keycardOverlay.failed ? "⚠️  Keycard error"
                       : (keycardOverlay.enrolling ? "💳  Enrolling your Keycard" : "💳  Sign with your Keycard")
-                color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium
+                color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium
             }
             // A tiny rotating arc while pending (no BusyIndicator dependency).
             Rectangle {
                 visible: !keycardOverlay.failed
                 Layout.alignment: Qt.AlignHCenter
                 width: 34; height: 34; radius: 17; color: "transparent"
-                border.width: 3; border.color: Theme.palette.primary
-                Rectangle { width: 8; height: 8; radius: 4; color: Theme.palette.backgroundElevated; anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter; anchors.topMargin: -1 }
+                border.width: 3; border.color: root.cBlue
+                Rectangle { width: 8; height: 8; radius: 4; color: root.cSurface; anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter; anchors.topMargin: -1 }
                 RotationAnimation on rotation { from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: keycardOverlay.visible && !keycardOverlay.failed }
             }
             LogosText {
                 Layout.fillWidth: true; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter
                 text: keycardOverlay.failed ? (root.kc.error || "The Keycard operation failed.")
                       : "Hold your Keycard to the reader and approve the request in the Keycard UI (enter your PIN there)."
-                color: keycardOverlay.failed ? Theme.palette.error : Theme.palette.textTertiary; font.pixelSize: 13
+                color: keycardOverlay.failed ? root.cRed : root.cFaint; font.pixelSize: 13
             }
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
