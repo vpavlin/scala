@@ -93,7 +93,7 @@ import { updateWidgetAgenda } from "./src/lib/widget";
 
 const C = {
   bg: "#1e1e2e", surface: "#2a2a3c", text: "#cdd6f4", sub: "#9399b2",
-  primary: "#89b4fa", border: "#313244", accent: "#a6e3a1", danger: "#f38ba8",
+  primary: "#89b4fa", border: "#313244", accent: "#a6e3a1", danger: "#f38ba8", today: "#f9e2af",
 };
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -106,7 +106,7 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e); }
 export default function App() {
   const [cals, setCals] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
-  const [viewMode, setViewMode] = useState<"month" | "agenda">("month"); // month grid vs. upcoming agenda
+  const [viewMode, setViewMode] = useState<"month" | "week" | "agenda">("month"); // month grid / week strip / upcoming agenda
   const [query, setQuery] = useState(""); // agenda search
   const [status, setStatus] = useState("starting");
   const [shared, setShared] = useState(false);
@@ -409,6 +409,15 @@ export default function App() {
     const de = new Date(selected); de.setHours(23, 59, 59, 999);
     return expandEvents(events, ds.getTime(), de.getTime()).filter((o) => sameDay(new Date(o.startTime), selected));
   }, [events, selected]);
+  // Week strip (mobile week view): Mon–Sun of the selected day's week + their event dots.
+  const weekDays = useMemo(() => {
+    const mon = new Date(selected); mon.setHours(0, 0, 0, 0); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+    return Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return d; });
+  }, [selected]);
+  const weekOccurrences = useMemo(
+    () => expandEvents(events, weekDays[0].getTime(), weekDays[6].getTime() + 864e5 - 1),
+    [events, weekDays],
+  );
   // Occurrences across the visible month (± a week for grid spillover) → month-grid dots.
   const monthEvents = useMemo(() => {
     const ws = new Date(cursor.getFullYear(), cursor.getMonth(), 1).getTime() - 7 * 864e5;
@@ -648,9 +657,9 @@ export default function App() {
         {/* view toggle + search */}
         <View style={s.viewBar}>
           <View style={s.segment}>
-            {(["month", "agenda"] as const).map((m) => (
+            {(["month", "week", "agenda"] as const).map((m) => (
               <Pressable key={m} onPress={() => setViewMode(m)} style={[s.segBtn, viewMode === m && s.segBtnOn]}>
-                <Text style={[s.segT, viewMode === m && s.segTOn]}>{m === "month" ? "Month" : "Agenda"}</Text>
+                <Text style={[s.segT, viewMode === m && s.segTOn]}>{m === "month" ? "Month" : m === "week" ? "Week" : "Agenda"}</Text>
               </Pressable>
             ))}
           </View>
@@ -684,6 +693,39 @@ export default function App() {
                   {ev.location ? ` · ${ev.location}` : ""}
                   {ev.description ? ` · ${ev.description}` : ""}
                 </Text>
+              </View>
+            </Pressable>
+          ))}
+          <View style={{ height: 90 }} />
+        </ScrollView>
+        </>) : viewMode === "week" ? (<>
+        <View style={s.weekStrip}>
+          {weekDays.map((d) => {
+            const isToday = sameDay(d, new Date());
+            const isSel = sameDay(d, selected);
+            const dots = weekOccurrences.filter((o) => sameDay(new Date(o.startTime), d)).slice(0, 3).map((o) => colorFor(o.calendarId));
+            return (
+              <Pressable key={d.toISOString()} style={[s.weekCell, isSel && s.weekCellOn]} onPress={() => setSelected(d)}>
+                <Text style={s.weekDow}>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][(d.getDay() + 6) % 7]}</Text>
+                <View style={[s.weekDateCircle, isToday && { backgroundColor: C.today }]}>
+                  <Text style={[s.weekDate, isToday && { color: C.bg, fontWeight: "700" }]}>{d.getDate()}</Text>
+                </View>
+                <View style={s.weekDots}>{dots.map((c, i) => <View key={i} style={[s.weekDot, { backgroundColor: c }]} />)}</View>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={s.dayHead}>
+          <Text style={s.dayTitle}>{selected.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text>
+        </View>
+        <ScrollView style={{ flex: 1 }}>
+          {dayEvents.length === 0 && <Text style={[s.sub, { padding: 16 }]}>No events. Tap + to add one.</Text>}
+          {dayEvents.map((ev) => (
+            <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
+              <View style={[s.dot, { backgroundColor: colorFor(ev.calendarId) }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+                <Text style={s.sub}>{ev.allDay ? "All day" : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}{ev.location ? ` · ${ev.location}` : ""}</Text>
               </View>
             </Pressable>
           ))}
@@ -1090,6 +1132,14 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
+  weekStrip: { flexDirection: "row", paddingHorizontal: 12, paddingVertical: 8, gap: 4 },
+  weekCell: { flex: 1, alignItems: "center", paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: "transparent" },
+  weekCellOn: { backgroundColor: C.surface, borderColor: C.primary },
+  weekDow: { color: C.sub, fontSize: 10, fontWeight: "600", marginBottom: 3 },
+  weekDateCircle: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  weekDate: { color: C.text, fontSize: 13 },
+  weekDots: { flexDirection: "row", gap: 2, marginTop: 3, height: 5 },
+  weekDot: { width: 4, height: 4, borderRadius: 2 },
   root: { flex: 1, backgroundColor: C.bg },
   header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingTop: 6 },
   menu: { color: C.text, fontSize: 22, width: 24 },
