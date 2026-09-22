@@ -153,11 +153,6 @@ public:
         if (m_ops.onChannelMessage) m_ops.onChannelMessage(handle);
 
         if (m_setStatus) m_setStatus("Connecting...");
-        // delivery v0.2.0 uses the LAYERED createNode shape and discovers the fleet via
-        // discv5 from the `logos.test` preset. Its strict top-level parser REJECTS bare
-        // WakuNodeConf keys (entryNodes/relay/logLevel), and discv5-udp-port is REQUIRED or
-        // discovery can't run (0 peers). So send the canonical config; the preset picks the
-        // cluster-2 fleet. m_cfg.entryNodes is no longer needed (kym_core/qaku_core parity).
         // The delivery createNode config. Deployed delivery builds disagree on the schema: newer
         // ones take the layered messagingOverrides shape; the fleet-deployed 0.1.x (what the crib's
         // kym uses) wants a FLAT WakuNodeConf (logLevel/mode/preset/relay/entryNodes) and REJECTS

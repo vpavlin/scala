@@ -194,9 +194,12 @@ async function assertAuthorable(calId: string, editEventId?: string): Promise<vo
 export async function createEvent(
   calendarId: string,
   fields: Omit<CalEvent, "id" | "calendarId">,
+  // Optional stable id (e.g. an .ics UID) so re-import upserts by id instead of duplicating.
+  // Omitted for normal authoring → a fresh uuid.
+  explicitId?: string,
 ): Promise<CalEvent> {
   await assertAuthorable(calendarId);
-  const id = Crypto.randomUUID();
+  const id = explicitId || Crypto.randomUUID();
   await publishAndApply(calendarId, await mkEvent(ET.EVENT_PUT, putPayload(id, fields), calendarId));
   notifyChange();
   return { ...fields, id, calendarId } as CalEvent;

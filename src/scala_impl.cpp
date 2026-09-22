@@ -436,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.20"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.21"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -798,7 +798,16 @@ std::string ScalaImpl::importIcs(const std::string& calendarId, const std::strin
             if (ev.contains("startTime")) {
                 if (!ev.contains("endTime"))
                     ev["endTime"] = ev.value("allDay", false) ? ev["startTime"].get<long long>() : ev["startTime"].get<long long>() + 3600000LL;
-                ev["id"] = generateUuid();
+                // Idempotent import: reuse a stable event id from the VEVENT UID so re-importing (or
+                // round-tripping our own export, which writes UID:<id>@scala) upserts by id instead of
+                // duplicating. Foreign UIDs are used verbatim as the id (still a stable dedup key). No
+                // UID → a fresh uuid (a one-off, can't dedup — matches the old behaviour).
+                { std::string uid = ev.value("uid", std::string());
+                  const std::string suf = "@scala";
+                  if (uid.size() > suf.size() && uid.compare(uid.size() - suf.size(), suf.size(), suf) == 0)
+                      uid = uid.substr(0, uid.size() - suf.size());
+                  ev["id"] = uid.empty() ? generateUuid() : uid;
+                  ev.erase("uid"); }
                 authorAndPublish(scala::ET::EVENT_PUT, ev, calendarId);
                 ++imported;
             } else ++skipped;
@@ -810,7 +819,8 @@ std::string ScalaImpl::importIcs(const std::string& calendarId, const std::strin
         auto semi = namepart.find(';');
         std::string name = (semi == std::string::npos) ? namepart : namepart.substr(0, semi);
         for (auto& ch : name) ch = toupper(ch);
-        if      (name == "SUMMARY")     ev["title"] = icsUnescape(value);
+        if      (name == "UID")         ev["uid"] = value;
+        else if (name == "SUMMARY")     ev["title"] = icsUnescape(value);
         else if (name == "DESCRIPTION") ev["description"] = icsUnescape(value);
         else if (name == "LOCATION")    ev["location"] = icsUnescape(value);
         else if (name == "URL")         ev["url"] = icsUnescape(value);
