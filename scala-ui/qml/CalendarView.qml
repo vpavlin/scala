@@ -324,6 +324,28 @@ Item {
     }
     readonly property bool searching: root.searchQuery.trim() !== ""
     readonly property var searchResults: root.searching ? root.eventsMatching(root.searchQuery) : []
+    // ── month / week view ────────────────────────────────────────────────────
+    property string calMode: "month"   // "month" | "week"
+    function weekDaysOf(d) {
+        var mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7))
+        var out = []
+        for (var i = 0; i < 7; i++) out.push(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i))
+        return out
+    }
+    function weekLabel(d) {
+        var w = weekDaysOf(d); var a = w[0]; var b = w[6]
+        var mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        if (a.getMonth() === b.getMonth()) return a.getDate() + " – " + b.getDate() + " " + mo[a.getMonth()] + " " + a.getFullYear()
+        return a.getDate() + " " + mo[a.getMonth()] + " – " + b.getDate() + " " + mo[b.getMonth()] + " " + b.getFullYear()
+    }
+    function goPrev() {
+        if (calMode === "week") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() - 7); selectedDay = d; viewMonth = d }
+        else viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1)
+    }
+    function goNext() {
+        if (calMode === "week") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() + 7); selectedDay = d; viewMonth = d }
+        else viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1)
+    }
     function pad(n) { return (n < 10 ? "0" : "") + n }
     function fmtDateInput(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) }
     function fmtTimeInput(d) { return pad(d.getHours()) + ":" + pad(d.getMinutes()) }
@@ -531,19 +553,37 @@ Item {
                     color: navPrev.containsMouse ? root.cSurface2 : root.cSurface
                     LogosText { anchors.centerIn: parent; text: "‹"; color: root.cText; font.pixelSize: 18 }
                     MouseArea { id: navPrev; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: root.viewMonth = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth() - 1, 1) }
+                        onClicked: root.goPrev() }
                 }
                 Rectangle {
                     implicitWidth: 34; implicitHeight: 34; radius: 9
                     color: navNext.containsMouse ? root.cSurface2 : root.cSurface
                     LogosText { anchors.centerIn: parent; text: "›"; color: root.cText; font.pixelSize: 18 }
                     MouseArea { id: navNext; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: root.viewMonth = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth() + 1, 1) }
+                        onClicked: root.goNext() }
                 }
                 LogosText {
-                    text: root.monthNames[root.viewMonth.getMonth()] + " " + root.viewMonth.getFullYear()
+                    text: root.calMode === "week" ? root.weekLabel(root.selectedDay) : root.monthNames[root.viewMonth.getMonth()] + " " + root.viewMonth.getFullYear()
                     color: root.cText; font.pixelSize: 20; font.weight: Theme.typography.weightMedium
                     Layout.leftMargin: 4
+                }
+                // Month / Week segmented toggle
+                Rectangle {
+                    implicitWidth: modeRow.implicitWidth + 6; implicitHeight: 30; radius: 8
+                    color: root.cSurface; Layout.leftMargin: 6
+                    Row {
+                        id: modeRow; anchors.centerIn: parent; spacing: 2
+                        Repeater {
+                            model: [{ m: "month", t: "Month" }, { m: "week", t: "Week" }]
+                            Rectangle {
+                                width: segT.implicitWidth + 18; height: 26; radius: 7
+                                color: root.calMode === modelData.m ? root.cBlue : "transparent"
+                                LogosText { id: segT; anchors.centerIn: parent; text: modelData.t
+                                    color: root.calMode === modelData.m ? root.cCrust : root.cSub; font.pixelSize: 12 }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.calMode = modelData.m }
+                            }
+                        }
+                    }
                 }
                 Rectangle {
                     implicitWidth: todayT.implicitWidth + 26; implicitHeight: 30; radius: 15
@@ -570,6 +610,7 @@ Item {
             }
 
             RowLayout {
+                visible: root.calMode === "month"
                 Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium; spacing: 2
                 Repeater {
                     model: root.weekDays
@@ -579,6 +620,7 @@ Item {
 
             GridLayout {
                 id: grid
+                visible: root.calMode === "month"
                 Layout.fillWidth: true; Layout.fillHeight: true   // month fills the pane now
                 Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium
                 Layout.topMargin: 4; Layout.bottomMargin: Theme.spacing.medium
@@ -625,6 +667,61 @@ Item {
                             }
                         }
                         MouseArea { id: cellMA; anchors.fill: parent; hoverEnabled: true; onClicked: root.selectedDay = cell.cellDate }
+                    }
+                }
+            }
+
+            // ── week grid: 7 day-columns, each listing its events (plan a week of nights) ──
+            RowLayout {
+                visible: root.calMode === "week"
+                Layout.fillWidth: true; Layout.fillHeight: true
+                Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium
+                Layout.topMargin: 4; Layout.bottomMargin: Theme.spacing.medium; spacing: 4
+                Repeater {
+                    model: root.calMode === "week" ? root.weekDaysOf(root.selectedDay) : []
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.fillHeight: true; radius: 10
+                        property bool isToday: root.sameDay(modelData, new Date())
+                        property bool isSel: root.sameDay(modelData, root.selectedDay)
+                        color: isSel ? root.cSurface : root.cMantle
+                        border.width: isSel ? 1 : 0; border.color: root.cBlue
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 6; spacing: 4
+                            RowLayout {
+                                Layout.fillWidth: true; spacing: 4
+                                LogosText { text: root.weekDays[index]; color: root.cSub; font.pixelSize: 10; font.weight: Theme.typography.weightMedium }
+                                Item { Layout.fillWidth: true }
+                                Rectangle {
+                                    width: 20; height: 20; radius: 10; color: isToday ? root.cYellow : "transparent"
+                                    LogosText { anchors.centerIn: parent; text: modelData.getDate(); color: isToday ? root.cCrust : root.cText; font.pixelSize: 12; font.weight: isToday ? Theme.typography.weightMedium : Font.Normal }
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2 }
+                            ListView {
+                                Layout.fillWidth: true; Layout.fillHeight: true; clip: true; spacing: 3
+                                model: root.eventsOnDay(modelData)
+                                delegate: Rectangle {
+                                    width: ListView.view.width; implicitHeight: 34; radius: 7
+                                    color: wkEvMA.containsMouse ? root.cSurface2 : root.cSurface
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 5; anchors.rightMargin: 5; spacing: 4
+                                        Rectangle { width: 3; height: 22; radius: 1.5; color: root.calColor(modelData.calendarId); Layout.alignment: Qt.AlignVCenter }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; spacing: 0
+                                            LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            LogosText { text: root.fmtTime(modelData.startTime); color: root.cSub; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        }
+                                    }
+                                    MouseArea { id: wkEvMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
+                                }
+                            }
+                            LogosText {
+                                text: "+"; color: root.cFaint; font.pixelSize: 16; Layout.alignment: Qt.AlignHCenter
+                                MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor
+                                    onClicked: { root.selectedDay = modelData; root.openNewEvent() } }
+                            }
+                        }
+                        MouseArea { anchors.fill: parent; z: -1; onClicked: root.selectedDay = modelData }
                     }
                 }
             }
