@@ -18,6 +18,7 @@ import { FieldDef } from "./src/components/EventModal";
 const FIELD_TYPES = ["text", "longtext", "number", "date", "datetime", "bool", "url", "enum", "color"];
 import { deliveryAvailable, getDebug, refreshDebug } from "./src/lib/scala-sync";
 import { SharedNodeStatus } from "./src/lib/loam-transport-pkg/src/SharedNodeStatus";
+import { SharedNodeBanner } from "./src/lib/loam-transport-pkg/src/SharedNodeBanner";
 import { ensureNotifyPermission, scheduleReminders } from "./src/lib/notify";
 import { MonthGrid } from "./src/components/MonthGrid";
 import { expandEvents } from "./src/lib/recur";
@@ -109,8 +110,6 @@ export default function App() {
   const [viewMode, setViewMode] = useState<"month" | "agenda">("month"); // month grid vs. upcoming agenda
   const [query, setQuery] = useState(""); // agenda search
   const [status, setStatus] = useState("starting");
-  const [online, setOnline] = useState(false);        // backend up AND ≥1 fleet peer (real sync capability)
-  const [graceElapsed, setGraceElapsed] = useState(false); // startup grace before we cry "offline"
   const [shared, setShared] = useState(false);
 
   const [cursor, setCursor] = useState(new Date());
@@ -231,24 +230,20 @@ export default function App() {
   // placeholder that myDeviceId() returns before the clock initializes.
   const [me, setMe] = useState("");
   useEffect(() => { getDeviceId().then(setMe).catch(() => {}); }, []);
-  // Connection health, always-on (not just when the Debug panel is open). "Online for sync" means the
-  // delivery backend is up AND it actually has ≥1 fleet peer — a node process being up is NOT the same
-  // as being connected, and 0 peers = writes stay on this device. This drives the offline banner and
-  // the per-calendar chip. A 6s grace avoids flashing "offline" during the normal startup connect.
+  // Feed the per-calendar sync chip from the REAL signal — backend up AND ≥1 fleet peer — not the
+  // status string (a node process being up ≠ connected; 0 peers = writes stay on this device). The
+  // loud "not connected / restart Loam" shout is the SDK's SharedNodeBanner (peer-drop aware).
   useEffect(() => {
     let alive = true;
-    const g = setTimeout(() => { if (alive) setGraceElapsed(true); }, 6000);
     const tick = async () => {
       try { await refreshDebug(); } catch { /* */ }
       if (!alive) return;
       const d = getDebug();
-      const up = d.backend === "up" && typeof d.peers === "number" && d.peers > 0;
-      setOnline(up);
-      sstat.setOnline(up); // feed the per-calendar chip from the real signal, not the status string
+      sstat.setOnline(d.backend === "up" && typeof d.peers === "number" && d.peers > 0);
     };
     tick();
     const id = setInterval(tick, 5000);
-    return () => { alive = false; clearTimeout(g); clearInterval(id); };
+    return () => { alive = false; clearInterval(id); };
   }, []);
   useEffect(() => {
     let alive = true;
@@ -628,13 +623,9 @@ export default function App() {
 
         <SharedNodeStatus appName="Scala" style={{ marginHorizontal: 14 }} />
 
-        {/* Offline banner — the node can't reach the fleet (0 peers), so new events stay on this
-            device until it reconnects. Shown only after a short startup grace to avoid a flash. */}
-        {graceElapsed && !online && (
-          <View style={s.offlineBanner}>
-            <Text style={s.offlineBannerT}>⚠︎ Offline — not connected to Loam. New events save on this device and sync once you reconnect.</Text>
-          </View>
-        )}
+        {/* SDK-owned shout: Loam not running / not approved / connected-but-0-peers (the silent
+            peer-drop) — taps through to open Loam. Renders nothing when the node is healthy. */}
+        <SharedNodeBanner appName="Scala" style={{ marginHorizontal: 14 }} />
 
         {/* view toggle + search */}
         <View style={s.viewBar}>
@@ -1086,8 +1077,6 @@ const s = StyleSheet.create({
   nav: { color: C.primary, fontSize: 26, fontWeight: "700", width: 20, textAlign: "center" },
   month: { color: C.text, fontSize: 20, fontWeight: "700" },
   status: { color: C.sub, fontSize: 11, paddingHorizontal: 16, paddingTop: 2, paddingBottom: 6 },
-  offlineBanner: { backgroundColor: "#3a2f1a", borderColor: "#f9e2af", borderWidth: 1, borderRadius: 8, marginHorizontal: 14, marginTop: 6, paddingVertical: 8, paddingHorizontal: 12 },
-  offlineBannerT: { color: "#f9e2af", fontSize: 12 },
   grid: { paddingHorizontal: 12, paddingTop: 4 },
   viewBar: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingBottom: 6 },
   segment: { flexDirection: "row", backgroundColor: C.surface, borderRadius: 9, borderWidth: 1, borderColor: C.border, overflow: "hidden" },
