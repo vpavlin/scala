@@ -35,7 +35,7 @@ export const MonthGrid = React.memo(function MonthGrid({
     events
       .filter((e) => sameDay(new Date(e.startTime), d))
       .slice(0, 4)
-      .map((e) => colorFor(e.calendarId));
+      .map((e) => e.color || colorFor(e.calendarId)); // per-event colour override, else the calendar's
 
   return (
     <View>

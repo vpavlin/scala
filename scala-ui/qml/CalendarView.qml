@@ -213,6 +213,10 @@ Item {
         for (var i = 0; i < calendars.length; i++) if (calendars[i].id === calId) return calendars[i].name
         return ""
     }
+    // An event's display colour: its own override (ev.color), else its calendar's colour.
+    function evColor(ev) { return (ev && ev.color) ? ev.color : root.calColor(ev ? ev.calendarId : "") }
+    // Per-event colour swatches (Catppuccin accents); "" = default = the calendar colour.
+    readonly property var evSwatches: ["#89b4fa","#a6e3a1","#f9e2af","#fab387","#f38ba8","#cba6f7","#94e2d5","#f5c2e7"]
     function writableCalendars() {
         var out = []
         for (var i = 0; i < calendars.length; i++) if (calendars[i].encryptionKey || calendars[i].creatorId !== undefined) out.push(calendars[i])
@@ -303,7 +307,7 @@ Item {
         var cols = []
         var occ = root.monthOccurrences
         for (var i = 0; i < occ.length && cols.length < 4; i++)
-            if (sameDay(new Date(occ[i].startTime), d)) cols.push(calColor(occ[i].calendarId))
+            if (sameDay(new Date(occ[i].startTime), d)) cols.push(evColor(occ[i]))
         return cols
     }
     function fmtTime(ms) { return Qt.formatTime(new Date(ms), "hh:mm") }
@@ -720,7 +724,7 @@ Item {
                                     color: wkEvMA.containsMouse ? root.cSurface2 : root.cSurface
                                     RowLayout {
                                         anchors.fill: parent; anchors.leftMargin: 5; anchors.rightMargin: 5; spacing: 4
-                                        Rectangle { width: 3; height: 22; radius: 1.5; color: root.calColor(modelData.calendarId); Layout.alignment: Qt.AlignVCenter }
+                                        Rectangle { width: 3; height: 22; radius: 1.5; color: root.evColor(modelData); Layout.alignment: Qt.AlignVCenter }
                                         ColumnLayout {
                                             Layout.fillWidth: true; spacing: 0
                                             LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
@@ -795,7 +799,7 @@ Item {
                             color: evMA.containsMouse ? root.cSurface2 : root.cSurface
                             RowLayout {
                                 anchors.fill: parent; anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
-                                Rectangle { width: 4; height: 42; radius: 2; color: root.calColor(modelData.calendarId); Layout.alignment: Qt.AlignTop; Layout.topMargin: 2 }
+                                Rectangle { width: 4; height: 42; radius: 2; color: root.evColor(modelData); Layout.alignment: Qt.AlignTop; Layout.topMargin: 2 }
                                 ColumnLayout {
                                     id: cardCol
                                     Layout.fillWidth: true; spacing: 2
@@ -917,6 +921,7 @@ Item {
     readonly property var reminderOpts: [{ l: "None", v: 0 }, { l: "10 min", v: 10 }, { l: "30 min", v: 30 }, { l: "1 hour", v: 60 }, { l: "1 day", v: 1440 }]
     // ── attachments (ADR 0017 — stored in Logos Storage, sealed with the calendar key) ──
     property var evAttachments: []          // refs on the current event draft: {name,mime,size,storageCid,blobId}
+    property string evColorSel: ""          // per-event colour override on the draft ("" = calendar colour)
     property bool attachBusy: false
     property string attachMsg: ""
     property string attachPollRef: ""       // ref currently being polled (upload blobId / download cid)
@@ -1020,6 +1025,7 @@ Item {
         evStart.text = fmtTimeInput(start); evEnd.text = fmtTimeInput(end); evNotes.text = ""
         evAllDay = false; evReminder = 10; evRecurFreq = ""
         evLocation.text = ""; evUrl.text = ""; evRecurInterval.text = "1"; evRecurUntil.text = ""
+        root.evColorSel = ""
         seedFieldVals(editCalId, null)
         root.evAttachments = []; root.attachBusy = false; root.attachMsg = ""
         eventPopup.open()
@@ -1043,6 +1049,7 @@ Item {
         evRecurFreq = (r && r.freq) ? r.freq : ""
         evRecurInterval.text = (r && r.interval) ? String(r.interval) : "1"
         evRecurUntil.text = (r && typeof r.until === "number") ? fmtDateInput(new Date(r.until)) : ""
+        root.evColorSel = ev.color || ""
         seedFieldVals(ev.calendarId, ev)
         root.evAttachments = (ev.attachments && ev.attachments.length) ? ev.attachments.slice() : []
         root.attachBusy = false; root.attachMsg = ""
@@ -1070,6 +1077,7 @@ Item {
             up.url = evUrl.text.trim()
             up.reminderMin = root.evReminder
             up.recur = recur    // null clears a previous recurrence
+            up.color = root.evColorSel || ""   // "" clears a previous override (evColor falls back to the calendar)
             if (hasSchema) up.fields = collectFieldVals(editCalId)
             up.attachments = root.evAttachments
             core("updateEvent", [JSON.stringify(up)])
@@ -1080,6 +1088,7 @@ Item {
                 location: evLocation.text.trim(), url: evUrl.text.trim(), reminderMin: root.evReminder
             }
             if (recur) nv.recur = recur
+            if (root.evColorSel) nv.color = root.evColorSel
             if (hasSchema) nv.fields = collectFieldVals(editCalId)
             if (root.evAttachments.length) nv.attachments = root.evAttachments
             core("createEvent", [editCalId, JSON.stringify(nv)])
@@ -1100,6 +1109,7 @@ Item {
             reminderMin: src.reminderMin || 0
         }
         if (src.recur) nv.recur = src.recur
+        if (src.color) nv.color = src.color
         if (src.fields) nv.fields = src.fields
         if (src.attachments && src.attachments.length) nv.attachments = src.attachments
         core("createEvent", [root.editCalId, JSON.stringify(nv)])
@@ -1168,7 +1178,7 @@ Item {
         Drag.hotSpot.x: width / 2; Drag.hotSpot.y: height / 2
         RowLayout {
             anchors.fill: parent; anchors.margins: 6; spacing: 5
-            Rectangle { width: 3; height: 24; radius: 1.5; color: dragProxy.dragEv ? root.calColor(dragProxy.dragEv.calendarId) : "transparent"; Layout.alignment: Qt.AlignVCenter }
+            Rectangle { width: 3; height: 24; radius: 1.5; color: dragProxy.dragEv ? root.evColor(dragProxy.dragEv) : "transparent"; Layout.alignment: Qt.AlignVCenter }
             LogosText { text: dragProxy.dragEv ? (dragProxy.dragEv.title || "(untitled)") : ""; color: root.cText; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter }
         }
     }
@@ -1336,6 +1346,30 @@ Item {
                 text: root.attachBusy ? "Working…" : "＋ Attach file"
                 enabled: !root.attachBusy
                 onClicked: attachFileDialog.open()
+            }
+
+            // per-event colour — code events by type/venue/status; default = the calendar colour
+            LogosText { text: "Colour"; color: root.cFaint; font.pixelSize: 11 }
+            Flow {
+                Layout.fillWidth: true; spacing: 8
+                // default (calendar colour)
+                Rectangle {
+                    width: 26; height: 26; radius: 13
+                    color: root.calColor(root.editCalId)
+                    border.width: root.evColorSel === "" ? 2 : 0; border.color: root.cText
+                    LogosText { anchors.centerIn: parent; visible: root.evColorSel === ""; text: "✓"; color: root.cCrust; font.pixelSize: 13; font.weight: Theme.typography.weightBold }
+                    MouseArea { anchors.fill: parent; enabled: !root.eventReadOnly; cursorShape: Qt.PointingHandCursor; onClicked: root.evColorSel = "" }
+                }
+                Repeater {
+                    model: root.evSwatches
+                    delegate: Rectangle {
+                        width: 26; height: 26; radius: 13
+                        color: modelData
+                        border.width: root.evColorSel === modelData ? 2 : 0; border.color: root.cText
+                        LogosText { anchors.centerIn: parent; visible: root.evColorSel === modelData; text: "✓"; color: root.cCrust; font.pixelSize: 13; font.weight: Theme.typography.weightBold }
+                        MouseArea { anchors.fill: parent; enabled: !root.eventReadOnly; cursorShape: Qt.PointingHandCursor; onClicked: root.evColorSel = modelData }
+                    }
+                }
             }
 
             // reminder chips

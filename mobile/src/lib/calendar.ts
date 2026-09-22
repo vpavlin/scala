@@ -163,6 +163,7 @@ function putPayload(id: string, f: any): any {
   if (f.allDay !== undefined) p.allDay = f.allDay;
   if (f.reminderMin !== undefined) p.reminderMin = f.reminderMin;
   if (f.recur !== undefined) p.recur = f.recur; // recurrence rule (fold passes it through)
+  if (f.color !== undefined) p.color = f.color; // per-event colour override (fold passes it through)
   // Custom schema fields (#8) travel under `fields`; the fold passes them through.
   if (f.fields !== undefined) p.fields = f.fields;
   // Attachment refs (ADR 0017): {name,mime,size,storageCid,blobId} — fold passes them through.

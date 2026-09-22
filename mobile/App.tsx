@@ -434,6 +434,8 @@ export default function App() {
     );
   };
   const colorFor = useCallback((id: string) => colorForId(id), []);
+  // An event's display colour: its own override, else its calendar's colour.
+  const evColor = useCallback((ev: any) => (ev && ev.color) || colorForId(ev && ev.calendarId), []);
   // Expand recurrence occurrences for the selected day (non-recurring events pass through once).
   const dayEvents = useMemo(() => {
     const ds = new Date(selected); ds.setHours(0, 0, 0, 0);
@@ -509,7 +511,7 @@ export default function App() {
         title: o.title || "(untitled)",
         timeLabel: o.allDay ? "All day" : ongoing ? "Now" : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
         calendar: cal ? displayName(cal) : "",
-        color: colorFor(o.calendarId),
+        color: evColor(o),
       });
     }
     return rows;
@@ -539,7 +541,7 @@ export default function App() {
       open: true, editing: m, calId: m.calendarId,
       draft: {
         id: m.id, title: m.title, startTime: m.startTime, endTime: m.endTime, description: m.description,
-        location: m.location, url: m.url, allDay: m.allDay, reminderMin: m.reminderMin, recur: m.recur, fields: m.fields,
+        location: m.location, url: m.url, allDay: m.allDay, reminderMin: m.reminderMin, recur: m.recur, color: m.color, fields: m.fields,
         attachments: m.attachments,   // ADR 0017 — surface received attachments in the editor (was dropped → section never showed)
       },
     });
@@ -561,7 +563,7 @@ export default function App() {
   const saveEvent = async (d: EventDraft) => {
     const common = {
       title: d.title, startTime: d.startTime, endTime: d.endTime, description: d.description,
-      location: d.location, url: d.url, allDay: d.allDay, reminderMin: d.reminderMin, recur: d.recur, fields: d.fields,
+      location: d.location, url: d.url, allDay: d.allDay, reminderMin: d.reminderMin, recur: d.recur, color: d.color, fields: d.fields,
       attachments: d.attachments,   // ADR 0017 — preserve attachment refs through edits
     };
     try {
@@ -584,7 +586,7 @@ export default function App() {
     const copy = {
       title: (s.title || "(untitled)") + " (copy)", startTime: s.startTime, endTime: s.endTime,
       allDay: s.allDay, description: s.description, location: s.location, url: s.url,
-      reminderMin: s.reminderMin, recur: s.recur, fields: (s as any).fields, attachments: s.attachments,
+      reminderMin: s.reminderMin, recur: s.recur, color: s.color, fields: (s as any).fields, attachments: s.attachments,
     };
     try {
       await createEvent(cid, copy as any);
@@ -714,7 +716,7 @@ export default function App() {
           {dayEvents.length === 0 && <Text style={[s.sub, { padding: 16 }]}>No events. Tap + to add one.</Text>}
           {dayEvents.map((ev) => (
             <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
-              <View style={[s.dot, { backgroundColor: colorFor(ev.calendarId) }]} />
+              <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
               <View style={{ flex: 1 }}>
                 <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
                 <Text style={s.sub}>
@@ -735,7 +737,7 @@ export default function App() {
           {weekDays.map((d) => {
             const isToday = sameDay(d, new Date());
             const isSel = sameDay(d, selected);
-            const dots = weekOccurrences.filter((o) => sameDay(new Date(o.startTime), d)).slice(0, 3).map((o) => colorFor(o.calendarId));
+            const dots = weekOccurrences.filter((o) => sameDay(new Date(o.startTime), d)).slice(0, 3).map((o) => evColor(o));
             return (
               <Pressable key={d.toISOString()} style={[s.weekCell, isSel && s.weekCellOn]} onPress={() => setSelected(d)}>
                 <Text style={s.weekDow}>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][(d.getDay() + 6) % 7]}</Text>
@@ -754,7 +756,7 @@ export default function App() {
           {dayEvents.length === 0 && <Text style={[s.sub, { padding: 16 }]}>No events. Tap + to add one.</Text>}
           {dayEvents.map((ev) => (
             <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
-              <View style={[s.dot, { backgroundColor: colorFor(ev.calendarId) }]} />
+              <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
               <View style={{ flex: 1 }}>
                 <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
                 <Text style={s.sub}>{ev.allDay ? "All day" : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}{ev.location ? ` · ${ev.location}` : ""}</Text>
@@ -771,7 +773,7 @@ export default function App() {
               <View style={s.dayHead}><Text style={s.dayTitle}>{g.date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text></View>
               {g.items.map((ev) => (
                 <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
-                  <View style={[s.dot, { backgroundColor: colorFor(ev.calendarId) }]} />
+                  <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
                   <View style={{ flex: 1 }}>
                     <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
                     <Text style={s.sub}>
