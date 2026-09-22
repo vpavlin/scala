@@ -307,6 +307,12 @@ Item {
         return cols
     }
     function fmtTime(ms) { return Qt.formatTime(new Date(ms), "hh:mm") }
+    // Custom-field values as badges (status/type/tags) — skip empty + long, cap at 4.
+    function fieldValues(ev) {
+        var out = []
+        if (ev && ev.fields) for (var k in ev.fields) { var v = String(ev.fields[k]); if (v.length > 0 && v.length <= 24) out.push(v) }
+        return out.slice(0, 4)
+    }
     // ── search (#) — match events across ALL dates by title/location/notes/calendar/fields ──
     property string searchQuery: ""
     function eventsMatching(q) {
@@ -785,12 +791,13 @@ Item {
                         model: root.searching ? root.searchResults : root.eventsOnDay(root.selectedDay)
                         spacing: Theme.spacing.small
                         delegate: Rectangle {
-                            width: dayList.width; height: 62; radius: 12
+                            width: dayList.width; implicitHeight: Math.max(62, cardCol.implicitHeight + 2 * Theme.spacing.small); radius: 12
                             color: evMA.containsMouse ? root.cSurface2 : root.cSurface
                             RowLayout {
                                 anchors.fill: parent; anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
-                                Rectangle { width: 4; height: 42; radius: 2; color: root.calColor(modelData.calendarId); Layout.alignment: Qt.AlignVCenter }
+                                Rectangle { width: 4; height: 42; radius: 2; color: root.calColor(modelData.calendarId); Layout.alignment: Qt.AlignTop; Layout.topMargin: 2 }
                                 ColumnLayout {
+                                    id: cardCol
                                     Layout.fillWidth: true; spacing: 2
                                     LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
                                     LogosText {
@@ -800,6 +807,17 @@ Item {
                                     LogosText {
                                         text: root.calName(modelData.calendarId); visible: text.length > 0
                                         color: root.calColor(modelData.calendarId); font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true
+                                    }
+                                    Flow {
+                                        visible: root.fieldValues(modelData).length > 0
+                                        Layout.fillWidth: true; Layout.topMargin: 1; spacing: 4
+                                        Repeater {
+                                            model: root.fieldValues(modelData)
+                                            Rectangle {
+                                                width: badgeT.implicitWidth + 12; height: 16; radius: 5; color: root.cSurface2
+                                                LogosText { id: badgeT; anchors.centerIn: parent; text: modelData; color: root.cText; font.pixelSize: 10 }
+                                            }
+                                        }
                                     }
                                 }
                             }
