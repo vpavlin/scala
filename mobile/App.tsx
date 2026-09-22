@@ -75,6 +75,24 @@ function AccessTierSelector({ value, onChange, C, s }: { value: AccessTier; onCh
   );
 }
 
+// Render an event's custom-field values as small badges (status/type/tags → Frequencies).
+// Skips empty + long (text) values; caps at 4. Renders nothing for events with no fields.
+function EventBadges({ ev }: { ev: any }) {
+  const f = (ev as any).fields;
+  if (!f) return null;
+  const vals = Object.values(f).filter((v) => v !== "" && v != null && v !== false).map(String).filter((v) => v.length > 0 && v.length <= 24);
+  if (!vals.length) return null;
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+      {vals.slice(0, 4).map((v, i) => (
+        <View key={i} style={{ backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 }}>
+          <Text style={{ color: C.text, fontSize: 10 }} numberOfLines={1}>{v}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function SyncChip({ calId }: { calId: string }) {
   const [, bump] = useState(0);
   useEffect(() => sstat.onSyncChange(() => bump((n) => n + 1)), []);
@@ -693,6 +711,7 @@ export default function App() {
                   {ev.location ? ` · ${ev.location}` : ""}
                   {ev.description ? ` · ${ev.description}` : ""}
                 </Text>
+                <EventBadges ev={ev} />
               </View>
             </Pressable>
           ))}
@@ -748,6 +767,7 @@ export default function App() {
                         : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
                       {ev.location ? ` · ${ev.location}` : ""}
                     </Text>
+                    <EventBadges ev={ev} />
                   </View>
                 </Pressable>
               ))}
