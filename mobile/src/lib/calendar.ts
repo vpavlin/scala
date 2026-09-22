@@ -198,8 +198,16 @@ export async function createEvent(
   // Omitted for normal authoring → a fresh uuid.
   explicitId?: string,
 ): Promise<CalEvent> {
-  await assertAuthorable(calendarId);
   const id = explicitId || Crypto.randomUUID();
+  // A reused id that ALREADY exists is an edit (LWW upsert), not an add — so check the EDIT rule,
+  // not the add rule, or the fold silently drops an unauthorised re-write (e.g. re-importing an .ics
+  // event another member authored on a non-collaborative calendar) while this call reports success.
+  let editing = false;
+  if (explicitId) {
+    const folded: any = foldCalendar(calendarId, await store.getLog(calendarId));
+    editing = (folded.events || []).some((e: any) => e && e.id === explicitId);
+  }
+  await assertAuthorable(calendarId, editing ? id : undefined);
   await publishAndApply(calendarId, await mkEvent(ET.EVENT_PUT, putPayload(id, fields), calendarId));
   notifyChange();
   return { ...fields, id, calendarId } as CalEvent;
