@@ -106,6 +106,9 @@ int main(int argc, char **argv) {
     // Day timeline view (calMode "day") — hour-bucketed schedule.
     QTimer::singleShot(1300, [&] { runJs(&view, "calMode='day'"); });
     QTimer::singleShot(1450, [&] { grab(&view, out + "/07-day.png"); runJs(&view, "calMode='month'"); });
+    // Calendar show/hide: toggle c1 hidden → hollow dot + dimmed name in the sidebar.
+    QTimer::singleShot(1500, [&] { runJs(&view, "toggleCalVisible('c1')"); });
+    QTimer::singleShot(1550, [&] { grab(&view, out + "/08-hidden.png"); runJs(&view, "toggleCalVisible('c1')"); });
     // New-calendar dialog now has the custom-fields editor (matches settings).
     QTimer::singleShot(1600, [&] { runJs(&view, "openEditEvent(events[0])"); });
     QTimer::singleShot(2000, [&] { grab(&view, out + "/01-edit-others.png"); runJs(&view, "eventPopup.close()"); });

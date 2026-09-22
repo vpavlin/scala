@@ -131,7 +131,14 @@ Item {
     property var events: []             // flat list across all calendars
     property date viewMonth: new Date()   // any date in the shown month
     property date selectedDay: new Date()
-    property string filterCalId: ""      // "" = all calendars
+    property string filterCalId: ""      // "" = all calendars (single-focus filter)
+    property var hiddenCals: ({})        // per-device show/hide: {calId: true} = hidden from combined views
+    function calHidden(id) { return !!root.hiddenCals[id] }
+    function toggleCalVisible(id) {
+        var h = {}; for (var k in root.hiddenCals) h[k] = root.hiddenCals[k]
+        if (h[id]) delete h[id]; else h[id] = true
+        root.hiddenCals = h   // reassign so bindings (monthOccurrences, day/week lists) re-evaluate
+    }
     property string myIdentity: ""       // this device's identity (event author id)
 
     readonly property var fieldTypes: ["text","longtext","number","date","datetime","bool","url","enum","color"]
@@ -264,9 +271,13 @@ Item {
     }
     // Events filtered by the active calendar filter (null-safe on old events).
     function eventsFiltered() {
-        if (filterCalId === "") return events
         var out = []
-        for (var i = 0; i < events.length; i++) if (events[i].calendarId === filterCalId) out.push(events[i])
+        for (var i = 0; i < events.length; i++) {
+            var e = events[i]
+            if (filterCalId !== "" && e.calendarId !== filterCalId) continue  // single-focus filter
+            if (root.hiddenCals[e.calendarId]) continue                        // hidden calendars
+            out.push(e)
+        }
         return out
     }
     // Look up a master event by id (recurrence edits operate on the master).
@@ -304,15 +315,19 @@ Item {
 
     // Cached expansion covering the whole visible 6×7 grid; re-evaluates when the
     // month, event set, or calendar filter changes.
-    property var monthOccurrences: root.computeMonthOccurrences(root.viewMonth, root.events, root.filterCalId)
-    function computeMonthOccurrences(vm, evs, fcal) {
+    property var monthOccurrences: root.computeMonthOccurrences(root.viewMonth, root.events, root.filterCalId, root.hiddenCals)
+    function computeMonthOccurrences(vm, evs, fcal, hidden) {
         var first = new Date(vm.getFullYear(), vm.getMonth(), 1)
         var offset = (first.getDay() + 6) % 7
         var firstCell = new Date(first.getFullYear(), first.getMonth(), 1 - offset)
         var ws = new Date(firstCell.getFullYear(), firstCell.getMonth(), firstCell.getDate(), 0, 0, 0, 0).getTime()
         var we = ws + 42 * 24 * 3600 * 1000 - 1
-        var src = evs
-        if (fcal !== "") { src = []; for (var i = 0; i < evs.length; i++) if (evs[i].calendarId === fcal) src.push(evs[i]) }
+        var src = []
+        for (var i = 0; i < evs.length; i++) {
+            if (fcal !== "" && evs[i].calendarId !== fcal) continue
+            if (hidden[evs[i].calendarId]) continue
+            src.push(evs[i])
+        }
         return root.expandEvents(src, ws, we)
     }
 
@@ -510,12 +525,19 @@ Item {
                         color: root.filterCalId === modelData.id ? root.cSurface : (calRowMA.containsMouse ? root.cBase : "transparent")
                         RowLayout {
                             anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                            Rectangle { width: 10; height: 10; radius: 5; color: root.calColor(modelData.id); Layout.alignment: Qt.AlignVCenter }
+                            // Tap the dot to show/hide this calendar in the combined views (local only).
+                            Rectangle {
+                                width: 14; height: 14; radius: 7; Layout.alignment: Qt.AlignVCenter
+                                color: root.calHidden(modelData.id) ? "transparent" : root.calColor(modelData.id)
+                                border.width: root.calHidden(modelData.id) ? 2 : 0; border.color: root.cSub
+                                MouseArea { anchors.fill: parent; anchors.margins: -3; cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.toggleCalVisible(modelData.id) }
+                            }
                             ColumnLayout {
                                 Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: 1
                                 RowLayout {
                                     Layout.fillWidth: true; spacing: 4
-                                    LogosText { text: modelData.name || "(unnamed)"; color: root.cText; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    LogosText { text: modelData.name || "(unnamed)"; color: root.calHidden(modelData.id) ? root.cSub : root.cText; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
                                     // 🔑 = this calendar is signed with a Keycard, so every edit needs a card tap.
                                     LogosText { visible: root.calIsKeycard(modelData.id); text: "🔑"; font.pixelSize: 12; Layout.alignment: Qt.AlignVCenter }
                                 }

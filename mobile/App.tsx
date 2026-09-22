@@ -6,6 +6,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { store, Calendar, CalEvent, colorForId } from "./src/lib/store";
 import {
   onChange, startSyncing, joinFromInvite, createEvent, updateEvent, deleteEvent,
@@ -124,6 +125,27 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e); }
 export default function App() {
   const [cals, setCals] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
+  // Per-device: calendars hidden from the combined views (local convenience, never synced).
+  const [hiddenCals, setHiddenCals] = useState<Set<string>>(new Set());
+  const HIDDEN_KEY = "scala.hiddenCals";
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(HIDDEN_KEY);
+        if (raw) setHiddenCals(new Set(JSON.parse(raw)));
+      } catch { /* storage unavailable — show all */ }
+    })();
+  }, []);
+  const toggleCalVisible = useCallback((id: string) => {
+    setHiddenCals((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])).catch(() => {});
+      return next;
+    });
+  }, []);
+  // Events on visible calendars only — feeds every combined view (month/week/day/agenda).
+  const visibleEvents = useMemo(() => events.filter((e) => !hiddenCals.has(e.calendarId)), [events, hiddenCals]);
   const [viewMode, setViewMode] = useState<"month" | "week" | "day" | "agenda">("month"); // month grid / week strip / day timeline / upcoming agenda
   const [query, setQuery] = useState(""); // agenda search
   const [status, setStatus] = useState("starting");
@@ -440,8 +462,8 @@ export default function App() {
   const dayEvents = useMemo(() => {
     const ds = new Date(selected); ds.setHours(0, 0, 0, 0);
     const de = new Date(selected); de.setHours(23, 59, 59, 999);
-    return expandEvents(events, ds.getTime(), de.getTime()).filter((o) => sameDay(new Date(o.startTime), selected));
-  }, [events, selected]);
+    return expandEvents(visibleEvents, ds.getTime(), de.getTime()).filter((o) => sameDay(new Date(o.startTime), selected));
+  }, [visibleEvents, selected]);
   // Day timeline: split the selected day into all-day events + an hour-bucketed schedule.
   // Rows run from a little before the first event to a little after the last (default 8–20),
   // so a venue day reads as a per-hour agenda without scrolling through empty small hours.
@@ -464,15 +486,15 @@ export default function App() {
     return Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return d; });
   }, [selected]);
   const weekOccurrences = useMemo(
-    () => expandEvents(events, weekDays[0].getTime(), weekDays[6].getTime() + 864e5 - 1),
-    [events, weekDays],
+    () => expandEvents(visibleEvents, weekDays[0].getTime(), weekDays[6].getTime() + 864e5 - 1),
+    [visibleEvents, weekDays],
   );
   // Occurrences across the visible month (± a week for grid spillover) → month-grid dots.
   const monthEvents = useMemo(() => {
     const ws = new Date(cursor.getFullYear(), cursor.getMonth(), 1).getTime() - 7 * 864e5;
     const we = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0, 23, 59, 59, 999).getTime() + 7 * 864e5;
-    return expandEvents(events, ws, we);
-  }, [events, cursor]);
+    return expandEvents(visibleEvents, ws, we);
+  }, [visibleEvents, cursor]);
   // Agenda: occurrences grouped by day. Default = next 90 days from today; a search widens the
   // window (−30d … +365d) and filters by title/location/description across all calendars.
   const agenda = useMemo(() => {
@@ -480,7 +502,7 @@ export default function App() {
     const q = query.trim().toLowerCase();
     const start = q ? now.getTime() - 30 * 864e5 : t0.getTime();
     const end = q ? now.getTime() + 365 * 864e5 : t0.getTime() + 90 * 864e5;
-    let occ = expandEvents(events, start, end);
+    let occ = expandEvents(visibleEvents, start, end);
     if (q) occ = occ.filter((o) => `${o.title || ""} ${o.location || ""} ${o.description || ""} ${Object.values((o as any).fields || {}).join(" ")}`.toLowerCase().includes(q));
     occ.sort((a, b) => a.startTime - b.startTime);
     const groups: { key: string; date: Date; items: CalEvent[] }[] = [];
@@ -491,7 +513,7 @@ export default function App() {
       g.items.push(o);
     }
     return groups;
-  }, [events, query]);
+  }, [visibleEvents, query]);
 
   // Feed the home-screen agenda widget: the next 24h of events, grouped by day with Today/Tomorrow
   // dividers. If the next 24h is quiet, fall back to the next few upcoming so it's never empty.
@@ -499,7 +521,7 @@ export default function App() {
   const widgetItems = useMemo(() => {
     const now = Date.now();
     const soon = now + 24 * 3600e3;
-    const up = expandEvents(events, now, now + 30 * 864e5)
+    const up = expandEvents(visibleEvents, now, now + 30 * 864e5)
       .filter((o) => o.endTime >= now)
       .sort((a, b) => a.startTime - b.startTime);
     let picked = up.filter((o) => o.startTime <= soon);
@@ -531,7 +553,7 @@ export default function App() {
       });
     }
     return rows;
-  }, [events, cals, displayName, colorFor]);
+  }, [visibleEvents, cals, displayName, evColor]);
   useEffect(() => { updateWidgetAgenda(widgetItems); }, [widgetItems]);
 
   const openNew = () => {
@@ -881,10 +903,16 @@ export default function App() {
               {cals.length === 0 && <Text style={s.sub}>None yet.</Text>}
               {cals.map((c) => (
                 <Pressable key={c.id} onPress={() => { setCurrentCalId(c.id); setDrawer(false); }} style={s.calRow}>
-                  <View style={[s.dot, { backgroundColor: colorForId(c.id) }]} />
+                  {/* Tap the dot to show/hide this calendar in the combined views (local only). */}
+                  <Pressable onPress={() => toggleCalVisible(c.id)} hitSlop={10} style={{ paddingRight: 2 }}>
+                    <View style={[s.dot, hiddenCals.has(c.id)
+                      ? { backgroundColor: "transparent", borderWidth: 2, borderColor: C.sub }
+                      : { backgroundColor: colorForId(c.id) }]} />
+                  </Pressable>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <Text style={s.calName}>{displayName(c)}</Text>
+                      <Text style={[s.calName, hiddenCals.has(c.id) && { color: C.sub }]}>{displayName(c)}</Text>
+                      {hiddenCals.has(c.id) && <Text style={s.roleBadge}>hidden</Text>}
                       {currentCalId === c.id && <Text style={[s.roleBadge, { color: C.accent, borderColor: C.accent }]}>active</Text>}
                       {!!aliasMap[c.id] && <Text style={s.roleBadge}>alias</Text>}
                       {c.rolesConfigured && <Text style={s.roleBadge}>{roleOf(c)}</Text>}
