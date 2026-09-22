@@ -625,9 +625,23 @@ export default function App() {
       setModal((m) => ({ ...m, open: false }));
     } catch (e: any) { onKeycardAbort(e, () => saveEvent(d)); }
   };
-  const removeEvent = async () => {
+  // Actually delete (after the user confirms). Kept separate so a keycard retry doesn't re-prompt.
+  const doDeleteEvent = async () => {
     if (!modal.editing) return;
-    try { await deleteEvent(modal.editing); setModal((m) => ({ ...m, open: false })); } catch (e: any) { onKeycardAbort(e, () => removeEvent()); }
+    try { await deleteEvent(modal.editing); setModal((m) => ({ ...m, open: false })); } catch (e: any) { onKeycardAbort(e, () => doDeleteEvent()); }
+  };
+  const removeEvent = () => {
+    if (!modal.editing) return;
+    const title = modal.editing.title || "(untitled)";
+    const recurring = !!modal.editing.recur;
+    Alert.alert(
+      "Delete event",
+      `Delete "${title}"?${recurring ? " This removes the whole repeating series." : ""}\n\nThis can't be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => { doDeleteEvent(); } },
+      ],
+    );
   };
   // Duplicate the event being edited → a new event with the same fields (same time; move/edit after).
   const dupBusy = useRef(false);

@@ -1239,9 +1239,10 @@ Item {
         core("updateEvent", [JSON.stringify(up)])
         refresh(); root.notify("Moved to " + Qt.formatDate(ns, "MMM d"))
     }
-    function deleteEvent() {
+    function deleteEvent() { if (editingEvent) deleteEventPopup.open() }   // confirm first (destructive)
+    function doDeleteEvent() {
         if (editingEvent) core("deleteEvent", [editingEvent.id])
-        eventPopup.close(); refresh()
+        deleteEventPopup.close(); eventPopup.close(); refresh()
     }
 
     // Native file picker for attachments; poll timer for the async upload/download (no blocking IPC).
@@ -2499,6 +2500,29 @@ Item {
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Cancel"; onClicked: { root.pendingDeleteCal = null; deletePopup.close() } }
                 LogosButton { text: "Delete"; onClicked: root.deleteCalendar() }
+            }
+        }
+    }
+    // Confirm before deleting an event (destructive, and a recurring master takes the whole series).
+    Popup {
+        id: deleteEventPopup
+        anchors.centerIn: Overlay.overlay
+        width: 380; modal: true; padding: Theme.spacing.large
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
+        ColumnLayout {
+            anchors.fill: parent; spacing: Theme.spacing.small
+            LogosText { text: "Delete event?"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText {
+                text: "Delete \"" + (root.editingEvent ? (root.editingEvent.title || "(untitled)") : "")
+                    + "\"" + ((root.editingEvent && root.editingEvent.recur) ? " and its whole repeating series" : "")
+                    + ". This can't be undone."
+                color: root.cFaint; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
+                Item { Layout.fillWidth: true }
+                LogosButton { text: "Cancel"; onClicked: deleteEventPopup.close() }
+                LogosButton { text: "Delete"; onClicked: root.doDeleteEvent() }
             }
         }
     }
