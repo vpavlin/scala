@@ -13,7 +13,7 @@ import {
   onChange, startSyncing, joinFromInvite, createEvent, updateEvent, deleteEvent,
   createCalendar, deleteCalendar, buildInvite, getSharedNode, setSharedNode,
   updateCalendarMeta, getAlias, setAlias, getEventHistory, getDeviceId, setMemberRole,
-  setCalendarIdentity, calendarIdentityId,
+  setCalendarIdentity, calendarIdentityId, pendingEventIds,
 } from "./src/lib/calendar";
 import { FieldDef } from "./src/components/EventModal";
 
@@ -95,6 +95,16 @@ function EventBadges({ ev }: { ev: any }) {
   );
 }
 
+// Event title + a "syncing" pill when the event is saved locally but not yet on the wire (local-first).
+function EvTitle({ ev, pending, oneLine }: { ev: any; pending?: boolean; oneLine?: boolean }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
+      <Text style={s.evTitle} numberOfLines={oneLine ? 1 : undefined}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+      {pending && <Text style={s.syncPill}>⟳ syncing</Text>}
+    </View>
+  );
+}
+
 function SyncChip({ calId }: { calId: string }) {
   const [, bump] = useState(0);
   useEffect(() => sstat.onSyncChange(() => bump((n) => n + 1)), []);
@@ -126,6 +136,7 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e); }
 export default function App() {
   const [cals, setCals] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set()); // event ids saved locally, not yet synced
   // Per-device: calendars hidden from the combined views (local convenience, never synced).
   const [hiddenCals, setHiddenCals] = useState<Set<string>>(new Set());
   const HIDDEN_KEY = "scala.hiddenCals";
@@ -243,6 +254,7 @@ export default function App() {
     setCals(cs);
     const evs = (await store.listEvents()).filter((e) => !e.deleted);
     setEvents(evs);
+    setPendingIds(new Set(pendingEventIds())); // events saved locally but not yet on the wire → shown, flagged
     scheduleReminders(evs); // #1: keep local event reminders in step with the data
     const am: Record<string, string> = {};
     for (const c of cs) { const a = await getAlias(c.id); if (a) am[c.id] = a; }
@@ -808,7 +820,7 @@ export default function App() {
               <Pressable style={[s.event, dragEv?.id === ev.id && { opacity: 0.4 }]} onPress={() => openEdit(ev)}>
                 <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+                  <EvTitle ev={ev} pending={pendingIds.has(ev.id)} />
                   <Text style={s.sub}>
                     {ev.allDay
                       ? "All day"
@@ -849,7 +861,7 @@ export default function App() {
             <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
               <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
               <View style={{ flex: 1 }}>
-                <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+                <EvTitle ev={ev} pending={pendingIds.has(ev.id)} />
                 <Text style={s.sub}>{ev.allDay ? "All day" : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}{ev.location ? ` · ${ev.location}` : ""}</Text>
               </View>
             </Pressable>
@@ -881,7 +893,7 @@ export default function App() {
                 <View style={s.hourLine}>
                   {items.length === 0 ? <View style={s.hourEmpty} /> : items.map((ev) => (
                     <Pressable key={`${ev.id}-${ev.startTime}`} onPress={() => openEdit(ev)} style={[s.hourEvent, { borderLeftColor: evColor(ev) }]}>
-                      <Text style={s.evTitle} numberOfLines={1}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+                      <EvTitle ev={ev} pending={pendingIds.has(ev.id)} oneLine />
                       <Text style={s.sub} numberOfLines={1}>
                         {new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – {new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                         {ev.location ? ` · ${ev.location}` : ""}
@@ -904,7 +916,7 @@ export default function App() {
                 <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
                   <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
                   <View style={{ flex: 1 }}>
-                    <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+                    <EvTitle ev={ev} pending={pendingIds.has(ev.id)} />
                     <Text style={s.sub}>
                       {ev.allDay
                         ? "All day"
@@ -1355,6 +1367,7 @@ const s = StyleSheet.create({
   hourEmpty: { height: 32 },
   hourEvent: { backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, padding: 10, marginTop: 6 },
   evTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
+  syncPill: { color: C.today, fontSize: 10, fontWeight: "700", borderWidth: 1, borderColor: C.today, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, overflow: "hidden" },
   sub: { color: C.sub, fontSize: 12 },
   dot: { width: 12, height: 12, borderRadius: 6 },
   roleBadge: { fontSize: 10, fontWeight: "700", color: "#9399b2", borderColor: "#313244", borderWidth: 1, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1, overflow: "hidden", textTransform: "uppercase" },

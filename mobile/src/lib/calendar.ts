@@ -49,11 +49,23 @@ async function mkEvent(type: string, payload: any, calId?: string): Promise<Even
   if (type === ET.SYNC_REQ || !calId) return e;
   return (await authorEvent(calId, e)) as Event;
 }
-// Append locally (persist FIRST — the authored event has no other copy until it's
-// both on disk and on the wire), then broadcast the raw event JSON.
+// Event ids authored locally but not yet handed to the wire — the UI greys/badges these as
+// "syncing". Cleared when the send resolves; if it never does, RBSR catch-up delivers the event
+// anyway (see serveLog / sendSyncReq), so this is only a hint, not the delivery guarantee.
+const pendingSend = new Set<string>();
+export function pendingEventIds(): string[] { return [...pendingSend]; }
+
+// Local-FIRST: persist to disk (the durable source of truth) and return immediately so the UI
+// renders the change at once. The wire broadcast runs in the BACKGROUND and never blocks the caller
+// — a slow/absent shared node must not freeze the app. Delivery is guaranteed by catch-up, not by
+// this send; this send is just the fast path.
 async function publishAndApply(calId: string, e: Event): Promise<void> {
   await store.appendEvent(calId, e);
-  await sync.sendEvent(calId, JSON.stringify(eventToJson(e))).catch(() => {});
+  const pid = (e.type === ET.EVENT_PUT && e.payload && e.payload.id) ? String(e.payload.id) : null;
+  if (pid) pendingSend.add(pid);   // flag the visible event as not-yet-sent
+  void sync.sendEvent(calId, JSON.stringify(eventToJson(e)))
+    .then(() => { if (pid) { pendingSend.delete(pid); notifyChange(); } })
+    .catch(() => { /* stays flagged; catch-up will deliver it later */ });
 }
 
 // ── catch-up (qaku SYNC_REQ + seed) ──────────────────────────────────────────
@@ -64,9 +76,15 @@ async function serveLog(calId: string): Promise<void> {
   const now = Date.now();
   if (lastServe[calId] && now - lastServe[calId] < 3000) return;
   lastServe[calId] = now;
+  let cleared = false;
   for (const e of await store.getLog(calId)) {
-    await sync.sendEvent(calId, JSON.stringify(eventToJson(e))).catch(() => {});
+    try {
+      await sync.sendEvent(calId, JSON.stringify(eventToJson(e)));
+      const pid = e.payload && e.payload.id ? String(e.payload.id) : null;   // it's on the wire now
+      if (pid && pendingSend.delete(pid)) cleared = true;
+    } catch { /* still offline — try again on the next catch-up */ }
   }
+  if (cleared) notifyChange();   // drop the "syncing" flag once re-broadcast succeeds
 }
 // Kick off catch-up: publish the initial reconciliation message (bounded range
 // fingerprints over what we hold). Fresh calendar → empty-set fingerprint →
@@ -348,10 +366,15 @@ export async function joinFromInvite(link: string, identityId?: string): Promise
     color: "#89b4fa",
     isShared: true,
   });
-  await sync.joinCalendar(inv.calendarId, inv.key);
-  await sendSyncReq(inv.calendarId).catch(() => {}); // just joined → pull history
-  notifyChange();
+  notifyChange();   // local-first: the calendar shows up NOW; history/subscribe happen in the background
   const f = (await store.listCalendars()).find((c) => c.id === inv.calendarId) || null;
+  // Subscribe + pull history off the UI path — never block "joined" on the network.
+  (async () => {
+    try {
+      await sync.joinCalendar(inv.calendarId, inv.key);
+      await sendSyncReq(inv.calendarId).catch(() => {}); // just joined → pull history
+    } catch { /* offline — catch-up runs when sync comes up */ }
+  })();
   return f;
 }
 
