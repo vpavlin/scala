@@ -877,8 +877,8 @@ export default function App() {
 
                 <Text style={s.pLabel}>iCalendar</Text>
                 <View style={{ flexDirection: "row", gap: 8 }}>
-                  <Pressable style={[s.smBtn, { flex: 1, alignItems: "center", backgroundColor: "transparent", borderWidth: 1, borderColor: C.border }]} onPress={exportCalIcs}><Text style={s.smBtnT}>Export .ics</Text></Pressable>
-                  <Pressable style={[s.smBtn, { flex: 1, alignItems: "center", backgroundColor: "transparent", borderWidth: 1, borderColor: C.border }]} onPress={importCalIcs}><Text style={s.smBtnT}>Import .ics</Text></Pressable>
+                  <Pressable style={[s.smBtn, { flex: 1, alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]} onPress={exportCalIcs}><Text style={[s.smBtnT, { color: C.text }]}>Export .ics</Text></Pressable>
+                  <Pressable style={[s.smBtn, { flex: 1, alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]} onPress={importCalIcs}><Text style={[s.smBtnT, { color: C.text }]}>Import .ics</Text></Pressable>
                 </View>
                 <Text style={[s.sub, { marginTop: 4 }]}>Export saves to Downloads. Import reads an .ics from the clipboard.</Text>
 
