@@ -139,6 +139,24 @@ Item {
     readonly property var monthNames: ["January","February","March","April","May","June","July","August","September","October","November","December"]
     readonly property var weekDays: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
 
+    // ── Catppuccin Mocha — match the mobile app's look (the bundled DS default is a flatter, colder
+    // dark; the mobile app is warm Catppuccin). Local palette so the desktop canvas reads identically
+    // to the phone. Used for the calendar surfaces/accents; DS components (inputs) keep their tokens.
+    readonly property color cBase:    "#1e1e2e"   // app background
+    readonly property color cMantle:  "#181825"   // side panels
+    readonly property color cCrust:   "#11111b"   // deepest
+    readonly property color cSurface: "#2a2a3c"   // cards / selected
+    readonly property color cSurface2:"#313244"   // hover / borders
+    readonly property color cOverlay: "#45475a"   // hairlines
+    readonly property color cText:    "#cdd6f4"
+    readonly property color cSub:     "#9399b2"
+    readonly property color cFaint:   "#6c7086"   // out-of-month / tertiary
+    readonly property color cBlue:    "#89b4fa"   // primary
+    readonly property color cYellow:  "#f9e2af"   // today
+    readonly property color cGreen:   "#a6e3a1"
+    readonly property color cRed:     "#f38ba8"
+    readonly property color cMauve:   "#cba6f7"
+
     Component.onCompleted: Qt.callLater(function () {
         root.ready = (typeof logos !== "undefined" && !!logos.callModule)
         if (root.ready) { root.checkCoreVersion(); root.myIdentity = String(root.j(root.core("getIdentity", []), "")); refresh() }
@@ -389,23 +407,23 @@ Item {
         Rectangle {
             SplitView.preferredWidth: 240
             SplitView.minimumWidth: 170
-            color: Theme.palette.backgroundInset
+            color: root.cMantle
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: Theme.spacing.medium
                 spacing: Theme.spacing.small
 
-                LogosText { text: "Calendars"; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+                LogosText { text: "Calendars"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
 
                 Rectangle {
-                    Layout.fillWidth: true; height: 34; radius: Theme.spacing.radiusSmall
-                    color: root.filterCalId === "" ? Theme.palette.backgroundSecondary : "transparent"
+                    Layout.fillWidth: true; height: 36; radius: 9
+                    color: root.filterCalId === "" ? root.cSurface : (allCalMA.containsMouse ? root.cBase : "transparent")
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                        Rectangle { width: 12; height: 12; radius: 6; color: Theme.palette.textTertiary }
-                        LogosText { text: "All calendars"; color: Theme.palette.text; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Rectangle { width: 10; height: 10; radius: 5; color: root.cFaint }
+                        LogosText { text: "All calendars"; color: root.cText; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
                     }
-                    MouseArea { anchors.fill: parent; onClicked: root.filterCalId = "" }
+                    MouseArea { id: allCalMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.filterCalId = "" }
                 }
 
                 ListView {
@@ -413,81 +431,132 @@ Item {
                     model: root.calendars
                     spacing: 2
                     delegate: Rectangle {
+                        id: calRow
                         width: ListView.view.width
-                        height: (modelData.description && modelData.description.length > 0) ? 48 : 34
-                        radius: Theme.spacing.radiusSmall
-                        color: root.filterCalId === modelData.id ? Theme.palette.backgroundSecondary : "transparent"
+                        height: (modelData.description && modelData.description.length > 0) ? 50 : 36
+                        radius: 9
+                        color: root.filterCalId === modelData.id ? root.cSurface : (calRowMA.containsMouse ? root.cBase : "transparent")
                         RowLayout {
                             anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                            Rectangle { width: 12; height: 12; radius: 6; color: root.calColor(modelData.id); Layout.alignment: Qt.AlignVCenter }
+                            Rectangle { width: 10; height: 10; radius: 5; color: root.calColor(modelData.id); Layout.alignment: Qt.AlignVCenter }
                             ColumnLayout {
                                 Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: 1
                                 RowLayout {
                                     Layout.fillWidth: true; spacing: 4
-                                    LogosText { text: modelData.name || "(unnamed)"; color: Theme.palette.text; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    LogosText { text: modelData.name || "(unnamed)"; color: root.cText; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
                                     // 🔑 = this calendar is signed with a Keycard, so every edit needs a card tap.
                                     LogosText { visible: root.calIsKeycard(modelData.id); text: "🔑"; font.pixelSize: 12; Layout.alignment: Qt.AlignVCenter }
                                 }
                                 LogosText {
                                     visible: !!modelData.description && modelData.description.length > 0
                                     text: modelData.description || ""
-                                    color: Theme.palette.textTertiary; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight
+                                    color: root.cFaint; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight
                                 }
                             }
                             LogosText {
-                                text: "⚙"; color: Theme.palette.textSecondary; font.pixelSize: 14; Layout.alignment: Qt.AlignVCenter
-                                MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: root.openCalSettings(modelData) }
+                                text: "⚙"; color: root.cSub; font.pixelSize: 14; Layout.alignment: Qt.AlignVCenter
+                                MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: root.openCalSettings(modelData) }
                             }
                             LogosText {
-                                text: "share"; color: Theme.palette.primary; font.pixelSize: 12; Layout.alignment: Qt.AlignVCenter
-                                MouseArea { anchors.fill: parent; onClicked: root.openShare(modelData) }
+                                text: "share"; color: root.cBlue; font.pixelSize: 12; Layout.alignment: Qt.AlignVCenter
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openShare(modelData) }
                             }
                             LogosText {
-                                text: "✕"; color: Theme.palette.textTertiary; font.pixelSize: 14; Layout.alignment: Qt.AlignVCenter
+                                text: "✕"; color: root.cFaint; font.pixelSize: 14; Layout.alignment: Qt.AlignVCenter
                                 MouseArea {
-                                    anchors.fill: parent; anchors.margins: -4
+                                    anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor
                                     onClicked: root.confirmDeleteCalendar(modelData)
                                 }
                             }
                         }
-                        MouseArea { anchors.fill: parent; z: -1; onClicked: root.filterCalId = modelData.id }
+                        MouseArea { id: calRowMA; anchors.fill: parent; z: -1; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.filterCalId = modelData.id }
                     }
                 }
 
-                LogosButton { Layout.fillWidth: true; text: "+ New calendar"; onClicked: newCalPopup.open() }
-                LogosButton { Layout.fillWidth: true; text: "Join calendar"; onClicked: joinPopup.open() }
-                LogosButton { Layout.fillWidth: true; text: "👤 Identities"; onClicked: { root.refreshIdentities(); identitiesPopup.open() } }
+                Rectangle {
+                    Layout.fillWidth: true; implicitHeight: 40; radius: 9
+                    color: newCalMA.containsMouse ? root.cSurface2 : root.cSurface
+                    LogosText { anchors.centerIn: parent; text: "+ New calendar"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
+                    MouseArea { id: newCalMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: newCalPopup.open() }
+                }
+                Rectangle {
+                    Layout.fillWidth: true; implicitHeight: 40; radius: 9
+                    color: joinMA.containsMouse ? root.cSurface : "transparent"
+                    border.width: 1; border.color: root.cSurface2
+                    LogosText { anchors.centerIn: parent; text: "Join calendar"; color: root.cText; font.pixelSize: 14 }
+                    MouseArea { id: joinMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: joinPopup.open() }
+                }
+                Rectangle {
+                    Layout.fillWidth: true; implicitHeight: 40; radius: 9
+                    color: idsMA.containsMouse ? root.cSurface : "transparent"
+                    border.width: 1; border.color: root.cSurface2
+                    LogosText { anchors.centerIn: parent; text: "👤 Identities"; color: root.cText; font.pixelSize: 14 }
+                    MouseArea { id: idsMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { root.refreshIdentities(); identitiesPopup.open() } }
+                }
             }
         }
 
         // ── pane 2: month ──────────────────────────────────────────────────
-        ColumnLayout {
+        Rectangle {
             SplitView.fillWidth: true
             SplitView.minimumWidth: 380
+            color: root.cBase
+            ColumnLayout {
+            anchors.fill: parent
             spacing: 0
 
             RowLayout {
                 Layout.fillWidth: true
                 Layout.margins: Theme.spacing.medium
                 spacing: Theme.spacing.small
-                LogosButton { text: "‹"; onClicked: root.viewMonth = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth() - 1, 1) }
+                Rectangle {
+                    implicitWidth: 34; implicitHeight: 34; radius: 9
+                    color: navPrev.containsMouse ? root.cSurface2 : root.cSurface
+                    LogosText { anchors.centerIn: parent; text: "‹"; color: root.cText; font.pixelSize: 18 }
+                    MouseArea { id: navPrev; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: root.viewMonth = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth() - 1, 1) }
+                }
+                Rectangle {
+                    implicitWidth: 34; implicitHeight: 34; radius: 9
+                    color: navNext.containsMouse ? root.cSurface2 : root.cSurface
+                    LogosText { anchors.centerIn: parent; text: "›"; color: root.cText; font.pixelSize: 18 }
+                    MouseArea { id: navNext; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: root.viewMonth = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth() + 1, 1) }
+                }
                 LogosText {
                     text: root.monthNames[root.viewMonth.getMonth()] + " " + root.viewMonth.getFullYear()
-                    color: Theme.palette.text; font.pixelSize: 20; font.weight: Theme.typography.weightMedium
-                    Layout.minimumWidth: 160
+                    color: root.cText; font.pixelSize: 20; font.weight: Theme.typography.weightMedium
+                    Layout.leftMargin: 4
                 }
-                LogosButton { text: "›"; onClicked: root.viewMonth = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth() + 1, 1) }
-                LogosButton { text: "Today"; onClicked: { var n = new Date(); root.viewMonth = n; root.selectedDay = n } }
+                Rectangle {
+                    implicitWidth: todayT.implicitWidth + 26; implicitHeight: 30; radius: 15
+                    color: todayMA.containsMouse ? root.cSurface : "transparent"
+                    border.width: 1; border.color: root.cSurface2
+                    Layout.leftMargin: 4
+                    LogosText { id: todayT; anchors.centerIn: parent; text: "Today"; color: root.cSub; font.pixelSize: 13 }
+                    MouseArea { id: todayMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: { var n = new Date(); root.viewMonth = n; root.selectedDay = n } }
+                }
                 Item { Layout.fillWidth: true }
-                LogosButton { text: "Debug"; onClicked: root.openDiag() }
-                LogosButton { text: "+ Event"; onClicked: root.openNewEvent() }
+                Rectangle {
+                    implicitWidth: dbgT.implicitWidth + 22; implicitHeight: 30; radius: 8
+                    color: dbgMA.containsMouse ? root.cSurface : "transparent"
+                    LogosText { id: dbgT; anchors.centerIn: parent; text: "Debug"; color: root.cFaint; font.pixelSize: 12 }
+                    MouseArea { id: dbgMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openDiag() }
+                }
+                Rectangle {
+                    implicitWidth: addT.implicitWidth + 30; implicitHeight: 34; radius: 9
+                    color: addMA.containsMouse ? Qt.darker(root.cBlue, 1.12) : root.cBlue
+                    LogosText { id: addT; anchors.centerIn: parent; text: "+ Event"; color: root.cCrust; font.pixelSize: 13; font.weight: Theme.typography.weightMedium }
+                    MouseArea { id: addMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openNewEvent() }
+                }
             }
 
             RowLayout {
                 Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium; spacing: 2
                 Repeater {
                     model: root.weekDays
-                    LogosText { text: modelData; color: Theme.palette.textTertiary; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true }
+                    LogosText { text: modelData; color: root.cSub; font.pixelSize: 11; font.weight: Theme.typography.weightMedium; horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true }
                 }
             }
 
@@ -503,7 +572,7 @@ Item {
                     delegate: Rectangle {
                         id: cell
                         Layout.fillWidth: true; Layout.fillHeight: true
-                        radius: Theme.spacing.radiusSmall
+                        radius: 10
                         property date cellDate: {
                             var first = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth(), 1)
                             var offset = (first.getDay() + 6) % 7
@@ -512,29 +581,36 @@ Item {
                         property bool inMonth: cellDate.getMonth() === root.viewMonth.getMonth()
                         property bool isToday: root.sameDay(cellDate, new Date())
                         property bool isSel: root.sameDay(cellDate, root.selectedDay)
-                        color: isSel ? Theme.palette.backgroundSecondary : Theme.palette.backgroundInset
+                        color: isSel ? root.cSurface : (cellMA.containsMouse ? root.cMantle : "transparent")
                         border.width: isSel ? 1 : 0
-                        border.color: Theme.palette.primary
+                        border.color: root.cBlue
 
                         Column {
-                            anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 5; spacing: 3
-                            LogosText {
-                                text: cell.cellDate.getDate()
-                                color: cell.isToday ? Theme.palette.primary : (cell.inMonth ? Theme.palette.text : Theme.palette.textTertiary)
-                                font.pixelSize: 13
-                                font.weight: cell.isToday ? Theme.typography.weightMedium : Font.Normal
+                            anchors.left: parent.left; anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 7; spacing: 4
+                            // today = a filled accent circle behind the date (Google-style); else a plain number
+                            Rectangle {
+                                width: 22; height: 22; radius: 11
+                                color: cell.isToday ? root.cYellow : "transparent"
+                                LogosText {
+                                    anchors.centerIn: parent
+                                    text: cell.cellDate.getDate()
+                                    color: cell.isToday ? root.cCrust : (cell.inMonth ? root.cText : root.cFaint)
+                                    font.pixelSize: 13
+                                    font.weight: cell.isToday ? Theme.typography.weightMedium : Font.Normal
+                                }
                             }
                             Row {
-                                spacing: 2
+                                spacing: 3
                                 Repeater {
                                     model: root.dotsOnDay(cell.cellDate)
                                     Rectangle { width: 6; height: 6; radius: 3; color: modelData }
                                 }
                             }
                         }
-                        MouseArea { anchors.fill: parent; onClicked: root.selectedDay = cell.cellDate }
+                        MouseArea { id: cellMA; anchors.fill: parent; hoverEnabled: true; onClicked: root.selectedDay = cell.cellDate }
                     }
                 }
+            }
             }
         }
 
@@ -542,7 +618,7 @@ Item {
         Rectangle {
             SplitView.preferredWidth: 320
             SplitView.minimumWidth: 220
-            color: Theme.palette.backgroundInset
+            color: root.cMantle
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: Theme.spacing.medium
@@ -550,13 +626,13 @@ Item {
 
                 LogosText {
                     text: Qt.formatDate(root.selectedDay, "dddd")
-                    color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightMedium
+                    color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium
                 }
                 LogosText {
                     text: Qt.formatDate(root.selectedDay, "MMMM d, yyyy")
-                    color: Theme.palette.textSecondary; font.pixelSize: 13
+                    color: root.cSub; font.pixelSize: 13
                 }
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderHairline }
+                Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2 }
 
                 Item {
                     Layout.fillWidth: true; Layout.fillHeight: true
@@ -566,17 +642,17 @@ Item {
                         model: root.eventsOnDay(root.selectedDay)
                         spacing: Theme.spacing.small
                         delegate: Rectangle {
-                            width: dayList.width; height: 62; radius: Theme.spacing.radiusMedium
-                            color: Theme.palette.backgroundSecondary
+                            width: dayList.width; height: 62; radius: 12
+                            color: evMA.containsMouse ? root.cSurface2 : root.cSurface
                             RowLayout {
                                 anchors.fill: parent; anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
-                                Rectangle { width: 5; height: 42; radius: 3; color: root.calColor(modelData.calendarId); Layout.alignment: Qt.AlignVCenter }
+                                Rectangle { width: 4; height: 42; radius: 2; color: root.calColor(modelData.calendarId); Layout.alignment: Qt.AlignVCenter }
                                 ColumnLayout {
                                     Layout.fillWidth: true; spacing: 2
-                                    LogosText { text: modelData.title || "(untitled)"; color: Theme.palette.text; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
                                     LogosText {
                                         text: root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime)
-                                        color: Theme.palette.textSecondary; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true
+                                        color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true
                                     }
                                     LogosText {
                                         text: root.calName(modelData.calendarId); visible: text.length > 0
@@ -584,7 +660,7 @@ Item {
                                     }
                                 }
                             }
-                            MouseArea { anchors.fill: parent; onClicked: root.openEditEvent(modelData) }
+                            MouseArea { id: evMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
                         }
                     }
                     LogosText {
@@ -592,7 +668,7 @@ Item {
                         visible: dayList.count === 0
                         text: "No events on this day.\nClick “+ Event” to add one."
                         horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
-                        color: Theme.palette.textTertiary; font.pixelSize: 13
+                        color: root.cFaint; font.pixelSize: 13
                     }
                 }
             }
