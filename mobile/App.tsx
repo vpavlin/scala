@@ -423,7 +423,7 @@ export default function App() {
     const start = q ? now.getTime() - 30 * 864e5 : t0.getTime();
     const end = q ? now.getTime() + 365 * 864e5 : t0.getTime() + 90 * 864e5;
     let occ = expandEvents(events, start, end);
-    if (q) occ = occ.filter((o) => `${o.title || ""} ${o.location || ""} ${o.description || ""}`.toLowerCase().includes(q));
+    if (q) occ = occ.filter((o) => `${o.title || ""} ${o.location || ""} ${o.description || ""} ${Object.values((o as any).fields || {}).join(" ")}`.toLowerCase().includes(q));
     occ.sort((a, b) => a.startTime - b.startTime);
     const groups: { key: string; date: Date; items: CalEvent[] }[] = [];
     for (const o of occ) {

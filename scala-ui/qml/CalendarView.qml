@@ -307,6 +307,23 @@ Item {
         return cols
     }
     function fmtTime(ms) { return Qt.formatTime(new Date(ms), "hh:mm") }
+    // ── search (#) — match events across ALL dates by title/location/notes/calendar/fields ──
+    property string searchQuery: ""
+    function eventsMatching(q) {
+        q = (q || "").trim().toLowerCase()
+        if (q === "") return []
+        var src = eventsFiltered(); var out = []
+        for (var i = 0; i < src.length; i++) {
+            var ev = src[i]
+            var hay = ((ev.title || "") + " " + (ev.location || "") + " " + (ev.description || "") + " " + calName(ev.calendarId)).toLowerCase()
+            if (ev.fields) for (var k in ev.fields) hay += " " + String(ev.fields[k]).toLowerCase()
+            if (hay.indexOf(q) >= 0) out.push(ev)
+        }
+        out.sort(function (a, b) { return a.startTime - b.startTime })
+        return out
+    }
+    readonly property bool searching: root.searchQuery.trim() !== ""
+    readonly property var searchResults: root.searching ? root.eventsMatching(root.searchQuery) : []
     function pad(n) { return (n < 10 ? "0" : "") + n }
     function fmtDateInput(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) }
     function fmtTimeInput(d) { return pad(d.getHours()) + ":" + pad(d.getMinutes()) }
@@ -624,13 +641,33 @@ Item {
                 anchors.margins: Theme.spacing.medium
                 spacing: Theme.spacing.small
 
+                // Search — matches title/location/notes/calendar/fields across ALL dates; when filled,
+                // the list below shows results (with each event's date) instead of the selected day.
+                Rectangle {
+                    Layout.fillWidth: true; implicitHeight: 34; radius: 9
+                    color: root.cBase; border.width: 1; border.color: searchField.activeFocus ? root.cBlue : root.cSurface2
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 6; spacing: 6
+                        LogosText { text: "🔍"; font.pixelSize: 12; color: root.cSub }
+                        TextField {
+                            id: searchField
+                            Layout.fillWidth: true; placeholderText: "Search events…"
+                            color: root.cText; font.pixelSize: 13; background: Item {}
+                            onTextChanged: root.searchQuery = text
+                        }
+                        LogosText {
+                            visible: root.searchQuery.length > 0; text: "✕"; color: root.cSub; font.pixelSize: 13
+                            MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: { searchField.text = ""; root.searchQuery = "" } }
+                        }
+                    }
+                }
                 LogosText {
-                    text: Qt.formatDate(root.selectedDay, "dddd")
+                    text: root.searching ? (root.searchResults.length + " result" + (root.searchResults.length === 1 ? "" : "s")) : Qt.formatDate(root.selectedDay, "dddd")
                     color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium
                 }
                 LogosText {
-                    text: Qt.formatDate(root.selectedDay, "MMMM d, yyyy")
-                    color: root.cSub; font.pixelSize: 13
+                    text: root.searching ? ("for “" + root.searchQuery.trim() + "”") : Qt.formatDate(root.selectedDay, "MMMM d, yyyy")
+                    color: root.cSub; font.pixelSize: 13; elide: Text.ElideRight; Layout.fillWidth: true
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2 }
 
@@ -639,7 +676,7 @@ Item {
                     ListView {
                         id: dayList
                         anchors.fill: parent; clip: true
-                        model: root.eventsOnDay(root.selectedDay)
+                        model: root.searching ? root.searchResults : root.eventsOnDay(root.selectedDay)
                         spacing: Theme.spacing.small
                         delegate: Rectangle {
                             width: dayList.width; height: 62; radius: 12
@@ -651,7 +688,7 @@ Item {
                                     Layout.fillWidth: true; spacing: 2
                                     LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
                                     LogosText {
-                                        text: root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime)
+                                        text: (root.searching ? Qt.formatDate(new Date(modelData.startTime), "ddd MMM d") + " · " : "") + root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime)
                                         color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true
                                     }
                                     LogosText {
@@ -666,7 +703,7 @@ Item {
                     LogosText {
                         anchors.centerIn: parent; width: parent.width - 20
                         visible: dayList.count === 0
-                        text: "No events on this day.\nClick “+ Event” to add one."
+                        text: root.searching ? "No events match your search." : "No events on this day.\nClick “+ Event” to add one."
                         horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
                         color: root.cFaint; font.pixelSize: 13
                     }
