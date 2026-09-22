@@ -103,6 +103,9 @@ int main(int argc, char **argv) {
 
     // Let the 3s poll + first frame settle, then screenshot each surface in turn.
     QTimer::singleShot(1200, [&] { grab(&view, out + "/01-main.png"); });
+    // Day timeline view (calMode "day") — hour-bucketed schedule.
+    QTimer::singleShot(1300, [&] { runJs(&view, "calMode='day'"); });
+    QTimer::singleShot(1450, [&] { grab(&view, out + "/07-day.png"); runJs(&view, "calMode='month'"); });
     // New-calendar dialog now has the custom-fields editor (matches settings).
     QTimer::singleShot(1600, [&] { runJs(&view, "openEditEvent(events[0])"); });
     QTimer::singleShot(2000, [&] { grab(&view, out + "/01-edit-others.png"); runJs(&view, "eventPopup.close()"); });

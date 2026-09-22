@@ -217,6 +217,27 @@ Item {
     function evColor(ev) { return (ev && ev.color) ? ev.color : root.calColor(ev ? ev.calendarId : "") }
     // Per-event colour swatches (Catppuccin accents); "" = default = the calendar colour.
     readonly property var evSwatches: ["#89b4fa","#a6e3a1","#f9e2af","#fab387","#f38ba8","#cba6f7","#94e2d5","#f5c2e7"]
+    // Day timeline (calMode "day"): all-day band + hour-bucketed schedule for a day.
+    function dayAllDay(d) { var a = root.eventsOnDay(d); var out = []; for (var i = 0; i < a.length; i++) if (a[i].allDay) out.push(a[i]); return out }
+    function dayTimeline(d) {
+        var a = root.eventsOnDay(d); var timed = []
+        for (var i = 0; i < a.length; i++) if (!a[i].allDay) timed.push(a[i])
+        timed.sort(function (x, y) { return x.startTime - y.startTime })
+        var lo = 8, hi = 20
+        for (var j = 0; j < timed.length; j++) {
+            var s = new Date(timed[j].startTime).getHours()
+            var e = new Date(timed[j].endTime); var eh = e.getHours() + (e.getMinutes() > 0 ? 1 : 0)
+            lo = Math.min(lo, s); hi = Math.max(hi, Math.min(23, eh))
+        }
+        var rows = []
+        for (var h = lo; h <= hi; h++) {
+            var items = []
+            for (var k = 0; k < timed.length; k++) if (new Date(timed[k].startTime).getHours() === h) items.push(timed[k])
+            rows.push({ hour: h, items: items })
+        }
+        return rows
+    }
+    function hh(h) { return (h < 10 ? "0" + h : "" + h) + ":00" }
     function writableCalendars() {
         var out = []
         for (var i = 0; i < calendars.length; i++) if (calendars[i].encryptionKey || calendars[i].creatorId !== undefined) out.push(calendars[i])
@@ -350,10 +371,12 @@ Item {
     }
     function goPrev() {
         if (calMode === "week") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() - 7); selectedDay = d; viewMonth = d }
+        else if (calMode === "day") { var dd = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() - 1); selectedDay = dd; viewMonth = dd }
         else viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1)
     }
     function goNext() {
         if (calMode === "week") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() + 7); selectedDay = d; viewMonth = d }
+        else if (calMode === "day") { var dd = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() + 1); selectedDay = dd; viewMonth = dd }
         else viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1)
     }
     function pad(n) { return (n < 10 ? "0" : "") + n }
@@ -573,7 +596,9 @@ Item {
                         onClicked: root.goNext() }
                 }
                 LogosText {
-                    text: root.calMode === "week" ? root.weekLabel(root.selectedDay) : root.monthNames[root.viewMonth.getMonth()] + " " + root.viewMonth.getFullYear()
+                    text: root.calMode === "week" ? root.weekLabel(root.selectedDay)
+                        : root.calMode === "day" ? Qt.formatDate(root.selectedDay, "dddd, MMMM d")
+                        : root.monthNames[root.viewMonth.getMonth()] + " " + root.viewMonth.getFullYear()
                     color: root.cText; font.pixelSize: 20; font.weight: Theme.typography.weightMedium
                     Layout.leftMargin: 4
                 }
@@ -584,7 +609,7 @@ Item {
                     Row {
                         id: modeRow; anchors.centerIn: parent; spacing: 2
                         Repeater {
-                            model: [{ m: "month", t: "Month" }, { m: "week", t: "Week" }]
+                            model: [{ m: "month", t: "Month" }, { m: "week", t: "Week" }, { m: "day", t: "Day" }]
                             Rectangle {
                                 width: segT.implicitWidth + 18; height: 26; radius: 7
                                 color: root.calMode === modelData.m ? root.cBlue : "transparent"
@@ -741,6 +766,71 @@ Item {
                             }
                         }
                         MouseArea { anchors.fill: parent; z: -1; onClicked: root.selectedDay = modelData }
+                    }
+                }
+            }
+
+            // ── day timeline: all-day band + hour-bucketed schedule for the selected day ──
+            ColumnLayout {
+                visible: root.calMode === "day"
+                Layout.fillWidth: true; Layout.fillHeight: true
+                Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium
+                Layout.topMargin: 4; Layout.bottomMargin: Theme.spacing.medium; spacing: 6
+
+                Flow {
+                    Layout.fillWidth: true; spacing: 6
+                    visible: root.calMode === "day" && root.dayAllDay(root.selectedDay).length > 0
+                    Repeater {
+                        model: root.calMode === "day" ? root.dayAllDay(root.selectedDay) : []
+                        delegate: Rectangle {
+                            radius: 8; color: root.cSurface; border.width: 1; border.color: root.cSurface2
+                            implicitWidth: adRow.implicitWidth + 16; height: 30
+                            Row {
+                                id: adRow; anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 8; spacing: 6
+                                Rectangle { width: 3; height: 16; radius: 1.5; color: root.evColor(modelData); anchors.verticalCenter: parent.verticalCenter }
+                                LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
+                        }
+                    }
+                }
+
+                Flickable {
+                    Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                    contentHeight: hourCol.height; boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar {}
+                    Column {
+                        id: hourCol; width: parent.width; spacing: 0
+                        Repeater {
+                            model: root.calMode === "day" ? root.dayTimeline(root.selectedDay) : []
+                            delegate: Row {
+                                width: hourCol.width; spacing: 8
+                                property var rowItems: modelData.items
+                                property bool nowHour: root.sameDay(root.selectedDay, new Date()) && new Date().getHours() === modelData.hour
+                                LogosText { width: 46; text: root.hh(modelData.hour); color: parent.nowHour ? root.cYellow : root.cSub; font.pixelSize: 11; topPadding: 8; font.weight: parent.nowHour ? Theme.typography.weightBold : Font.Normal }
+                                Column {
+                                    width: hourCol.width - 54; spacing: 6; topPadding: 6; bottomPadding: 6
+                                    Rectangle { width: parent.width; height: 1; color: root.cSurface2 }
+                                    Repeater {
+                                        model: rowItems
+                                        delegate: Rectangle {
+                                            width: parent.width; radius: 10; color: evMA2.containsMouse ? root.cSurface2 : root.cSurface
+                                            border.width: 1; border.color: root.cSurface2
+                                            implicitHeight: evCol2.implicitHeight + 16
+                                            Rectangle { anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.margins: 6; width: 3; radius: 1.5; color: root.evColor(modelData) }
+                                            Column {
+                                                id: evCol2
+                                                anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                                anchors.leftMargin: 16; anchors.rightMargin: 10; spacing: 2
+                                                LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; width: parent.width }
+                                                LogosText { text: root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime) + (modelData.location ? " · " + modelData.location : ""); color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; width: parent.width }
+                                            }
+                                            MouseArea { id: evMA2; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

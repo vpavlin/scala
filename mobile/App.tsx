@@ -124,7 +124,7 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e); }
 export default function App() {
   const [cals, setCals] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
-  const [viewMode, setViewMode] = useState<"month" | "week" | "agenda">("month"); // month grid / week strip / upcoming agenda
+  const [viewMode, setViewMode] = useState<"month" | "week" | "day" | "agenda">("month"); // month grid / week strip / day timeline / upcoming agenda
   const [query, setQuery] = useState(""); // agenda search
   const [status, setStatus] = useState("starting");
   const [shared, setShared] = useState(false);
@@ -442,6 +442,22 @@ export default function App() {
     const de = new Date(selected); de.setHours(23, 59, 59, 999);
     return expandEvents(events, ds.getTime(), de.getTime()).filter((o) => sameDay(new Date(o.startTime), selected));
   }, [events, selected]);
+  // Day timeline: split the selected day into all-day events + an hour-bucketed schedule.
+  // Rows run from a little before the first event to a little after the last (default 8–20),
+  // so a venue day reads as a per-hour agenda without scrolling through empty small hours.
+  const dayTimeline = useMemo(() => {
+    const allDay = dayEvents.filter((e) => e.allDay);
+    const timed = dayEvents.filter((e) => !e.allDay).sort((a, b) => a.startTime - b.startTime);
+    let lo = 8, hi = 20;
+    for (const e of timed) {
+      const sh = new Date(e.startTime).getHours();
+      const eh = new Date(e.endTime).getHours() + (new Date(e.endTime).getMinutes() > 0 ? 1 : 0);
+      lo = Math.min(lo, sh); hi = Math.max(hi, Math.min(23, eh));
+    }
+    const hours: { hour: number; items: CalEvent[] }[] = [];
+    for (let h = lo; h <= hi; h++) hours.push({ hour: h, items: timed.filter((e) => new Date(e.startTime).getHours() === h) });
+    return { allDay, hours, hasTimed: timed.length > 0 };
+  }, [dayEvents]);
   // Week strip (mobile week view): Mon–Sun of the selected day's week + their event dots.
   const weekDays = useMemo(() => {
     const mon = new Date(selected); mon.setHours(0, 0, 0, 0); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
@@ -690,9 +706,9 @@ export default function App() {
         {/* view toggle + search */}
         <View style={s.viewBar}>
           <View style={s.segment}>
-            {(["month", "week", "agenda"] as const).map((m) => (
+            {(["month", "week", "day", "agenda"] as const).map((m) => (
               <Pressable key={m} onPress={() => setViewMode(m)} style={[s.segBtn, viewMode === m && s.segBtnOn]}>
-                <Text style={[s.segT, viewMode === m && s.segTOn]}>{m === "month" ? "Month" : m === "week" ? "Week" : "Agenda"}</Text>
+                <Text style={[s.segT, viewMode === m && s.segTOn]}>{m === "month" ? "Month" : m === "week" ? "Week" : m === "day" ? "Day" : "Agenda"}</Text>
               </Pressable>
             ))}
           </View>
@@ -764,6 +780,44 @@ export default function App() {
             </Pressable>
           ))}
           <View style={{ height: 90 }} />
+        </ScrollView>
+        </>) : viewMode === "day" ? (<>
+        <View style={s.dayHead}>
+          <Text style={s.dayTitle}>{selected.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text>
+        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 90 }}>
+          {dayTimeline.allDay.length > 0 && (
+            <View style={s.allDayBand}>
+              {dayTimeline.allDay.map((ev) => (
+                <Pressable key={`${ev.id}-ad`} onPress={() => openEdit(ev)} style={[s.allDayChip, { borderLeftColor: evColor(ev) }]}>
+                  <Text style={s.allDayChipT} numberOfLines={1}>{ev.title || "(untitled)"}{ev.recur ? "  ↻" : ""}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          {!dayTimeline.hasTimed && dayTimeline.allDay.length === 0 && (
+            <Text style={[s.sub, { padding: 16 }]}>No events. Tap + to add one.</Text>
+          )}
+          {dayTimeline.hasTimed && dayTimeline.hours.map(({ hour, items }) => {
+            const isNowHour = sameDay(selected, new Date()) && new Date().getHours() === hour;
+            return (
+              <View key={hour} style={s.hourRow}>
+                <Text style={[s.hourLabel, isNowHour && { color: C.today, fontWeight: "700" }]}>{String(hour).padStart(2, "0")}:00</Text>
+                <View style={s.hourLine}>
+                  {items.length === 0 ? <View style={s.hourEmpty} /> : items.map((ev) => (
+                    <Pressable key={`${ev.id}-${ev.startTime}`} onPress={() => openEdit(ev)} style={[s.hourEvent, { borderLeftColor: evColor(ev) }]}>
+                      <Text style={s.evTitle} numberOfLines={1}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+                      <Text style={s.sub} numberOfLines={1}>
+                        {new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – {new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                        {ev.location ? ` · ${ev.location}` : ""}
+                      </Text>
+                      <EventBadges ev={ev} />
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            );
+          })}
         </ScrollView>
         </>) : (
         <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
@@ -1198,6 +1252,15 @@ const s = StyleSheet.create({
   dayHead: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4, borderTopWidth: 1, borderTopColor: C.border, marginTop: 6 },
   dayTitle: { color: C.text, fontSize: 15, fontWeight: "700" },
   event: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.surface, borderRadius: 10, padding: 12, marginHorizontal: 12, marginTop: 8, borderWidth: 1, borderColor: C.border },
+  // Day timeline
+  allDayBand: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
+  allDayChip: { backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, paddingHorizontal: 10, paddingVertical: 6, maxWidth: "100%" },
+  allDayChipT: { color: C.text, fontSize: 13, fontWeight: "600" },
+  hourRow: { flexDirection: "row", paddingHorizontal: 12, minHeight: 44 },
+  hourLabel: { color: C.sub, fontSize: 11, fontWeight: "600", width: 46, paddingTop: 8 },
+  hourLine: { flex: 1, borderTopWidth: 1, borderTopColor: C.border, paddingBottom: 6 },
+  hourEmpty: { height: 32 },
+  hourEvent: { backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, padding: 10, marginTop: 6 },
   evTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
   sub: { color: C.sub, fontSize: 12 },
   dot: { width: 12, height: 12, borderRadius: 6 },
