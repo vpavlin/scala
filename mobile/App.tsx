@@ -331,9 +331,9 @@ export default function App() {
         Alert.alert("Imported ✅", `${parsed.length} event(s) added to ${calSet.cal.name}.`);
       };
       // A Keycard-bound calendar signs each event with a physical tap — a silent N-tap bulk import
-      // is easy to abandon half-done, so warn (and let the user bail) before starting.
-      const boundId = (await calendarIdentityId(cid)) || (await getDefaultIdentityId());
-      if (parsed.length > 1 && boundId && kcFor[boundId]) {
+      // is easy to abandon half-done, so warn (and let the user bail) before starting. kcFor is keyed
+      // by CALENDAR id (see its build at the kcFor effect + the kcFor[c.id] badge), so key on cid.
+      if (parsed.length > 1 && kcFor[cid]) {
         Alert.alert("Keycard calendar",
           `This calendar signs with a Keycard, so importing ${parsed.length} events needs ${parsed.length} card taps (one per event). Continue?`,
           [{ text: "Cancel", style: "cancel" },

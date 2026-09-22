@@ -200,8 +200,10 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
           // it isn't granted we'd throw and every export/attachment-save would silently "fail". Fall
           // back to the app-specific external dir (needs no permission) so the save always succeeds.
           val ctx = reactApplicationContext
-          val granted = androidx.core.content.ContextCompat.checkSelfPermission(
-            ctx, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+          // Context.checkSelfPermission is API 23+ (minSdk is 24, and this branch is API < 29), so no
+          // androidx/ContextCompat dependency is needed.
+          val granted = ctx.checkSelfPermission(
+            android.Manifest.permission.WRITE_EXTERNAL_STORAGE
           ) == android.content.pm.PackageManager.PERMISSION_GRANTED
           val dir = if (granted)
             android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
