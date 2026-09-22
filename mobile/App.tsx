@@ -2,10 +2,11 @@
 // Month grid + day detail + event editor; calendars live in a left drawer.
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
-  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator, ToastAndroid,
+  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator, ToastAndroid, Animated,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { GestureHandlerRootView, GestureDetector, Gesture } from "react-native-gesture-handler";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { store, Calendar, CalEvent, colorForId } from "./src/lib/store";
 import {
@@ -20,7 +21,7 @@ const FIELD_TYPES = ["text", "longtext", "number", "date", "datetime", "bool", "
 import { deliveryAvailable, getDebug, refreshDebug } from "./src/lib/scala-sync";
 import { SharedNodeStatus } from "./src/lib/loam-transport-pkg/src/SharedNodeStatus";
 import { ensureNotifyPermission, scheduleReminders } from "./src/lib/notify";
-import { MonthGrid } from "./src/components/MonthGrid";
+import { MonthGrid, CellRect } from "./src/components/MonthGrid";
 import { expandEvents } from "./src/lib/recur";
 import { EventModal, EventDraft } from "./src/components/EventModal";
 import { Drawer } from "./src/components/Drawer";
@@ -637,6 +638,51 @@ export default function App() {
       if (!raw.includes("cancelled")) Alert.alert("Couldn't duplicate", raw + "\n\nNothing was saved."); // explicit failure
     } finally { dupBusy.current = false; }
   };
+  // ── drag-drop: press-hold a day-list event and drop it on a month-grid day to move it ──
+  const cellRects = useRef<Record<string, CellRect>>({});
+  const onCellLayout = useCallback((r: CellRect) => { cellRects.current[r.date.toISOString()] = r; }, []);
+  const dragXY = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const [dragEv, setDragEv] = useState<CalEvent | null>(null);
+  const [dropDate, setDropDate] = useState<Date | null>(null);
+  const lastDrop = useRef<string>("");   // guard: only setState when the hovered cell changes
+  const hitTestCell = (x: number, y: number): Date | null => {
+    for (const k in cellRects.current) {
+      const r = cellRects.current[k];
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r.date;
+    }
+    return null;
+  };
+  // Move an event's series master to `day`, preserving time-of-day + duration (mirrors desktop).
+  const moveEvent = async (occ: CalEvent, day: Date) => {
+    const m = events.find((e) => e.id === occ.id) || occ;   // edit the master (recurrence-safe)
+    const st = new Date(m.startTime);
+    if (sameDay(st, day)) return;                            // dropped on its own day — no-op
+    const dur = m.endTime - m.startTime;
+    const ns = new Date(day.getFullYear(), day.getMonth(), day.getDate(), st.getHours(), st.getMinutes(), 0, 0);
+    const up = { ...m, startTime: ns.getTime(), endTime: ns.getTime() + dur };
+    try {
+      await updateEvent(up);
+      await refresh();
+      ToastAndroid.show("Moved to " + ns.toLocaleDateString(undefined, { month: "short", day: "numeric" }), ToastAndroid.SHORT);
+    } catch (e: any) { onKeycardAbort(e, () => moveEvent(occ, day)); }
+  };
+  // A per-card long-press→pan gesture. Runs on the JS thread (no reanimated installed).
+  const makeDragGesture = (occ: CalEvent) =>
+    Gesture.Pan()
+      .activateAfterLongPress(250)
+      .onStart((e) => { setDragEv(occ); lastDrop.current = ""; setDropDate(null); dragXY.setValue({ x: e.absoluteX, y: e.absoluteY }); })
+      .onUpdate((e) => {
+        dragXY.setValue({ x: e.absoluteX, y: e.absoluteY });
+        const d = hitTestCell(e.absoluteX, e.absoluteY);
+        const key = d ? d.toISOString() : "";
+        if (key !== lastDrop.current) { lastDrop.current = key; setDropDate(d); }
+      })
+      .onEnd((e) => {
+        const d = hitTestCell(e.absoluteX, e.absoluteY);
+        if (d) moveEvent(occ, d);
+        setDragEv(null); setDropDate(null); lastDrop.current = "";
+      })
+      .onFinalize(() => { setDragEv(null); setDropDate(null); lastDrop.current = ""; });
   // ADR 0017: fetch a sealed attachment from Logos Storage, decrypt it with the calendar key, save.
   const openAttachment = async (att: Attachment) => {
     const cal = cals.find((c) => c.id === modal.calId);
@@ -703,6 +749,7 @@ export default function App() {
   const shiftMonth = (delta: number) => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <SafeAreaView style={s.root} edges={["top", "left", "right", "bottom"]}>
         <StatusBar style="light" />
@@ -746,29 +793,33 @@ export default function App() {
           <MonthGrid
             month={cursor.getMonth()} year={cursor.getFullYear()}
             events={monthEvents} selected={selected} colorFor={colorFor} onSelect={setSelected}
+            onCellLayout={onCellLayout} dropDate={dropDate}
           />
         </View>
 
         <View style={s.dayHead}>
           <Text style={s.dayTitle}>{selected.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text>
+          {dayEvents.length > 0 && <Text style={s.sub}>Hold an event, then drag it onto a day to move it.</Text>}
         </View>
-        <ScrollView style={{ flex: 1 }}>
+        <ScrollView style={{ flex: 1 }} scrollEnabled={!dragEv}>
           {dayEvents.length === 0 && <Text style={[s.sub, { padding: 16 }]}>No events. Tap + to add one.</Text>}
           {dayEvents.map((ev) => (
-            <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
-              <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
-                <Text style={s.sub}>
-                  {ev.allDay
-                    ? "All day"
-                    : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
-                  {ev.location ? ` · ${ev.location}` : ""}
-                  {ev.description ? ` · ${ev.description}` : ""}
-                </Text>
-                <EventBadges ev={ev} />
-              </View>
-            </Pressable>
+            <GestureDetector key={`${ev.id}-${ev.startTime}`} gesture={makeDragGesture(ev)}>
+              <Pressable style={[s.event, dragEv?.id === ev.id && { opacity: 0.4 }]} onPress={() => openEdit(ev)}>
+                <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+                  <Text style={s.sub}>
+                    {ev.allDay
+                      ? "All day"
+                      : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
+                    {ev.location ? ` · ${ev.location}` : ""}
+                    {ev.description ? ` · ${ev.description}` : ""}
+                  </Text>
+                  <EventBadges ev={ev} />
+                </View>
+              </Pressable>
+            </GestureDetector>
           ))}
           <View style={{ height: 90 }} />
         </ScrollView>
@@ -1253,6 +1304,17 @@ export default function App() {
         />
       </SafeAreaView>
     </SafeAreaProvider>
+    {/* Floating drag proxy — screen-coord positioned (sibling of SafeAreaProvider) so it tracks the finger. */}
+    {dragEv && (
+      <Animated.View
+        pointerEvents="none"
+        style={[s.dragProxy, { transform: [{ translateX: Animated.subtract(dragXY.x, 80) }, { translateY: Animated.subtract(dragXY.y, 22) }] }]}
+      >
+        <View style={[s.dot, { backgroundColor: evColor(dragEv) }]} />
+        <Text style={[s.evTitle, { flexShrink: 1 }]} numberOfLines={1}>{dragEv.title || "(untitled)"}</Text>
+      </Animated.View>
+    )}
+    </GestureHandlerRootView>
   );
 }
 
@@ -1282,6 +1344,7 @@ const s = StyleSheet.create({
   dayHead: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4, borderTopWidth: 1, borderTopColor: C.border, marginTop: 6 },
   dayTitle: { color: C.text, fontSize: 15, fontWeight: "700" },
   event: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.surface, borderRadius: 10, padding: 12, marginHorizontal: 12, marginTop: 8, borderWidth: 1, borderColor: C.border },
+  dragProxy: { position: "absolute", top: 0, left: 0, width: 160, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.surface, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: C.primary, zIndex: 9999, elevation: 12, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   // Day timeline
   allDayBand: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
   allDayChip: { backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, paddingHorizontal: 10, paddingVertical: 6, maxWidth: "100%" },
