@@ -1063,6 +1063,7 @@ Item {
         core("createEvent", [root.editCalId, JSON.stringify(nv)])
         root.lastCalId = root.editCalId
         eventPopup.close(); refresh()
+        root.notify("Event duplicated")
     }
     function deleteEvent() {
         if (editingEvent) core("deleteEvent", [editingEvent.id])

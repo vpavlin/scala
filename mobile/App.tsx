@@ -2,7 +2,7 @@
 // Month grid + day detail + event editor; calendars live in a left drawer.
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
-  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator,
+  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator, ToastAndroid,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -535,19 +535,25 @@ export default function App() {
     try { await deleteEvent(modal.editing); setModal((m) => ({ ...m, open: false })); } catch (e: any) { onKeycardAbort(e, () => removeEvent()); }
   };
   // Duplicate the event being edited → a new event with the same fields (same time; move/edit after).
+  const dupBusy = useRef(false);
   const duplicateEvent = async () => {
-    if (!modal.editing) return;
-    const s = modal.editing;
+    if (!modal.editing || dupBusy.current) return;   // guard against double-fire → multiple copies
+    dupBusy.current = true;
+    const s = modal.editing; const cid = modal.calId;
+    setModal((m) => ({ ...m, open: false }));         // close NOW so it can't be tapped again
     const copy = {
       title: (s.title || "(untitled)") + " (copy)", startTime: s.startTime, endTime: s.endTime,
       allDay: s.allDay, description: s.description, location: s.location, url: s.url,
       reminderMin: s.reminderMin, recur: s.recur, fields: (s as any).fields, attachments: s.attachments,
     };
     try {
-      await createEvent(modal.calId, copy as any);
+      await createEvent(cid, copy as any);
       await refresh();
-      setModal((m) => ({ ...m, open: false }));
-    } catch (e: any) { onKeycardAbort(e, () => duplicateEvent()); }
+      ToastAndroid.show("Event duplicated", ToastAndroid.SHORT);   // explicit success
+    } catch (e: any) {
+      const raw = String((e && e.message) || e || "");
+      if (!raw.includes("cancelled")) Alert.alert("Couldn't duplicate", raw + "\n\nNothing was saved."); // explicit failure
+    } finally { dupBusy.current = false; }
   };
   // ADR 0017: fetch a sealed attachment from Logos Storage, decrypt it with the calendar key, save.
   const openAttachment = async (att: Attachment) => {
