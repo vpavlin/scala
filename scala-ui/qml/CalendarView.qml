@@ -220,6 +220,9 @@ Item {
         for (var i = 0; i < calendars.length; i++) if (calendars[i].id === calId) return calendars[i].name
         return ""
     }
+    // My own RSVP (ADR 0021) on an event, for the at-a-glance card marker.
+    function myRsvpOf(ev) { if (!ev || !ev.rsvps) return ""; var me = root.addrFor(root.calById(ev.calendarId)); return (me && ev.rsvps[me]) || "" }
+    function rsvpMark(ev) { var s = root.myRsvpOf(ev); return s === "going" ? "✓ " : (s === "maybe" ? "? " : "") }
     // An event's colour IS its calendar's colour — the calendar is the event's identity here.
     // (A Frequencies-style app maps a custom-field value to colour itself; scala shows the field
     // value as a badge but keeps the event the calendar's colour — no per-event override.)
@@ -774,7 +777,7 @@ Item {
                                         Rectangle { width: 3; height: 22; radius: 1.5; color: root.evColor(modelData); Layout.alignment: Qt.AlignVCenter }
                                         ColumnLayout {
                                             Layout.fillWidth: true; spacing: 0
-                                            LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            LogosText { text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
                                             LogosText { text: root.fmtTime(modelData.startTime); color: root.cSub; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
                                         }
                                     }
@@ -810,7 +813,7 @@ Item {
                             Row {
                                 id: adRow; anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 8; spacing: 6
                                 Rectangle { width: 3; height: 16; radius: 1.5; color: root.evColor(modelData); anchors.verticalCenter: parent.verticalCenter }
-                                LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                                LogosText { text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
                             }
                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
                         }
@@ -844,7 +847,7 @@ Item {
                                                 id: evCol2
                                                 anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                                                 anchors.leftMargin: 16; anchors.rightMargin: 10; spacing: 2
-                                                LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; width: parent.width }
+                                                LogosText { text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; width: parent.width }
                                                 LogosText { text: root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime) + (modelData.location ? " · " + modelData.location : ""); color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; width: parent.width }
                                             }
                                             MouseArea { id: evMA2; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
@@ -915,7 +918,7 @@ Item {
                                 ColumnLayout {
                                     id: cardCol
                                     Layout.fillWidth: true; spacing: 2
-                                    LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    LogosText { text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
                                     LogosText {
                                         text: (root.searching ? Qt.formatDate(new Date(modelData.startTime), "ddd MMM d") + " · " : "") + root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime)
                                         color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true

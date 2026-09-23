@@ -96,10 +96,13 @@ function EventBadges({ ev }: { ev: any }) {
 }
 
 // Event title + a "syncing" pill when the event is saved locally but not yet on the wire (local-first).
-function EvTitle({ ev, pending, oneLine }: { ev: any; pending?: boolean; oneLine?: boolean }) {
+function EvTitle({ ev, pending, oneLine, myRsvp }: { ev: any; pending?: boolean; oneLine?: boolean; myRsvp?: string }) {
+  const no = myRsvp === "no"; // declined → recede (strikethrough + dim)
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
-      <Text style={s.evTitle} numberOfLines={oneLine ? 1 : undefined}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+      {myRsvp === "going" && <Text style={{ color: C.accent, fontSize: 14, fontWeight: "800" }}>✓</Text>}
+      {myRsvp === "maybe" && <Text style={{ color: C.today, fontSize: 14, fontWeight: "800" }}>?</Text>}
+      <Text style={[s.evTitle, no && { textDecorationLine: "line-through", color: C.sub }]} numberOfLines={oneLine ? 1 : undefined}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
       {pending && <Text style={s.syncPill}>⟳ syncing</Text>}
     </View>
   );
@@ -336,6 +339,8 @@ export default function App() {
     return () => { alive = false; };
   }, [cals, identities]);
   const addrFor = useCallback((c?: Calendar) => (c && meFor[c.id]) || me, [meFor, me]);
+  // My own RSVP status on an event (ADR 0021) — for the at-a-glance card marker.
+  const myRsvpFor = useCallback((ev: any) => (ev && ev.rsvps ? (ev.rsvps[addrFor(cals.find((c) => c.id === ev.calendarId))] || "") : ""), [cals, addrFor]);
   const isEditorMe = useCallback((c?: Calendar) => { if (!c) return true; const a = addrFor(c); return c.owner === a || c.roles?.[a] === "editor" || c.roles?.[a] === "admin"; }, [addrFor]);
   const isViewerMe = useCallback((c?: Calendar) => { if (!c) return false; return c.roles?.[addrFor(c)] === "viewer"; }, [addrFor]);
   const canAddTo = useCallback((c?: Calendar) => isEditorMe(c) || (!isViewerMe(c) && c?.open !== false), [isEditorMe, isViewerMe]);
@@ -857,7 +862,7 @@ export default function App() {
               <Pressable style={[s.event, dragEv?.id === ev.id && { opacity: 0.4 }]} onPress={() => openEdit(ev)}>
                 <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
                 <View style={{ flex: 1 }}>
-                  <EvTitle ev={ev} pending={pendingIds.has(ev.id)} />
+                  <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
                   <Text style={s.sub}>
                     {ev.allDay
                       ? "All day"
@@ -898,7 +903,7 @@ export default function App() {
             <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
               <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
               <View style={{ flex: 1 }}>
-                <EvTitle ev={ev} pending={pendingIds.has(ev.id)} />
+                <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
                 <Text style={s.sub}>{ev.allDay ? "All day" : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}{ev.location ? ` · ${ev.location}` : ""}</Text>
               </View>
             </Pressable>
@@ -930,7 +935,7 @@ export default function App() {
                 <View style={s.hourLine}>
                   {items.length === 0 ? <View style={s.hourEmpty} /> : items.map((ev) => (
                     <Pressable key={`${ev.id}-${ev.startTime}`} onPress={() => openEdit(ev)} style={[s.hourEvent, { borderLeftColor: evColor(ev) }]}>
-                      <EvTitle ev={ev} pending={pendingIds.has(ev.id)} oneLine />
+                      <EvTitle ev={ev} pending={pendingIds.has(ev.id)} oneLine myRsvp={myRsvpFor(ev)} />
                       <Text style={s.sub} numberOfLines={1}>
                         {new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – {new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                         {ev.location ? ` · ${ev.location}` : ""}
@@ -953,7 +958,7 @@ export default function App() {
                 <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
                   <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
                   <View style={{ flex: 1 }}>
-                    <EvTitle ev={ev} pending={pendingIds.has(ev.id)} />
+                    <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
                     <Text style={s.sub}>
                       {ev.allDay
                         ? "All day"
