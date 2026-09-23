@@ -39,7 +39,7 @@ export interface EventDraft {
 
 export interface CalOption { id: string; name: string; color: string }
 export interface FieldDef { key: string; label?: string; type?: string; options?: string[] }
-export interface HistoryEntry { author: string; at: number; action: string; payload: any }
+export interface HistoryEntry { author: string; at: number; action: string; payload: any; changed?: string[] }
 
 export function EventModal({
   visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onDuplicate, onClose,
@@ -405,7 +405,7 @@ export function EventModal({
               <View style={{ marginTop: 18 }}>
                 <Text style={s.label}>History</Text>
                 {history.map((h, i) => (
-                  <Text key={i} style={s.histLine}>· {h.action} by {shortDev(h.author)} — {fmtWhen(h.at)}</Text>
+                  <Text key={i} style={s.histLine}>· {h.action}{h.action === "edited" && h.changed && h.changed.length ? ` (${h.changed.join(", ")})` : ""} by {shortDev(h.author)} — {fmtWhen(h.at)}</Text>
                 ))}
               </View>
             )}

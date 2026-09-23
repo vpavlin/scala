@@ -318,21 +318,34 @@ export async function updateCalendarMeta(
 // Edit history (#4) for one event: the raw EVENT_PUT/EVENT_DEL entries for its id, in
 // time order — who changed it, when, and to what. The fold keeps only the final state,
 // so this reads the raw log. Idempotent duplicates share an id so they collapse.
+// Friendly label per payload field, for "what changed" on an edit (cheap consecutive-diff, #4).
+const HIST_FIELD_LABEL: Record<string, string> = {
+  title: "title", startTime: "time", endTime: "time", allDay: "all-day", location: "location",
+  url: "link", description: "notes", recur: "repeat", reminderMin: "reminder", fields: "details",
+};
 export async function getEventHistory(
   calId: string,
   eventId: string,
-): Promise<{ author: string; at: number; action: "created" | "edited" | "deleted"; payload: any }[]> {
+): Promise<{ author: string; at: number; action: "created" | "edited" | "deleted"; payload: any; changed?: string[] }[]> {
   const seen = new Set<string>();
   const entries = (await store.getLog(calId))
     .filter((e) => (e.type === ET.EVENT_PUT || e.type === ET.EVENT_DEL) && (e.payload as any)?.id === eventId)
     .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
     .sort((a, b) => a.hlc.wall - b.hlc.wall || (a.hlc.dev < b.hlc.dev ? -1 : a.hlc.dev > b.hlc.dev ? 1 : 0));
-  return entries.map((e, i) => ({
-    author: e.dev,
-    at: e.hlc.wall,
-    action: e.type === ET.EVENT_DEL ? "deleted" : i === 0 ? "created" : "edited",
-    payload: e.payload,
-  }));
+  return entries.map((e, i) => {
+    const action = e.type === ET.EVENT_DEL ? "deleted" : i === 0 ? "created" : "edited";
+    let changed: string[] | undefined;
+    if (action === "edited") {
+      const prev: any = entries[i - 1]?.payload || {};
+      const cur: any = e.payload || {};
+      const set = new Set<string>();
+      for (const k of Object.keys(HIST_FIELD_LABEL)) {
+        if (JSON.stringify(prev[k]) !== JSON.stringify(cur[k])) set.add(HIST_FIELD_LABEL[k]);
+      }
+      changed = [...set]; // e.g. ["time","location"] — empty if only non-user fields moved
+    }
+    return { author: e.dev, at: e.hlc.wall, action, payload: e.payload, changed };
+  });
 }
 
 // Roles (#3): grant/revoke a member by their device id (owner/admin only — the fold
