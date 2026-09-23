@@ -257,7 +257,7 @@ export default function App() {
     setPendingIds(new Set(pendingEventIds())); // events saved locally but not yet on the wire → shown, flagged
     scheduleReminders(evs); // #1: keep local event reminders in step with the data
     const am: Record<string, string> = {};
-    for (const c of cs) { const a = await getAlias(c.id); if (a) am[c.id] = a; }
+    await Promise.all(cs.map(async (c) => { const a = await getAlias(c.id); if (a) am[c.id] = a; })); // parallel, not sequential
     setAliasMap(am);
   }, []);
 

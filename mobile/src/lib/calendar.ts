@@ -8,7 +8,7 @@ import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { fromByteArray, toByteArray } from "base64-js";
 import { store, Calendar, CalEvent } from "./store";
-import { Event, ET, Clock, eventToJson, eventFromJson, foldCalendar } from "./engine";
+import { Event, ET, Clock, eventToJson, eventFromJson } from "./engine";
 import { utf8Bytes, utf8Decode } from "./utf8";
 import { authorEvent, defaultAddress, bindCalendar, identityForCalendar } from "./identities";
 import * as sstat from "./syncstatus";
@@ -192,7 +192,7 @@ function putPayload(id: string, f: any): any {
 // otherwise the fold silently drops the event and it looks like "save didn't save". Mirrors the
 // fold's canAdd / canEditExisting rules (engine.ts / scala_engine.hpp).
 async function assertAuthorable(calId: string, editEventId?: string): Promise<void> {
-  const folded: any = foldCalendar(calId, await store.getLog(calId));
+  const folded: any = await store.folded(calId); // cached — valid until this calendar's log next changes
   const who = (await identityForCalendar(calId)).address;
   const role = (folded.roles || {})[who];
   const isEditor = who === folded.owner || role === "editor" || role === "admin";
@@ -222,7 +222,7 @@ export async function createEvent(
   // event another member authored on a non-collaborative calendar) while this call reports success.
   let editing = false;
   if (explicitId) {
-    const folded: any = foldCalendar(calendarId, await store.getLog(calendarId));
+    const folded: any = await store.folded(calendarId); // cached fold
     editing = (folded.events || []).some((e: any) => e && e.id === explicitId);
   }
   await assertAuthorable(calendarId, editing ? id : undefined);

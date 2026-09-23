@@ -7,7 +7,7 @@
 //   scala.calendars       – registry: [{id,key,name,color,isShared,creatorId}]
 //   scala.log.<calId>     – that calendar's append-only event log (Event[])
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Event, mergeEvents, foldCalendar, eventFromJson } from "./engine";
+import { Event, mergeEvents, foldCalendar, eventFromJson, FoldedCalendar } from "./engine";
 
 export interface Calendar {
   id: string;
@@ -108,6 +108,22 @@ async function removeCalendar(id: string): Promise<void> {
   const cals = (await getRegistry()).filter((c) => c.id !== id);
   await writeJson(K_CALS, cals);
   await AsyncStorage.removeItem(logKey(id)).catch(() => {});
+  invalidateFold(id);
+}
+
+// ── fold cache ────────────────────────────────────────────────────────────────
+// Folding a calendar (read the whole log from disk + reduce it) is O(log size), and the UI's
+// refresh reads every calendar TWICE (calendars + events). Cache the folded result per calendar and
+// invalidate ONLY when that calendar's log changes — so an edit re-folds just the one calendar, not
+// the whole dataset on every keystroke/sync tick. Cold start still folds once per calendar.
+const foldCache = new Map<string, FoldedCalendar>();
+function invalidateFold(calId: string) { foldCache.delete(calId); }
+async function foldedFor(calId: string): Promise<FoldedCalendar> {
+  const cached = foldCache.get(calId);
+  if (cached) return cached;
+  const f = foldCalendar(calId, await getLog(calId));
+  foldCache.set(calId, f);
+  return f;
 }
 
 // ── per-calendar event log ────────────────────────────────────────────────────
@@ -127,6 +143,7 @@ async function appendEvent(calId: string, ev: Event): Promise<boolean> {
   if (log.some((x) => x.id === ev.id)) return false; // dedup — idempotent redelivery
   const merged = mergeEvents([...log, ev]); // keep HLC-sorted + unique
   await writeJson(logKey(calId), merged.map((e) => e)); // Event already plain JSON-safe
+  invalidateFold(calId); // log changed → next read re-folds THIS calendar (others stay cached)
   return true;
 }
 
@@ -138,12 +155,13 @@ export const store = {
   removeCalendar,
   getLog,
   appendEvent,
+  folded: foldedFor,   // cached fold (valid until the calendar's log next changes)
 
   async listCalendars(): Promise<Calendar[]> {
     const regs = await getRegistry();
     const out: Calendar[] = [];
     for (const r of regs) {
-      const f = foldCalendar(r.id, await getLog(r.id));
+      const f = await foldedFor(r.id);
       out.push({
         id: r.id,
         name: f.name || r.name,
@@ -164,7 +182,7 @@ export const store = {
   },
 
   async eventsFor(calendarId: string): Promise<CalEvent[]> {
-    const f = foldCalendar(calendarId, await getLog(calendarId));
+    const f = await foldedFor(calendarId);
     return f.events as CalEvent[];
   },
 
@@ -172,7 +190,7 @@ export const store = {
     const regs = await getRegistry();
     const out: CalEvent[] = [];
     for (const r of regs) {
-      const f = foldCalendar(r.id, await getLog(r.id));
+      const f = await foldedFor(r.id);
       for (const e of f.events) out.push(e as CalEvent);
     }
     return out;
