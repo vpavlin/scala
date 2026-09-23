@@ -7,7 +7,8 @@
 //   scala.calendars       – registry: [{id,key,name,color,isShared,creatorId}]
 //   scala.log.<calId>     – that calendar's append-only event log (Event[])
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Event, mergeEvents, foldCalendar, eventFromJson } from "./engine";
+import { Event, mergeEvents, foldCalendar, eventFromJson, FoldedCalendar } from "./engine";
+import { verifyCacheLoad, verifyCacheDump } from "./identity";
 
 export interface Calendar {
   id: string;
@@ -49,6 +50,7 @@ export interface CalEvent {
   allDay?: boolean;             // all-day span (time pickers hidden)
   reminderMin?: number;         // reminder lead in minutes (undefined = default 10; 0 = none)
   recur?: import("./recur").Recur; // recurrence rule (undefined = does not repeat)
+  rsvps?: Record<string, string>; // ADR 0021: author address → "going"|"maybe"|"no" (folded, read-only)
   fields?: Record<string, any>; // #8: custom schema field values
   attachments?: Attachment[];   // ADR 0017: files stored in Logos Storage, referenced by CID
   creatorId?: string;
@@ -108,6 +110,44 @@ async function removeCalendar(id: string): Promise<void> {
   const cals = (await getRegistry()).filter((c) => c.id !== id);
   await writeJson(K_CALS, cals);
   await AsyncStorage.removeItem(logKey(id)).catch(() => {});
+  invalidateFold(id);
+}
+
+// ── fold cache ────────────────────────────────────────────────────────────────
+// Folding a calendar (read the whole log from disk + reduce it) is O(log size), and the UI's
+// refresh reads every calendar TWICE (calendars + events). Cache the folded result per calendar and
+// invalidate ONLY when that calendar's log changes — so an edit re-folds just the one calendar, not
+// the whole dataset on every keystroke/sync tick. Cold start still folds once per calendar.
+const foldCache = new Map<string, FoldedCalendar>();
+function invalidateFold(calId: string) { foldCache.delete(calId); }
+
+// The fold verifies every event's signature (secp256k1, slow on Hermes). identity.ts memoizes each
+// result; we persist that memo across launches so a COLD start skips the crypto entirely. Hydrate
+// once before the first fold; save (debounced) after folds that verified new events.
+const VCACHE_KEY = "scala.vcache";
+let _vcacheHydrate: Promise<void> | null = null;
+function ensureVerifyCache(): Promise<void> {
+  if (!_vcacheHydrate) {
+    _vcacheHydrate = (async () => {
+      try { verifyCacheLoad(await readJson<[string, boolean][]>(VCACHE_KEY, [])); } catch { /* first run */ }
+    })();
+  }
+  return _vcacheHydrate;
+}
+let _vcacheSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleVerifyCacheSave(): void {
+  if (_vcacheSaveTimer) clearTimeout(_vcacheSaveTimer);
+  _vcacheSaveTimer = setTimeout(() => { writeJson(VCACHE_KEY, verifyCacheDump()).catch(() => {}); }, 3000);
+}
+
+async function foldedFor(calId: string): Promise<FoldedCalendar> {
+  const cached = foldCache.get(calId);
+  if (cached) return cached;
+  await ensureVerifyCache();                 // memo loaded before folding → cold fold skips secp256k1
+  const f = foldCalendar(calId, await getLog(calId));
+  foldCache.set(calId, f);
+  scheduleVerifyCacheSave();                  // persist any newly-verified events
+  return f;
 }
 
 // ── per-calendar event log ────────────────────────────────────────────────────
@@ -127,6 +167,7 @@ async function appendEvent(calId: string, ev: Event): Promise<boolean> {
   if (log.some((x) => x.id === ev.id)) return false; // dedup — idempotent redelivery
   const merged = mergeEvents([...log, ev]); // keep HLC-sorted + unique
   await writeJson(logKey(calId), merged.map((e) => e)); // Event already plain JSON-safe
+  invalidateFold(calId); // log changed → next read re-folds THIS calendar (others stay cached)
   return true;
 }
 
@@ -138,12 +179,13 @@ export const store = {
   removeCalendar,
   getLog,
   appendEvent,
+  folded: foldedFor,   // cached fold (valid until the calendar's log next changes)
 
   async listCalendars(): Promise<Calendar[]> {
     const regs = await getRegistry();
     const out: Calendar[] = [];
     for (const r of regs) {
-      const f = foldCalendar(r.id, await getLog(r.id));
+      const f = await foldedFor(r.id);
       out.push({
         id: r.id,
         name: f.name || r.name,
@@ -164,7 +206,7 @@ export const store = {
   },
 
   async eventsFor(calendarId: string): Promise<CalEvent[]> {
-    const f = foldCalendar(calendarId, await getLog(calendarId));
+    const f = await foldedFor(calendarId);
     return f.events as CalEvent[];
   },
 
@@ -172,7 +214,7 @@ export const store = {
     const regs = await getRegistry();
     const out: CalEvent[] = [];
     for (const r of regs) {
-      const f = foldCalendar(r.id, await getLog(r.id));
+      const f = await foldedFor(r.id);
       for (const e of f.events) out.push(e as CalEvent);
     }
     return out;

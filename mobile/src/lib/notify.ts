@@ -45,42 +45,61 @@ export async function ensureNotifyPermission(): Promise<boolean> {
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
+let running = false;               // a reconcile is in flight
+let queued: CalEvent[] | null = null; // latest events that arrived while one was running
 // Debounce bursts of refreshes (sync can fire many onChange in a row), then reconcile.
+// Reminders are a BEST-EFFORT background concern — never let them sit on the edit path, so we
+// debounce generously; the events are already saved locally, the reminder just trails them.
 export function scheduleReminders(events: CalEvent[]): void {
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => void reconcile(events), 500);
+  timer = setTimeout(() => void reconcile(events), 1500);
 }
+
+const yieldToUI = () => new Promise<void>((r) => setTimeout(r, 0)); // let React paint / touches run
 
 async function reconcile(events: CalEvent[]): Promise<void> {
   if (!granted) return;
+  // Never overlap: rescheduling is a long loop of native calls; two at once starve the UI thread.
+  // If one is already running, just remember the newest set and run once more when it finishes.
+  if (running) { queued = events; return; }
+  running = true;
   try {
-    await Notifications.cancelAllScheduledNotificationsAsync();
-  } catch {
-    return;
-  }
-  const now = Date.now();
-  const fmt = (ms: number) =>
-    new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  // Expand recurrence into concrete occurrences within the horizon, so a repeating
-  // event fires a reminder for each upcoming instance (not just the master's start).
-  const occ = expandEvents(events, now, now + HORIZON_MS).slice(0, MAX_SCHEDULED);
-  for (const e of occ) {
-    if (!e.startTime || e.startTime <= now) continue;
-    const lead = (e.reminderMin ?? 10); // undefined → default 10 min
-    if (lead <= 0) continue;            // 0 = no reminder
-    const fireAt = e.startTime - lead * 60_000;
-    if (fireAt <= now) continue;
     try {
-      await Notifications.scheduleNotificationAsync({
-        content: { title: e.title || "Event", body: e.allDay ? "Today" : `Starts at ${fmt(e.startTime)}` },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: new Date(fireAt),
-          channelId: CHANNEL,
-        },
-      });
+      await Notifications.cancelAllScheduledNotificationsAsync();
     } catch {
-      /* skip a single bad occurrence */
+      return;
     }
+    const now = Date.now();
+    const fmt = (ms: number) =>
+      new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    // Expand recurrence into concrete occurrences within the horizon, so a repeating
+    // event fires a reminder for each upcoming instance (not just the master's start).
+    const occ = expandEvents(events, now, now + HORIZON_MS).slice(0, MAX_SCHEDULED);
+    let i = 0;
+    for (const e of occ) {
+      if (!e.startTime || e.startTime <= now) continue;
+      const lead = (e.reminderMin ?? 10); // undefined → default 10 min
+      if (lead <= 0) continue;            // 0 = no reminder
+      const fireAt = e.startTime - lead * 60_000;
+      if (fireAt <= now) continue;
+      try {
+        await Notifications.scheduleNotificationAsync({
+          content: { title: e.title || "Event", body: e.allDay ? "Today" : `Starts at ${fmt(e.startTime)}` },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: new Date(fireAt),
+            channelId: CHANNEL,
+          },
+        });
+      } catch {
+        /* skip a single bad occurrence */
+      }
+      // Yield every few schedules so an edit's re-render / a tap isn't starved for seconds while
+      // this long native loop runs. The reminders finish a beat later; the UI stays snappy.
+      if (++i % 5 === 0) await yieldToUI();
+    }
+  } finally {
+    running = false;
+    if (queued) { const next = queued; queued = null; scheduleReminders(next); } // coalesced re-run
   }
 }

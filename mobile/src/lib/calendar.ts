@@ -8,7 +8,7 @@ import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { fromByteArray, toByteArray } from "base64-js";
 import { store, Calendar, CalEvent } from "./store";
-import { Event, ET, Clock, eventToJson, eventFromJson, foldCalendar } from "./engine";
+import { Event, ET, Clock, eventToJson, eventFromJson } from "./engine";
 import { utf8Bytes, utf8Decode } from "./utf8";
 import { authorEvent, defaultAddress, bindCalendar, identityForCalendar } from "./identities";
 import * as sstat from "./syncstatus";
@@ -49,11 +49,23 @@ async function mkEvent(type: string, payload: any, calId?: string): Promise<Even
   if (type === ET.SYNC_REQ || !calId) return e;
   return (await authorEvent(calId, e)) as Event;
 }
-// Append locally (persist FIRST — the authored event has no other copy until it's
-// both on disk and on the wire), then broadcast the raw event JSON.
+// Event ids authored locally but not yet handed to the wire — the UI greys/badges these as
+// "syncing". Cleared when the send resolves; if it never does, RBSR catch-up delivers the event
+// anyway (see serveLog / sendSyncReq), so this is only a hint, not the delivery guarantee.
+const pendingSend = new Set<string>();
+export function pendingEventIds(): string[] { return [...pendingSend]; }
+
+// Local-FIRST: persist to disk (the durable source of truth) and return immediately so the UI
+// renders the change at once. The wire broadcast runs in the BACKGROUND and never blocks the caller
+// — a slow/absent shared node must not freeze the app. Delivery is guaranteed by catch-up, not by
+// this send; this send is just the fast path.
 async function publishAndApply(calId: string, e: Event): Promise<void> {
   await store.appendEvent(calId, e);
-  await sync.sendEvent(calId, JSON.stringify(eventToJson(e))).catch(() => {});
+  const pid = (e.type === ET.EVENT_PUT && e.payload && e.payload.id) ? String(e.payload.id) : null;
+  if (pid) pendingSend.add(pid);   // flag the visible event as not-yet-sent
+  void sync.sendEvent(calId, JSON.stringify(eventToJson(e)))
+    .then(() => { if (pid) { pendingSend.delete(pid); notifyChange(); } })
+    .catch(() => { /* stays flagged; catch-up will deliver it later */ });
 }
 
 // ── catch-up (qaku SYNC_REQ + seed) ──────────────────────────────────────────
@@ -64,9 +76,15 @@ async function serveLog(calId: string): Promise<void> {
   const now = Date.now();
   if (lastServe[calId] && now - lastServe[calId] < 3000) return;
   lastServe[calId] = now;
+  let cleared = false;
   for (const e of await store.getLog(calId)) {
-    await sync.sendEvent(calId, JSON.stringify(eventToJson(e))).catch(() => {});
+    try {
+      await sync.sendEvent(calId, JSON.stringify(eventToJson(e)));
+      const pid = e.payload && e.payload.id ? String(e.payload.id) : null;   // it's on the wire now
+      if (pid && pendingSend.delete(pid)) cleared = true;
+    } catch { /* still offline — try again on the next catch-up */ }
   }
+  if (cleared) notifyChange();   // drop the "syncing" flag once re-broadcast succeeds
 }
 // Kick off catch-up: publish the initial reconciliation message (bounded range
 // fingerprints over what we hold). Fresh calendar → empty-set fingerprint →
@@ -174,7 +192,7 @@ function putPayload(id: string, f: any): any {
 // otherwise the fold silently drops the event and it looks like "save didn't save". Mirrors the
 // fold's canAdd / canEditExisting rules (engine.ts / scala_engine.hpp).
 async function assertAuthorable(calId: string, editEventId?: string): Promise<void> {
-  const folded: any = foldCalendar(calId, await store.getLog(calId));
+  const folded: any = await store.folded(calId); // cached — valid until this calendar's log next changes
   const who = (await identityForCalendar(calId)).address;
   const role = (folded.roles || {})[who];
   const isEditor = who === folded.owner || role === "editor" || role === "admin";
@@ -204,7 +222,7 @@ export async function createEvent(
   // event another member authored on a non-collaborative calendar) while this call reports success.
   let editing = false;
   if (explicitId) {
-    const folded: any = foldCalendar(calendarId, await store.getLog(calendarId));
+    const folded: any = await store.folded(calendarId); // cached fold
     editing = (folded.events || []).some((e: any) => e && e.id === explicitId);
   }
   await assertAuthorable(calendarId, editing ? id : undefined);
@@ -216,6 +234,14 @@ export async function createEvent(
 export async function updateEvent(ev: CalEvent): Promise<void> {
   await assertAuthorable(ev.calendarId, ev.id);
   await publishAndApply(ev.calendarId, await mkEvent(ET.EVENT_PUT, putPayload(ev.id, ev), ev.calendarId));
+  notifyChange();
+}
+
+// Set MY attendance on an event (ADR 0021). Self-scoped: any member may RSVP for themselves, so this
+// does NOT go through assertAuthorable (no add/edit role needed) — the fold keys by the signer.
+// status ∈ "going" | "maybe" | "no"; "" retracts. Local-first like every write.
+export async function setRsvp(calId: string, eventId: string, status: string): Promise<void> {
+  await publishAndApply(calId, await mkEvent(ET.EVENT_RSVP, { eventId, status }, calId));
   notifyChange();
 }
 
@@ -292,21 +318,34 @@ export async function updateCalendarMeta(
 // Edit history (#4) for one event: the raw EVENT_PUT/EVENT_DEL entries for its id, in
 // time order — who changed it, when, and to what. The fold keeps only the final state,
 // so this reads the raw log. Idempotent duplicates share an id so they collapse.
+// Friendly label per payload field, for "what changed" on an edit (cheap consecutive-diff, #4).
+const HIST_FIELD_LABEL: Record<string, string> = {
+  title: "title", startTime: "time", endTime: "time", allDay: "all-day", location: "location",
+  url: "link", description: "notes", recur: "repeat", reminderMin: "reminder", fields: "details",
+};
 export async function getEventHistory(
   calId: string,
   eventId: string,
-): Promise<{ author: string; at: number; action: "created" | "edited" | "deleted"; payload: any }[]> {
+): Promise<{ author: string; at: number; action: "created" | "edited" | "deleted"; payload: any; changed?: string[] }[]> {
   const seen = new Set<string>();
   const entries = (await store.getLog(calId))
     .filter((e) => (e.type === ET.EVENT_PUT || e.type === ET.EVENT_DEL) && (e.payload as any)?.id === eventId)
     .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
     .sort((a, b) => a.hlc.wall - b.hlc.wall || (a.hlc.dev < b.hlc.dev ? -1 : a.hlc.dev > b.hlc.dev ? 1 : 0));
-  return entries.map((e, i) => ({
-    author: e.dev,
-    at: e.hlc.wall,
-    action: e.type === ET.EVENT_DEL ? "deleted" : i === 0 ? "created" : "edited",
-    payload: e.payload,
-  }));
+  return entries.map((e, i) => {
+    const action = e.type === ET.EVENT_DEL ? "deleted" : i === 0 ? "created" : "edited";
+    let changed: string[] | undefined;
+    if (action === "edited") {
+      const prev: any = entries[i - 1]?.payload || {};
+      const cur: any = e.payload || {};
+      const set = new Set<string>();
+      for (const k of Object.keys(HIST_FIELD_LABEL)) {
+        if (JSON.stringify(prev[k]) !== JSON.stringify(cur[k])) set.add(HIST_FIELD_LABEL[k]);
+      }
+      changed = [...set]; // e.g. ["time","location"] — empty if only non-user fields moved
+    }
+    return { author: e.dev, at: e.hlc.wall, action, payload: e.payload, changed };
+  });
 }
 
 // Roles (#3): grant/revoke a member by their device id (owner/admin only — the fold
@@ -348,10 +387,15 @@ export async function joinFromInvite(link: string, identityId?: string): Promise
     color: "#89b4fa",
     isShared: true,
   });
-  await sync.joinCalendar(inv.calendarId, inv.key);
-  await sendSyncReq(inv.calendarId).catch(() => {}); // just joined → pull history
-  notifyChange();
+  notifyChange();   // local-first: the calendar shows up NOW; history/subscribe happen in the background
   const f = (await store.listCalendars()).find((c) => c.id === inv.calendarId) || null;
+  // Subscribe + pull history off the UI path — never block "joined" on the network.
+  (async () => {
+    try {
+      await sync.joinCalendar(inv.calendarId, inv.key);
+      await sendSyncReq(inv.calendarId).catch(() => {}); // just joined → pull history
+    } catch { /* offline — catch-up runs when sync comes up */ }
+  })();
   return f;
 }
 

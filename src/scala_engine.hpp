@@ -41,6 +41,7 @@ namespace ET {
     constexpr const char* EVENT_PUT = "event.put";   // {id,title,startTime,…}— create/edit an event (LWW upsert by id)
     constexpr const char* EVENT_DEL = "event.del";   // {id}                  — tombstone an event (terminal)
     constexpr const char* MEMBER_SET = "member.set"; // {member,role}         — roles (#3): owner/admin grants admin|viewer|remove. Opt-in: no member.set = open calendar.
+    constexpr const char* EVENT_RSVP = "event.rsvp"; // {eventId,status}       — attendance (ADR 0021): LWW per (eventId,author); self-scoped
     constexpr const char* SYNC_REQ  = "sync.req";    // {have:[id…], from} — CATCH-UP: a joining peer publishes the ids it already holds; peers serve ONLY the delta (logos_sync::catchup). NOT stored, NOT folded (foldCalendar ignores unknown types); handled in the receive path → onSyncReq().
 }
 
@@ -57,6 +58,7 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
                                           // default so a plain calendar shows nothing extra.
     std::map<std::string, json> events;   // event id -> event payload
     std::set<std::string> tombstones;
+    std::map<std::string, std::map<std::string, std::string>> rsvpOf; // eventId -> (author -> status) — ADR 0021, LWW by HLC
 
     // ── roles + permissions (two rules; owner/editor/viewer + Open toggle) ────
     // owner = author of the earliest cal.meta. roleOf grants "editor"/"viewer". Two rules:
@@ -139,7 +141,24 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
             std::string creator = creatorOf.count(id) ? creatorOf[id] : std::string();
             if (!canEditExisting(author, creator, verified)) continue;
             tombstones.insert(id); events.erase(id);
+        } else if (e.type == ET::EVENT_RSVP) {
+            // Self-scoped attendance (ADR 0021): any verified member sets THEIR OWN status
+            // (author = signer), LWW per (eventId, author) — HLC-ordered pass overwrites. "" = retract.
+            std::string eid = e.payload.value("eventId", std::string());
+            if (eid.empty()) continue;
+            std::string status = e.payload.value("status", std::string());
+            if (status.empty()) rsvpOf[eid].erase(author);
+            else rsvpOf[eid][author] = status;
         }
+    }
+
+    // Attach RSVPs to surviving events only (author keys sorted via std::map — matches the TS fold).
+    for (auto& kv : rsvpOf) {
+        auto it = events.find(kv.first);
+        if (it == events.end() || kv.second.empty()) continue;
+        json rsvps = json::object();
+        for (auto& r : kv.second) rsvps[r.first] = r.second;
+        it->second["rsvps"] = rsvps;
     }
 
     json evArr = json::array();

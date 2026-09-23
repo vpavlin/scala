@@ -436,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.21"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.23"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -495,14 +495,39 @@ bool ScalaImpl::manageMember(const std::string& jsonArg) {
 // #4: per-event edit history — every event.put/del touching this id, in log order,
 // as [{author,at,action,payload}]. Reads the raw log (not the fold) so nothing collapses.
 std::string ScalaImpl::getEventHistory(const std::string& calId, const std::string& eventId) {
+    // Friendly label per payload field, for a cheap "what changed" on each edit (#4). Order preserved
+    // to match the mobile getEventHistory (title, time, all-day, …).
+    static const std::vector<std::pair<const char*, const char*>> LBL = {
+        {"title", "title"}, {"startTime", "time"}, {"endTime", "time"}, {"allDay", "all-day"},
+        {"location", "location"}, {"url", "link"}, {"description", "notes"}, {"recur", "repeat"},
+        {"reminderMin", "reminder"}, {"fields", "details"}};
     json out = json::array();
+    json prev; bool havePrev = false;
     for (const auto& e : m_store->log(calId)) {
         if (!e.payload.is_object() || e.payload.value("id", std::string()) != eventId) continue;
         std::string action = e.type == scala::ET::EVENT_DEL ? "deleted"
                            : (out.empty() ? "created" : "edited");
-        out.push_back(json{{"author", e.dev}, {"at", e.hlc.wall}, {"action", action}, {"payload", e.payload}});
+        json entry = json{{"author", e.dev}, {"at", e.hlc.wall}, {"action", action}, {"payload", e.payload}};
+        if (action == "edited" && havePrev) {
+            json changed = json::array(); std::set<std::string> seen;
+            for (const auto& kv : LBL) {
+                json a = prev.contains(kv.first) ? prev[kv.first] : json(nullptr);
+                json b = e.payload.contains(kv.first) ? e.payload[kv.first] : json(nullptr);
+                if (a != b && !seen.count(kv.second)) { seen.insert(kv.second); changed.push_back(kv.second); }
+            }
+            entry["changed"] = changed;
+        }
+        out.push_back(entry);
+        prev = e.payload; havePrev = true;
     }
     return out.dump();
+}
+// ADR 0021: set MY attendance on an event. Self-scoped (author = signer); no add/edit role needed,
+// so it does not gate on canAdd/canEditExisting — the fold accepts any verified RSVP.
+std::string ScalaImpl::setRsvp(const std::string& calendarId, const std::string& eventId, const std::string& status) {
+    json p; p["eventId"] = eventId; p["status"] = status;
+    authorAndPublish(scala::ET::EVENT_RSVP, p, calendarId);
+    return "ok";
 }
 std::string ScalaImpl::listCalendars() {
     ensureDelivery();   // kym self-drive

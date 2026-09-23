@@ -41,6 +41,7 @@ export const ET = {
   EVENT_PUT: "event.put", // {id,title,startTime,…} — create/edit an event (LWW upsert by id)
   EVENT_DEL: "event.del", // {id}                   — tombstone an event (terminal)
   MEMBER_SET: "member.set", // {member,role}        — roles (#3): owner/admin grants admin|viewer|remove; opt-in
+  EVENT_RSVP: "event.rsvp", // {eventId,status}     — attendance (ADR 0021): LWW per (eventId,author); self-scoped
   SYNC_REQ: "sync.req", // {from}                  — catch-up: ask peers to re-serve; NOT stored/folded
 } as const;
 
@@ -111,6 +112,7 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   let schema: any[] = []; // OPTIONAL custom-field defs; empty by default (plain calendar)
   const events = new Map<string, any>(); // event id -> payload
   const tombstones = new Set<string>();
+  const rsvpOf = new Map<string, Map<string, string>>(); // eventId -> (author -> status) — ADR 0021, LWW by HLC
 
   // Roles + permissions (two rules) — parity with scala_engine.hpp. owner/editor/viewer +
   // an Open toggle: (1) owner/editors do anything, viewers read-only; (2) everyone else may
@@ -182,7 +184,25 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
       if (!canEditExisting(author, creatorOf.get(id) ?? "", verified)) continue;
       tombstones.add(id);
       events.delete(id);
+    } else if (e.type === ET.EVENT_RSVP) {
+      // Self-scoped attendance (ADR 0021): any verified member sets THEIR OWN status (author = signer),
+      // LWW per (eventId, author) — the log is HLC-ordered so a later RSVP overwrites. "" = retract.
+      const eid: string = e.payload?.eventId ?? "";
+      if (!eid) continue;
+      const status: string = e.payload?.status ?? "";
+      let m = rsvpOf.get(eid);
+      if (!m) { m = new Map<string, string>(); rsvpOf.set(eid, m); }
+      if (status === "") m.delete(author); else m.set(author, status);
     }
+  }
+
+  // Attach RSVPs to surviving events only, authors in sorted order (match C++ std::map iteration).
+  for (const [eid, m] of rsvpOf) {
+    const ev = events.get(eid);
+    if (!ev || m.size === 0) continue;
+    const rsvps: Record<string, string> = {};
+    [...m.keys()].sort().forEach((a) => (rsvps[a] = m.get(a)!));
+    ev.rsvps = rsvps;
   }
 
   // Match C++ std::map iteration: events ordered by id string.

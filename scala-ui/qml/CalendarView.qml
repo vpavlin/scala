@@ -131,7 +131,14 @@ Item {
     property var events: []             // flat list across all calendars
     property date viewMonth: new Date()   // any date in the shown month
     property date selectedDay: new Date()
-    property string filterCalId: ""      // "" = all calendars
+    property string filterCalId: ""      // "" = all calendars (single-focus filter)
+    property var hiddenCals: ({})        // per-device show/hide: {calId: true} = hidden from combined views
+    function calHidden(id) { return !!root.hiddenCals[id] }
+    function toggleCalVisible(id) {
+        var h = {}; for (var k in root.hiddenCals) h[k] = root.hiddenCals[k]
+        if (h[id]) delete h[id]; else h[id] = true
+        root.hiddenCals = h   // reassign so bindings (monthOccurrences, day/week lists) re-evaluate
+    }
     property string myIdentity: ""       // this device's identity (event author id)
 
     readonly property var fieldTypes: ["text","longtext","number","date","datetime","bool","url","enum","color"]
@@ -213,6 +220,34 @@ Item {
         for (var i = 0; i < calendars.length; i++) if (calendars[i].id === calId) return calendars[i].name
         return ""
     }
+    // My own RSVP (ADR 0021) on an event, for the at-a-glance card marker.
+    function myRsvpOf(ev) { if (!ev || !ev.rsvps) return ""; var me = root.addrFor(root.calById(ev.calendarId)); return (me && ev.rsvps[me]) || "" }
+    function rsvpMark(ev) { var s = root.myRsvpOf(ev); return s === "going" ? "✓ " : (s === "maybe" ? "? " : "") }
+    // An event's colour IS its calendar's colour — the calendar is the event's identity here.
+    // (A Frequencies-style app maps a custom-field value to colour itself; scala shows the field
+    // value as a badge but keeps the event the calendar's colour — no per-event override.)
+    function evColor(ev) { return root.calColor(ev ? ev.calendarId : "") }
+    // Day timeline (calMode "day"): all-day band + hour-bucketed schedule for a day.
+    function dayAllDay(d) { var a = root.eventsOnDay(d); var out = []; for (var i = 0; i < a.length; i++) if (a[i].allDay) out.push(a[i]); return out }
+    function dayTimeline(d) {
+        var a = root.eventsOnDay(d); var timed = []
+        for (var i = 0; i < a.length; i++) if (!a[i].allDay) timed.push(a[i])
+        timed.sort(function (x, y) { return x.startTime - y.startTime })
+        var lo = 8, hi = 20
+        for (var j = 0; j < timed.length; j++) {
+            var s = new Date(timed[j].startTime).getHours()
+            var e = new Date(timed[j].endTime); var eh = e.getHours() + (e.getMinutes() > 0 ? 1 : 0)
+            lo = Math.min(lo, s); hi = Math.max(hi, Math.min(23, eh))
+        }
+        var rows = []
+        for (var h = lo; h <= hi; h++) {
+            var items = []
+            for (var k = 0; k < timed.length; k++) if (new Date(timed[k].startTime).getHours() === h) items.push(timed[k])
+            rows.push({ hour: h, items: items })
+        }
+        return rows
+    }
+    function hh(h) { return (h < 10 ? "0" + h : "" + h) + ":00" }
     function writableCalendars() {
         var out = []
         for (var i = 0; i < calendars.length; i++) if (calendars[i].encryptionKey || calendars[i].creatorId !== undefined) out.push(calendars[i])
@@ -239,9 +274,13 @@ Item {
     }
     // Events filtered by the active calendar filter (null-safe on old events).
     function eventsFiltered() {
-        if (filterCalId === "") return events
         var out = []
-        for (var i = 0; i < events.length; i++) if (events[i].calendarId === filterCalId) out.push(events[i])
+        for (var i = 0; i < events.length; i++) {
+            var e = events[i]
+            if (filterCalId !== "" && e.calendarId !== filterCalId) continue  // single-focus filter
+            if (root.hiddenCals[e.calendarId]) continue                        // hidden calendars
+            out.push(e)
+        }
         return out
     }
     // Look up a master event by id (recurrence edits operate on the master).
@@ -279,15 +318,19 @@ Item {
 
     // Cached expansion covering the whole visible 6×7 grid; re-evaluates when the
     // month, event set, or calendar filter changes.
-    property var monthOccurrences: root.computeMonthOccurrences(root.viewMonth, root.events, root.filterCalId)
-    function computeMonthOccurrences(vm, evs, fcal) {
+    property var monthOccurrences: root.computeMonthOccurrences(root.viewMonth, root.events, root.filterCalId, root.hiddenCals)
+    function computeMonthOccurrences(vm, evs, fcal, hidden) {
         var first = new Date(vm.getFullYear(), vm.getMonth(), 1)
         var offset = (first.getDay() + 6) % 7
         var firstCell = new Date(first.getFullYear(), first.getMonth(), 1 - offset)
         var ws = new Date(firstCell.getFullYear(), firstCell.getMonth(), firstCell.getDate(), 0, 0, 0, 0).getTime()
         var we = ws + 42 * 24 * 3600 * 1000 - 1
-        var src = evs
-        if (fcal !== "") { src = []; for (var i = 0; i < evs.length; i++) if (evs[i].calendarId === fcal) src.push(evs[i]) }
+        var src = []
+        for (var i = 0; i < evs.length; i++) {
+            if (fcal !== "" && evs[i].calendarId !== fcal) continue
+            if (hidden[evs[i].calendarId]) continue
+            src.push(evs[i])
+        }
         return root.expandEvents(src, ws, we)
     }
 
@@ -303,10 +346,57 @@ Item {
         var cols = []
         var occ = root.monthOccurrences
         for (var i = 0; i < occ.length && cols.length < 4; i++)
-            if (sameDay(new Date(occ[i].startTime), d)) cols.push(calColor(occ[i].calendarId))
+            if (sameDay(new Date(occ[i].startTime), d)) cols.push(evColor(occ[i]))
         return cols
     }
     function fmtTime(ms) { return Qt.formatTime(new Date(ms), "hh:mm") }
+    // Custom-field values as badges (status/type/tags) — skip empty + long, cap at 4.
+    function fieldValues(ev) {
+        var out = []
+        if (ev && ev.fields) for (var k in ev.fields) { var v = String(ev.fields[k]); if (v.length > 0 && v.length <= 24) out.push(v) }
+        return out.slice(0, 4)
+    }
+    // ── search (#) — match events across ALL dates by title/location/notes/calendar/fields ──
+    property string searchQuery: ""
+    function eventsMatching(q) {
+        q = (q || "").trim().toLowerCase()
+        if (q === "") return []
+        var src = eventsFiltered(); var out = []
+        for (var i = 0; i < src.length; i++) {
+            var ev = src[i]
+            var hay = ((ev.title || "") + " " + (ev.location || "") + " " + (ev.description || "") + " " + calName(ev.calendarId)).toLowerCase()
+            if (ev.fields) for (var k in ev.fields) hay += " " + String(ev.fields[k]).toLowerCase()
+            if (hay.indexOf(q) >= 0) out.push(ev)
+        }
+        out.sort(function (a, b) { return a.startTime - b.startTime })
+        return out
+    }
+    readonly property bool searching: root.searchQuery.trim() !== ""
+    readonly property var searchResults: root.searching ? root.eventsMatching(root.searchQuery) : []
+    // ── month / week view ────────────────────────────────────────────────────
+    property string calMode: "month"   // "month" | "week"
+    function weekDaysOf(d) {
+        var mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7))
+        var out = []
+        for (var i = 0; i < 7; i++) out.push(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i))
+        return out
+    }
+    function weekLabel(d) {
+        var w = weekDaysOf(d); var a = w[0]; var b = w[6]
+        var mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        if (a.getMonth() === b.getMonth()) return a.getDate() + " – " + b.getDate() + " " + mo[a.getMonth()] + " " + a.getFullYear()
+        return a.getDate() + " " + mo[a.getMonth()] + " – " + b.getDate() + " " + mo[b.getMonth()] + " " + b.getFullYear()
+    }
+    function goPrev() {
+        if (calMode === "week") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() - 7); selectedDay = d; viewMonth = d }
+        else if (calMode === "day") { var dd = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() - 1); selectedDay = dd; viewMonth = dd }
+        else viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1)
+    }
+    function goNext() {
+        if (calMode === "week") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() + 7); selectedDay = d; viewMonth = d }
+        else if (calMode === "day") { var dd = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() + 1); selectedDay = dd; viewMonth = dd }
+        else viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1)
+    }
     function pad(n) { return (n < 10 ? "0" : "") + n }
     function fmtDateInput(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) }
     function fmtTimeInput(d) { return pad(d.getHours()) + ":" + pad(d.getMinutes()) }
@@ -438,12 +528,19 @@ Item {
                         color: root.filterCalId === modelData.id ? root.cSurface : (calRowMA.containsMouse ? root.cBase : "transparent")
                         RowLayout {
                             anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                            Rectangle { width: 10; height: 10; radius: 5; color: root.calColor(modelData.id); Layout.alignment: Qt.AlignVCenter }
+                            // Tap the dot to show/hide this calendar in the combined views (local only).
+                            Rectangle {
+                                width: 14; height: 14; radius: 7; Layout.alignment: Qt.AlignVCenter
+                                color: root.calHidden(modelData.id) ? "transparent" : root.calColor(modelData.id)
+                                border.width: root.calHidden(modelData.id) ? 2 : 0; border.color: root.cSub
+                                MouseArea { anchors.fill: parent; anchors.margins: -3; cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.toggleCalVisible(modelData.id) }
+                            }
                             ColumnLayout {
                                 Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: 1
                                 RowLayout {
                                     Layout.fillWidth: true; spacing: 4
-                                    LogosText { text: modelData.name || "(unnamed)"; color: root.cText; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    LogosText { text: modelData.name || "(unnamed)"; color: root.calHidden(modelData.id) ? root.cSub : root.cText; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
                                     // 🔑 = this calendar is signed with a Keycard, so every edit needs a card tap.
                                     LogosText { visible: root.calIsKeycard(modelData.id); text: "🔑"; font.pixelSize: 12; Layout.alignment: Qt.AlignVCenter }
                                 }
@@ -514,19 +611,39 @@ Item {
                     color: navPrev.containsMouse ? root.cSurface2 : root.cSurface
                     LogosText { anchors.centerIn: parent; text: "‹"; color: root.cText; font.pixelSize: 18 }
                     MouseArea { id: navPrev; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: root.viewMonth = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth() - 1, 1) }
+                        onClicked: root.goPrev() }
                 }
                 Rectangle {
                     implicitWidth: 34; implicitHeight: 34; radius: 9
                     color: navNext.containsMouse ? root.cSurface2 : root.cSurface
                     LogosText { anchors.centerIn: parent; text: "›"; color: root.cText; font.pixelSize: 18 }
                     MouseArea { id: navNext; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: root.viewMonth = new Date(root.viewMonth.getFullYear(), root.viewMonth.getMonth() + 1, 1) }
+                        onClicked: root.goNext() }
                 }
                 LogosText {
-                    text: root.monthNames[root.viewMonth.getMonth()] + " " + root.viewMonth.getFullYear()
+                    text: root.calMode === "week" ? root.weekLabel(root.selectedDay)
+                        : root.calMode === "day" ? Qt.formatDate(root.selectedDay, "dddd, MMMM d")
+                        : root.monthNames[root.viewMonth.getMonth()] + " " + root.viewMonth.getFullYear()
                     color: root.cText; font.pixelSize: 20; font.weight: Theme.typography.weightMedium
                     Layout.leftMargin: 4
+                }
+                // Month / Week segmented toggle
+                Rectangle {
+                    implicitWidth: modeRow.implicitWidth + 6; implicitHeight: 30; radius: 8
+                    color: root.cSurface; Layout.leftMargin: 6
+                    Row {
+                        id: modeRow; anchors.centerIn: parent; spacing: 2
+                        Repeater {
+                            model: [{ m: "month", t: "Month" }, { m: "week", t: "Week" }, { m: "day", t: "Day" }]
+                            Rectangle {
+                                width: segT.implicitWidth + 18; height: 26; radius: 7
+                                color: root.calMode === modelData.m ? root.cBlue : "transparent"
+                                LogosText { id: segT; anchors.centerIn: parent; text: modelData.t
+                                    color: root.calMode === modelData.m ? root.cCrust : root.cSub; font.pixelSize: 12 }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.calMode = modelData.m }
+                            }
+                        }
+                    }
                 }
                 Rectangle {
                     implicitWidth: todayT.implicitWidth + 26; implicitHeight: 30; radius: 15
@@ -553,6 +670,7 @@ Item {
             }
 
             RowLayout {
+                visible: root.calMode === "month"
                 Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium; spacing: 2
                 Repeater {
                     model: root.weekDays
@@ -562,6 +680,7 @@ Item {
 
             GridLayout {
                 id: grid
+                visible: root.calMode === "month"
                 Layout.fillWidth: true; Layout.fillHeight: true   // month fills the pane now
                 Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium
                 Layout.topMargin: 4; Layout.bottomMargin: Theme.spacing.medium
@@ -608,6 +727,135 @@ Item {
                             }
                         }
                         MouseArea { id: cellMA; anchors.fill: parent; hoverEnabled: true; onClicked: root.selectedDay = cell.cellDate }
+                        DropArea {
+                            anchors.fill: parent
+                            onEntered: cell.color = root.cSurface2
+                            onExited: if (!cell.isSel) cell.color = "transparent"
+                            onDropped: function (drop) {
+                                if (!cell.isSel) cell.color = "transparent"
+                                if (drop.source && drop.source.dragEv) root.moveEventToDay(drop.source.dragEv, cell.cellDate)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── week grid: 7 day-columns, each listing its events (plan a week of nights) ──
+            RowLayout {
+                visible: root.calMode === "week"
+                Layout.fillWidth: true; Layout.fillHeight: true
+                Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium
+                Layout.topMargin: 4; Layout.bottomMargin: Theme.spacing.medium; spacing: 4
+                Repeater {
+                    model: root.calMode === "week" ? root.weekDaysOf(root.selectedDay) : []
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.fillHeight: true; radius: 10
+                        property bool isToday: root.sameDay(modelData, new Date())
+                        property bool isSel: root.sameDay(modelData, root.selectedDay)
+                        color: isSel ? root.cSurface : root.cMantle
+                        border.width: isSel ? 1 : 0; border.color: root.cBlue
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 6; spacing: 4
+                            RowLayout {
+                                Layout.fillWidth: true; spacing: 4
+                                LogosText { text: root.weekDays[index]; color: root.cSub; font.pixelSize: 10; font.weight: Theme.typography.weightMedium }
+                                Item { Layout.fillWidth: true }
+                                Rectangle {
+                                    width: 20; height: 20; radius: 10; color: isToday ? root.cYellow : "transparent"
+                                    LogosText { anchors.centerIn: parent; text: modelData.getDate(); color: isToday ? root.cCrust : root.cText; font.pixelSize: 12; font.weight: isToday ? Theme.typography.weightMedium : Font.Normal }
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2 }
+                            ListView {
+                                Layout.fillWidth: true; Layout.fillHeight: true; clip: true; spacing: 3
+                                model: root.eventsOnDay(modelData)
+                                delegate: Rectangle {
+                                    width: ListView.view.width; implicitHeight: 34; radius: 7
+                                    color: wkEvMA.containsMouse ? root.cSurface2 : root.cSurface
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 5; anchors.rightMargin: 5; spacing: 4
+                                        Rectangle { width: 3; height: 22; radius: 1.5; color: root.evColor(modelData); Layout.alignment: Qt.AlignVCenter }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; spacing: 0
+                                            LogosText { text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            LogosText { text: root.fmtTime(modelData.startTime); color: root.cSub; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        }
+                                    }
+                                    MouseArea { id: wkEvMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
+                                }
+                            }
+                            LogosText {
+                                text: "+"; color: root.cFaint; font.pixelSize: 16; Layout.alignment: Qt.AlignHCenter
+                                MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor
+                                    onClicked: { root.selectedDay = modelData; root.openNewEvent() } }
+                            }
+                        }
+                        MouseArea { anchors.fill: parent; z: -1; onClicked: root.selectedDay = modelData }
+                    }
+                }
+            }
+
+            // ── day timeline: all-day band + hour-bucketed schedule for the selected day ──
+            ColumnLayout {
+                visible: root.calMode === "day"
+                Layout.fillWidth: true; Layout.fillHeight: true
+                Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium
+                Layout.topMargin: 4; Layout.bottomMargin: Theme.spacing.medium; spacing: 6
+
+                Flow {
+                    Layout.fillWidth: true; spacing: 6
+                    visible: root.calMode === "day" && root.dayAllDay(root.selectedDay).length > 0
+                    Repeater {
+                        model: root.calMode === "day" ? root.dayAllDay(root.selectedDay) : []
+                        delegate: Rectangle {
+                            radius: 8; color: root.cSurface; border.width: 1; border.color: root.cSurface2
+                            implicitWidth: adRow.implicitWidth + 16; height: 30
+                            Row {
+                                id: adRow; anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 8; spacing: 6
+                                Rectangle { width: 3; height: 16; radius: 1.5; color: root.evColor(modelData); anchors.verticalCenter: parent.verticalCenter }
+                                LogosText { text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
+                        }
+                    }
+                }
+
+                Flickable {
+                    Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                    contentHeight: hourCol.height; boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar {}
+                    Column {
+                        id: hourCol; width: parent.width; spacing: 0
+                        Repeater {
+                            model: root.calMode === "day" ? root.dayTimeline(root.selectedDay) : []
+                            delegate: Row {
+                                width: hourCol.width; spacing: 8
+                                property var rowItems: modelData.items
+                                property bool nowHour: root.sameDay(root.selectedDay, new Date()) && new Date().getHours() === modelData.hour
+                                LogosText { width: 46; text: root.hh(modelData.hour); color: parent.nowHour ? root.cYellow : root.cSub; font.pixelSize: 11; topPadding: 8; font.weight: parent.nowHour ? Theme.typography.weightBold : Font.Normal }
+                                Column {
+                                    width: hourCol.width - 54; spacing: 6; topPadding: 6; bottomPadding: 6
+                                    Rectangle { width: parent.width; height: 1; color: root.cSurface2 }
+                                    Repeater {
+                                        model: rowItems
+                                        delegate: Rectangle {
+                                            width: parent.width; radius: 10; color: evMA2.containsMouse ? root.cSurface2 : root.cSurface
+                                            border.width: 1; border.color: root.cSurface2
+                                            implicitHeight: evCol2.implicitHeight + 16
+                                            Rectangle { anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.margins: 6; width: 3; radius: 1.5; color: root.evColor(modelData) }
+                                            Column {
+                                                id: evCol2
+                                                anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                                anchors.leftMargin: 16; anchors.rightMargin: 10; spacing: 2
+                                                LogosText { text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; width: parent.width }
+                                                LogosText { text: root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime) + (modelData.location ? " · " + modelData.location : ""); color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; width: parent.width }
+                                            }
+                                            MouseArea { id: evMA2; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -624,13 +872,33 @@ Item {
                 anchors.margins: Theme.spacing.medium
                 spacing: Theme.spacing.small
 
+                // Search — matches title/location/notes/calendar/fields across ALL dates; when filled,
+                // the list below shows results (with each event's date) instead of the selected day.
+                Rectangle {
+                    Layout.fillWidth: true; implicitHeight: 34; radius: 9
+                    color: root.cBase; border.width: 1; border.color: searchField.activeFocus ? root.cBlue : root.cSurface2
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 6; spacing: 6
+                        LogosText { text: "🔍"; font.pixelSize: 12; color: root.cSub }
+                        TextField {
+                            id: searchField
+                            Layout.fillWidth: true; placeholderText: "Search events…"
+                            color: root.cText; font.pixelSize: 13; background: Item {}
+                            onTextChanged: root.searchQuery = text
+                        }
+                        LogosText {
+                            visible: root.searchQuery.length > 0; text: "✕"; color: root.cSub; font.pixelSize: 13
+                            MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: { searchField.text = ""; root.searchQuery = "" } }
+                        }
+                    }
+                }
                 LogosText {
-                    text: Qt.formatDate(root.selectedDay, "dddd")
+                    text: root.searching ? (root.searchResults.length + " result" + (root.searchResults.length === 1 ? "" : "s")) : Qt.formatDate(root.selectedDay, "dddd")
                     color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium
                 }
                 LogosText {
-                    text: Qt.formatDate(root.selectedDay, "MMMM d, yyyy")
-                    color: root.cSub; font.pixelSize: 13
+                    text: root.searching ? ("for “" + root.searchQuery.trim() + "”") : Qt.formatDate(root.selectedDay, "MMMM d, yyyy")
+                    color: root.cSub; font.pixelSize: 13; elide: Text.ElideRight; Layout.fillWidth: true
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2 }
 
@@ -639,34 +907,61 @@ Item {
                     ListView {
                         id: dayList
                         anchors.fill: parent; clip: true
-                        model: root.eventsOnDay(root.selectedDay)
+                        model: root.searching ? root.searchResults : root.eventsOnDay(root.selectedDay)
                         spacing: Theme.spacing.small
                         delegate: Rectangle {
-                            width: dayList.width; height: 62; radius: 12
+                            width: dayList.width; implicitHeight: Math.max(62, cardCol.implicitHeight + 2 * Theme.spacing.small); radius: 12
                             color: evMA.containsMouse ? root.cSurface2 : root.cSurface
                             RowLayout {
                                 anchors.fill: parent; anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
-                                Rectangle { width: 4; height: 42; radius: 2; color: root.calColor(modelData.calendarId); Layout.alignment: Qt.AlignVCenter }
+                                Rectangle { width: 4; height: 42; radius: 2; color: root.evColor(modelData); Layout.alignment: Qt.AlignTop; Layout.topMargin: 2 }
                                 ColumnLayout {
+                                    id: cardCol
                                     Layout.fillWidth: true; spacing: 2
-                                    LogosText { text: modelData.title || "(untitled)"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    LogosText { text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
                                     LogosText {
-                                        text: root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime)
+                                        text: (root.searching ? Qt.formatDate(new Date(modelData.startTime), "ddd MMM d") + " · " : "") + root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime)
                                         color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true
                                     }
                                     LogosText {
                                         text: root.calName(modelData.calendarId); visible: text.length > 0
                                         color: root.calColor(modelData.calendarId); font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true
                                     }
+                                    Flow {
+                                        visible: root.fieldValues(modelData).length > 0
+                                        Layout.fillWidth: true; Layout.topMargin: 1; spacing: 4
+                                        Repeater {
+                                            model: root.fieldValues(modelData)
+                                            Rectangle {
+                                                width: badgeT.implicitWidth + 12; height: 16; radius: 5; color: root.cSurface2
+                                                LogosText { id: badgeT; anchors.centerIn: parent; text: modelData; color: root.cText; font.pixelSize: 10 }
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            MouseArea { id: evMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
+                            MouseArea {
+                                id: evMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                property bool dragging: false; property real px: 0; property real py: 0
+                                onPressed: function (m) { px = m.x; py = m.y; dragging = false }
+                                onPositionChanged: function (m) {
+                                    if (!pressed) return
+                                    if (!dragging && (Math.abs(m.x - px) + Math.abs(m.y - py)) < 8) return
+                                    if (!dragging) { dragging = true; dragProxy.dragEv = modelData; dragProxy.visible = true }
+                                    var gp = mapToItem(root, m.x, m.y)
+                                    dragProxy.x = gp.x - dragProxy.width / 2; dragProxy.y = gp.y - dragProxy.height / 2
+                                }
+                                onReleased: function (m) {
+                                    if (dragging) { dragProxy.Drag.drop(); dragProxy.visible = false; dragProxy.dragEv = null; dragging = false }
+                                    else root.openEditEvent(modelData)
+                                }
+                            }
                         }
                     }
                     LogosText {
                         anchors.centerIn: parent; width: parent.width - 20
                         visible: dayList.count === 0
-                        text: "No events on this day.\nClick “+ Event” to add one."
+                        text: root.searching ? "No events match your search." : "No events on this day.\nClick “+ Event” to add one."
                         horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
                         color: root.cFaint; font.pixelSize: 13
                     }
@@ -733,6 +1028,7 @@ Item {
         return ""
     }
     property var evHistory: []             // getEventHistory result while editing
+    property string evMyRsvp: ""           // ADR 0021: my optimistic attendance on the event being edited
 
     // ── richer-editor state (null-safe: absent on old events) ──
     property bool evAllDay: false
@@ -870,8 +1166,29 @@ Item {
         seedFieldVals(ev.calendarId, ev)
         root.evAttachments = (ev.attachments && ev.attachments.length) ? ev.attachments.slice() : []
         root.attachBusy = false; root.attachMsg = ""
+        root.evMyRsvp = (ev.rsvps && ev.rsvps[root.addrFor(root.calById(ev.calendarId))]) || ""
         evHistory = root.j(core("getEventHistory", [ev.calendarId, ev.id]), [])
         eventPopup.open()
+    }
+    // ADR 0021: set my attendance (self-scoped); optimistic + refresh. "" retracts.
+    function setRsvp(status) {
+        if (!root.editingEvent) return
+        var next = (root.evMyRsvp === status) ? "" : status
+        root.evMyRsvp = next
+        core("setRsvp", [root.editCalId, root.editingEvent.id, next])
+        refresh()
+    }
+    // Merge my optimistic RSVP over the folded map, count a status.
+    function rsvpCount(status) {
+        // Read the LIVE folded event (root.events updates on poll), not the open-time snapshot, so a
+        // peer's RSVP that arrives while the editor is open is counted.
+        var ev = root.editingEvent ? (root.eventById(root.editingEvent.id) || root.editingEvent) : null
+        var m = {}; var r = ev ? ev.rsvps : null
+        if (r) for (var k in r) m[k] = r[k]
+        var me = root.addrFor(root.calById(root.editCalId))
+        if (me) { if (root.evMyRsvp) m[me] = root.evMyRsvp; else delete m[me] }
+        var n = 0; for (var a in m) if (m[a] === status) n++
+        return n
     }
     function saveEvent() {
         var s = parseDateTime(evDate.text, evStart.text)
@@ -912,9 +1229,45 @@ Item {
         }
         eventPopup.close(); refresh()
     }
-    function deleteEvent() {
-        if (editingEvent) core("deleteEvent", [editingEvent.id])
+    // Duplicate an existing event in one click → a new event with the same fields (same time; the
+    // user moves/edits it after). Frequencies: fast setup of similar nights. Needs add rights.
+    function duplicateEvent() {
+        if (!root.editingEvent) return
+        var src = root.editingEvent
+        var nv = {
+            title: (src.title || "(untitled)") + " (copy)",
+            startTime: src.startTime, endTime: src.endTime, allDay: !!src.allDay,
+            description: src.description || "", location: src.location || "", url: src.url || "",
+            reminderMin: src.reminderMin || 0
+        }
+        if (src.recur) nv.recur = src.recur
+        if (src.fields) nv.fields = src.fields
+        if (src.attachments && src.attachments.length) nv.attachments = src.attachments
+        core("createEvent", [root.editCalId, JSON.stringify(nv)])
+        root.lastCalId = root.editCalId
         eventPopup.close(); refresh()
+        root.notify("Event duplicated")
+    }
+    // Drag & drop: move an event's occurrence to another day, preserving its time-of-day + duration.
+    // Edits the underlying event (LWW upsert). Refuses (with a toast) if you can't edit it.
+    function moveEventToDay(ev, day) {
+        if (!ev || !day) return
+        var s = new Date(ev.startTime)
+        if (root.sameDay(s, day)) return   // dropped on its own day — no-op
+        var c = root.calById(ev.calendarId)
+        if (!root.canEditEvent(c, ev)) { root.notify("You can't move this event.", true); return }
+        var dur = ev.endTime - ev.startTime
+        var ns = new Date(day.getFullYear(), day.getMonth(), day.getDate(), s.getHours(), s.getMinutes(), 0, 0)
+        var up = JSON.parse(JSON.stringify(ev))
+        delete up.seriesId; delete up.occ
+        up.startTime = ns.getTime(); up.endTime = ns.getTime() + dur
+        core("updateEvent", [JSON.stringify(up)])
+        refresh(); root.notify((ev.recur ? "Moved series to " : "Moved to ") + Qt.formatDate(ns, "MMM d"))
+    }
+    function deleteEvent() { if (editingEvent) deleteEventPopup.open() }   // confirm first (destructive)
+    function doDeleteEvent() {
+        if (editingEvent) core("deleteEvent", [editingEvent.id])
+        deleteEventPopup.close(); eventPopup.close(); refresh()
     }
 
     // Native file picker for attachments; poll timer for the async upload/download (no blocking IPC).
@@ -945,6 +1298,21 @@ Item {
             font.pixelSize: 13; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter
         }
         MouseArea { anchors.fill: parent; onClicked: root.toastMsg = "" }
+    }
+
+    // Drag proxy — a floating card following the cursor while dragging an agenda event onto a day.
+    Rectangle {
+        id: dragProxy; z: 100000; visible: false
+        width: 170; height: 40; radius: 10; opacity: 0.92
+        color: root.cSurface; border.width: 1; border.color: root.cBlue
+        property var dragEv: null
+        Drag.active: dragProxy.visible
+        Drag.hotSpot.x: width / 2; Drag.hotSpot.y: height / 2
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 6; spacing: 5
+            Rectangle { width: 3; height: 24; radius: 1.5; color: dragProxy.dragEv ? root.evColor(dragProxy.dragEv) : "transparent"; Layout.alignment: Qt.AlignVCenter }
+            LogosText { text: dragProxy.dragEv ? (dragProxy.dragEv.title || "(untitled)") : ""; color: root.cText; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter }
+        }
     }
 
     // ── iCalendar (.ics) import/export (operates on root.setCalId) ─────────────
@@ -979,7 +1347,7 @@ Item {
     Popup {
         id: eventPopup
         anchors.centerIn: Overlay.overlay
-        width: 420; modal: true; padding: Theme.spacing.large
+        width: 500; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
@@ -1224,6 +1592,31 @@ Item {
                 }
             }
 
+            // ── RSVP (ADR 0021) — your own attendance; any member can set it ──
+            ColumnLayout {
+                visible: root.editingEvent !== null
+                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: 4
+                LogosText { text: "Your RSVP"; color: root.cFaint; font.pixelSize: 11 }
+                Flow {
+                    Layout.fillWidth: true; spacing: 6
+                    Repeater {
+                        model: [{ k: "going", l: "Going" }, { k: "maybe", l: "Maybe" }, { k: "no", l: "No" }]
+                        delegate: Rectangle {
+                            height: 28; radius: 14; width: rsvpLbl.width + 20
+                            color: root.evMyRsvp === modelData.k ? root.cSurface : root.cBase
+                            border.width: 1
+                            border.color: root.evMyRsvp === modelData.k ? root.cBlue : root.cSurface2
+                            LogosText { id: rsvpLbl; anchors.centerIn: parent; text: modelData.l; color: root.cText; font.pixelSize: 13 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.setRsvp(modelData.k) }
+                        }
+                    }
+                }
+                LogosText {
+                    text: root.rsvpCount("going") + " going · " + root.rsvpCount("maybe") + " maybe · " + root.rsvpCount("no") + " no"
+                    color: root.cSub; font.pixelSize: 11
+                }
+            }
+
             // ── edit history (only when editing an existing event) ──
             ColumnLayout {
                 visible: root.editingEvent !== null && root.evHistory && root.evHistory.length > 0
@@ -1233,7 +1626,9 @@ Item {
                     model: root.evHistory || []
                     delegate: LogosText {
                         Layout.fillWidth: true
-                        text: "· " + (modelData.action || "changed") + " by " + root.shortAuthor(modelData.author)
+                        text: "· " + (modelData.action || "changed")
+                              + ((modelData.action === "edited" && modelData.changed && modelData.changed.length) ? " (" + modelData.changed.join(", ") + ")" : "")
+                              + " by " + root.shortAuthor(modelData.author)
                               + " — " + Qt.formatDateTime(new Date(modelData.at), "MMM d, hh:mm")
                         color: root.cSub; font.pixelSize: 11; elide: Text.ElideRight
                     }
@@ -1265,6 +1660,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.small
                 LogosButton { visible: root.editingEvent !== null && !root.eventReadOnly; text: "Delete"; onClicked: root.deleteEvent() }
+                LogosButton { visible: root.editingEvent !== null && root.canAddTo(root.calById(root.editCalId)); text: "Duplicate"; onClicked: root.duplicateEvent() }
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Cancel"; onClicked: eventPopup.close() }
                 LogosButton { visible: !root.eventReadOnly; text: root.editingEvent ? "Save" : "Create"; enabled: root.eventError() === ""; onClicked: root.saveEvent() }
@@ -2156,6 +2552,29 @@ Item {
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Cancel"; onClicked: { root.pendingDeleteCal = null; deletePopup.close() } }
                 LogosButton { text: "Delete"; onClicked: root.deleteCalendar() }
+            }
+        }
+    }
+    // Confirm before deleting an event (destructive, and a recurring master takes the whole series).
+    Popup {
+        id: deleteEventPopup
+        anchors.centerIn: Overlay.overlay
+        width: 380; modal: true; padding: Theme.spacing.large
+        background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
+        ColumnLayout {
+            anchors.fill: parent; spacing: Theme.spacing.small
+            LogosText { text: "Delete event?"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
+            LogosText {
+                text: "Delete \"" + (root.editingEvent ? (root.editingEvent.title || "(untitled)") : "")
+                    + "\"" + ((root.editingEvent && root.editingEvent.recur) ? " and its whole repeating series" : "")
+                    + ". This can't be undone."
+                color: root.cFaint; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
+                Item { Layout.fillWidth: true }
+                LogosButton { text: "Cancel"; onClicked: deleteEventPopup.close() }
+                LogosButton { text: "Delete"; onClicked: root.doDeleteEvent() }
             }
         }
     }

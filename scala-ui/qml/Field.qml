@@ -6,6 +6,7 @@ import QtQuick.Controls
 import Logos.Theme
 
 TextField {
+    implicitWidth: 120   // don't let the default (large) TextField width force the containing layout wide
     color: Theme.palette.text
     placeholderTextColor: Theme.palette.textTertiary
     font.pixelSize: 14

@@ -2,16 +2,18 @@
 // Month grid + day detail + event editor; calendars live in a left drawer.
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
-  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator,
+  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator, ToastAndroid, Animated,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { GestureHandlerRootView, GestureDetector, Gesture } from "react-native-gesture-handler";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { store, Calendar, CalEvent, colorForId } from "./src/lib/store";
 import {
   onChange, startSyncing, joinFromInvite, createEvent, updateEvent, deleteEvent,
   createCalendar, deleteCalendar, buildInvite, getSharedNode, setSharedNode,
   updateCalendarMeta, getAlias, setAlias, getEventHistory, getDeviceId, setMemberRole,
-  setCalendarIdentity, calendarIdentityId,
+  setCalendarIdentity, calendarIdentityId, pendingEventIds, setRsvp,
 } from "./src/lib/calendar";
 import { FieldDef } from "./src/components/EventModal";
 
@@ -19,7 +21,7 @@ const FIELD_TYPES = ["text", "longtext", "number", "date", "datetime", "bool", "
 import { deliveryAvailable, getDebug, refreshDebug } from "./src/lib/scala-sync";
 import { SharedNodeStatus } from "./src/lib/loam-transport-pkg/src/SharedNodeStatus";
 import { ensureNotifyPermission, scheduleReminders } from "./src/lib/notify";
-import { MonthGrid } from "./src/components/MonthGrid";
+import { MonthGrid, CellRect } from "./src/components/MonthGrid";
 import { expandEvents } from "./src/lib/recur";
 import { EventModal, EventDraft } from "./src/components/EventModal";
 import { Drawer } from "./src/components/Drawer";
@@ -75,6 +77,37 @@ function AccessTierSelector({ value, onChange, C, s }: { value: AccessTier; onCh
   );
 }
 
+// Render an event's custom-field values as small badges (status/type/tags → Frequencies).
+// Skips empty + long (text) values; caps at 4. Renders nothing for events with no fields.
+function EventBadges({ ev }: { ev: any }) {
+  const f = (ev as any).fields;
+  if (!f) return null;
+  const vals = Object.values(f).filter((v) => v !== "" && v != null && v !== false).map(String).filter((v) => v.length > 0 && v.length <= 24);
+  if (!vals.length) return null;
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+      {vals.slice(0, 4).map((v, i) => (
+        <View key={i} style={{ backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 }}>
+          <Text style={{ color: C.text, fontSize: 10 }} numberOfLines={1}>{v}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Event title + a "syncing" pill when the event is saved locally but not yet on the wire (local-first).
+function EvTitle({ ev, pending, oneLine, myRsvp }: { ev: any; pending?: boolean; oneLine?: boolean; myRsvp?: string }) {
+  const no = myRsvp === "no"; // declined → recede (strikethrough + dim)
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
+      {myRsvp === "going" && <Text style={{ color: C.accent, fontSize: 14, fontWeight: "800" }}>✓</Text>}
+      {myRsvp === "maybe" && <Text style={{ color: C.today, fontSize: 14, fontWeight: "800" }}>?</Text>}
+      <Text style={[s.evTitle, no && { textDecorationLine: "line-through", color: C.sub }]} numberOfLines={oneLine ? 1 : undefined}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+      {pending && <Text style={s.syncPill}>⟳ syncing</Text>}
+    </View>
+  );
+}
+
 function SyncChip({ calId }: { calId: string }) {
   const [, bump] = useState(0);
   useEffect(() => sstat.onSyncChange(() => bump((n) => n + 1)), []);
@@ -93,7 +126,7 @@ import { updateWidgetAgenda } from "./src/lib/widget";
 
 const C = {
   bg: "#1e1e2e", surface: "#2a2a3c", text: "#cdd6f4", sub: "#9399b2",
-  primary: "#89b4fa", border: "#313244", accent: "#a6e3a1", danger: "#f38ba8",
+  primary: "#89b4fa", border: "#313244", accent: "#a6e3a1", danger: "#f38ba8", today: "#f9e2af",
 };
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -106,7 +139,30 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e); }
 export default function App() {
   const [cals, setCals] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
-  const [viewMode, setViewMode] = useState<"month" | "agenda">("month"); // month grid vs. upcoming agenda
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set()); // event ids saved locally, not yet synced
+  const [attachFetching, setAttachFetching] = useState<string | null>(null); // an attachment being fetched → non-blocking overlay
+  // Per-device: calendars hidden from the combined views (local convenience, never synced).
+  const [hiddenCals, setHiddenCals] = useState<Set<string>>(new Set());
+  const HIDDEN_KEY = "scala.hiddenCals";
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(HIDDEN_KEY);
+        if (raw) setHiddenCals(new Set(JSON.parse(raw)));
+      } catch { /* storage unavailable — show all */ }
+    })();
+  }, []);
+  const toggleCalVisible = useCallback((id: string) => {
+    setHiddenCals((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])).catch(() => {});
+      return next;
+    });
+  }, []);
+  // Events on visible calendars only — feeds every combined view (month/week/day/agenda).
+  const visibleEvents = useMemo(() => events.filter((e) => !hiddenCals.has(e.calendarId)), [events, hiddenCals]);
+  const [viewMode, setViewMode] = useState<"month" | "week" | "day" | "agenda">("month"); // month grid / week strip / day timeline / upcoming agenda
   const [query, setQuery] = useState(""); // agenda search
   const [status, setStatus] = useState("starting");
   const [shared, setShared] = useState(false);
@@ -182,7 +238,7 @@ export default function App() {
   const [currentCalId, setCurrentCalId] = useState<string>("");     // #5: last-tapped calendar (preselected for new events)
   const [aliasMap, setAliasMap] = useState<Record<string, string>>({}); // #7: device-local name overrides
   const [calSet, setCalSet] = useState<{ cal: Calendar; name: string; desc: string; alias: string; schema: FieldDef[] } | null>(null); // #7 settings sheet
-  const [nf, setNf] = useState<{ key: string; label: string; type: string }>({ key: "", label: "", type: "text" }); // #8 new custom field
+  const [nf, setNf] = useState<{ key: string; label: string; type: string; options: string }>({ key: "", label: "", type: "text", options: "" }); // #8 new custom field (options: comma-separated, for enum)
   const [nm, setNm] = useState<{ id: string; role: "editor" | "viewer" }>({ id: "", role: "editor" }); // #3 new member
   const [invite, setInvite] = useState("");
   const [lastInvite, setLastInvite] = useState("");
@@ -202,9 +258,10 @@ export default function App() {
     setCals(cs);
     const evs = (await store.listEvents()).filter((e) => !e.deleted);
     setEvents(evs);
+    setPendingIds(new Set(pendingEventIds())); // events saved locally but not yet on the wire → shown, flagged
     scheduleReminders(evs); // #1: keep local event reminders in step with the data
     const am: Record<string, string> = {};
-    for (const c of cs) { const a = await getAlias(c.id); if (a) am[c.id] = a; }
+    await Promise.all(cs.map(async (c) => { const a = await getAlias(c.id); if (a) am[c.id] = a; })); // parallel, not sequential
     setAliasMap(am);
   }, []);
 
@@ -282,6 +339,8 @@ export default function App() {
     return () => { alive = false; };
   }, [cals, identities]);
   const addrFor = useCallback((c?: Calendar) => (c && meFor[c.id]) || me, [meFor, me]);
+  // My own RSVP status on an event (ADR 0021) — for the at-a-glance card marker.
+  const myRsvpFor = useCallback((ev: any) => (ev && ev.rsvps ? (ev.rsvps[addrFor(cals.find((c) => c.id === ev.calendarId))] || "") : ""), [cals, addrFor]);
   const isEditorMe = useCallback((c?: Calendar) => { if (!c) return true; const a = addrFor(c); return c.owner === a || c.roles?.[a] === "editor" || c.roles?.[a] === "admin"; }, [addrFor]);
   const isViewerMe = useCallback((c?: Calendar) => { if (!c) return false; return c.roles?.[addrFor(c)] === "viewer"; }, [addrFor]);
   const canAddTo = useCallback((c?: Calendar) => isEditorMe(c) || (!isViewerMe(c) && c?.open !== false), [isEditorMe, isViewerMe]);
@@ -305,7 +364,7 @@ export default function App() {
   const addableCals = useMemo(() => writable.filter((c) => canAddTo(c)), [writable, canAddTo]);
   const pickCals = addableCals.length ? addableCals : writable;
   const openCalSettings = (c: Calendar) => {
-    setNf({ key: "", label: "", type: "text" }); setNm({ id: "", role: "editor" });
+    setNf({ key: "", label: "", type: "text", options: "" }); setNm({ id: "", role: "editor" });
     setCalSet({ cal: c, name: c.name, desc: c.description || "", alias: aliasMap[c.id] || "", schema: c.schema ? [...c.schema] : [] });
   };
   const saveCalSettings = async () => {
@@ -358,12 +417,25 @@ export default function App() {
     } catch (e: any) { Alert.alert("Import failed", e?.message ?? String(e)); }
   };
   // #8: custom-field schema editing (staged in calSet, written on Save).
-  const addField = () => {
+  // Build a FieldDef from the `nf` inputs. Enum needs comma-separated options, or it can't be picked.
+  const buildFieldDef = (): FieldDef | null => {
     const key = nf.key.trim().replace(/\s+/g, "_");
-    if (!key || !calSet) return;
-    if (calSet.schema.some((f) => f.key === key)) { Alert.alert("Field exists", `"${key}" is already defined.`); return; }
-    setCalSet((v) => v && { ...v, schema: [...v.schema, { key, label: nf.label.trim() || key, type: nf.type }] });
-    setNf({ key: "", label: "", type: "text" });
+    if (!key) return null;
+    const def: FieldDef = { key, label: nf.label.trim() || key, type: nf.type };
+    if (nf.type === "enum") {
+      const options = nf.options.split(",").map((o) => o.trim()).filter(Boolean);
+      if (!options.length) { Alert.alert("Enum needs options", "Add at least one comma-separated option (e.g. Draft, Confirmed, Cancelled)."); return null; }
+      def.options = options;
+    }
+    return def;
+  };
+  const addField = () => {
+    if (!calSet) return;
+    const def = buildFieldDef();
+    if (!def) return;
+    if (calSet.schema.some((f) => f.key === def.key)) { Alert.alert("Field exists", `"${def.key}" is already defined.`); return; }
+    setCalSet((v) => v && { ...v, schema: [...v.schema, def] });
+    setNf({ key: "", label: "", type: "text", options: "" });
   };
   const removeField = (key: string) => setCalSet((v) => v && { ...v, schema: v.schema.filter((f) => f.key !== key) });
   // #3: role management — writes a member.set event immediately (owner/admin only; the fold enforces it).
@@ -380,10 +452,20 @@ export default function App() {
     Alert.alert("Member added", `${id.slice(0, 16)}… is now ${nm.role}. They'll appear once the change syncs.`);
     setCalSet(null);
   };
-  const removeMember = async (id: string) => {
+  const removeMember = (id: string) => {
     if (!calSet) return;
-    await setMemberRole(calSet.cal.id, id, "remove");
-    setCalSet(null);
+    const calId = calSet.cal.id;
+    Alert.alert(
+      "Remove member",
+      `Remove ${id.slice(0, 16)}… from "${calSet.cal.name}"? They lose access on this calendar (they keep any local copy).`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: async () => {
+          try { await setMemberRole(calId, id, "remove"); setCalSet(null); }
+          catch (e: any) { onKeycardAbort(e, () => removeMember(id)); }
+        } },
+      ],
+    );
   };
   const copyIdentity = async () => { await Clipboard.setStringAsync(me); Alert.alert("Copied", "Your identity is on the clipboard — share it so an owner can add you."); };
   const removeCalendar = () => {
@@ -403,18 +485,47 @@ export default function App() {
     );
   };
   const colorFor = useCallback((id: string) => colorForId(id), []);
+  // An event's colour IS its calendar's colour — the calendar is the event's identity here.
+  // (A Frequencies-style app maps a custom-field value to colour on its own side; scala shows
+  // the field value as a badge but keeps the event the calendar's colour — no per-event override.)
+  const evColor = useCallback((ev: any) => colorForId(ev && ev.calendarId), []);
   // Expand recurrence occurrences for the selected day (non-recurring events pass through once).
   const dayEvents = useMemo(() => {
     const ds = new Date(selected); ds.setHours(0, 0, 0, 0);
     const de = new Date(selected); de.setHours(23, 59, 59, 999);
-    return expandEvents(events, ds.getTime(), de.getTime()).filter((o) => sameDay(new Date(o.startTime), selected));
-  }, [events, selected]);
+    return expandEvents(visibleEvents, ds.getTime(), de.getTime()).filter((o) => sameDay(new Date(o.startTime), selected));
+  }, [visibleEvents, selected]);
+  // Day timeline: split the selected day into all-day events + an hour-bucketed schedule.
+  // Rows run from a little before the first event to a little after the last (default 8–20),
+  // so a venue day reads as a per-hour agenda without scrolling through empty small hours.
+  const dayTimeline = useMemo(() => {
+    const allDay = dayEvents.filter((e) => e.allDay);
+    const timed = dayEvents.filter((e) => !e.allDay).sort((a, b) => a.startTime - b.startTime);
+    let lo = 8, hi = 20;
+    for (const e of timed) {
+      const sh = new Date(e.startTime).getHours();
+      const eh = new Date(e.endTime).getHours() + (new Date(e.endTime).getMinutes() > 0 ? 1 : 0);
+      lo = Math.min(lo, sh); hi = Math.max(hi, Math.min(23, eh));
+    }
+    const hours: { hour: number; items: CalEvent[] }[] = [];
+    for (let h = lo; h <= hi; h++) hours.push({ hour: h, items: timed.filter((e) => new Date(e.startTime).getHours() === h) });
+    return { allDay, hours, hasTimed: timed.length > 0 };
+  }, [dayEvents]);
+  // Week strip (mobile week view): Mon–Sun of the selected day's week + their event dots.
+  const weekDays = useMemo(() => {
+    const mon = new Date(selected); mon.setHours(0, 0, 0, 0); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+    return Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return d; });
+  }, [selected]);
+  const weekOccurrences = useMemo(
+    () => expandEvents(visibleEvents, weekDays[0].getTime(), weekDays[6].getTime() + 864e5 - 1),
+    [visibleEvents, weekDays],
+  );
   // Occurrences across the visible month (± a week for grid spillover) → month-grid dots.
   const monthEvents = useMemo(() => {
     const ws = new Date(cursor.getFullYear(), cursor.getMonth(), 1).getTime() - 7 * 864e5;
     const we = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0, 23, 59, 59, 999).getTime() + 7 * 864e5;
-    return expandEvents(events, ws, we);
-  }, [events, cursor]);
+    return expandEvents(visibleEvents, ws, we);
+  }, [visibleEvents, cursor]);
   // Agenda: occurrences grouped by day. Default = next 90 days from today; a search widens the
   // window (−30d … +365d) and filters by title/location/description across all calendars.
   const agenda = useMemo(() => {
@@ -422,8 +533,8 @@ export default function App() {
     const q = query.trim().toLowerCase();
     const start = q ? now.getTime() - 30 * 864e5 : t0.getTime();
     const end = q ? now.getTime() + 365 * 864e5 : t0.getTime() + 90 * 864e5;
-    let occ = expandEvents(events, start, end);
-    if (q) occ = occ.filter((o) => `${o.title || ""} ${o.location || ""} ${o.description || ""}`.toLowerCase().includes(q));
+    let occ = expandEvents(visibleEvents, start, end);
+    if (q) occ = occ.filter((o) => `${o.title || ""} ${o.location || ""} ${o.description || ""} ${Object.values((o as any).fields || {}).join(" ")}`.toLowerCase().includes(q));
     occ.sort((a, b) => a.startTime - b.startTime);
     const groups: { key: string; date: Date; items: CalEvent[] }[] = [];
     for (const o of occ) {
@@ -433,7 +544,7 @@ export default function App() {
       g.items.push(o);
     }
     return groups;
-  }, [events, query]);
+  }, [visibleEvents, query]);
 
   // Feed the home-screen agenda widget: the next 24h of events, grouped by day with Today/Tomorrow
   // dividers. If the next 24h is quiet, fall back to the next few upcoming so it's never empty.
@@ -441,7 +552,7 @@ export default function App() {
   const widgetItems = useMemo(() => {
     const now = Date.now();
     const soon = now + 24 * 3600e3;
-    const up = expandEvents(events, now, now + 30 * 864e5)
+    const up = expandEvents(visibleEvents, now, now + 30 * 864e5)
       .filter((o) => o.endTime >= now)
       .sort((a, b) => a.startTime - b.startTime);
     let picked = up.filter((o) => o.startTime <= soon);
@@ -469,11 +580,11 @@ export default function App() {
         title: o.title || "(untitled)",
         timeLabel: o.allDay ? "All day" : ongoing ? "Now" : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
         calendar: cal ? displayName(cal) : "",
-        color: colorFor(o.calendarId),
+        color: evColor(o),
       });
     }
     return rows;
-  }, [events, cals, displayName, colorFor]);
+  }, [visibleEvents, cals, displayName, evColor]);
   useEffect(() => { updateWidgetAgenda(widgetItems); }, [widgetItems]);
 
   const openNew = () => {
@@ -530,18 +641,108 @@ export default function App() {
       setModal((m) => ({ ...m, open: false }));
     } catch (e: any) { onKeycardAbort(e, () => saveEvent(d)); }
   };
-  const removeEvent = async () => {
+  // Actually delete (after the user confirms). Kept separate so a keycard retry doesn't re-prompt.
+  const doDeleteEvent = async () => {
     if (!modal.editing) return;
-    try { await deleteEvent(modal.editing); setModal((m) => ({ ...m, open: false })); } catch (e: any) { onKeycardAbort(e, () => removeEvent()); }
+    try { await deleteEvent(modal.editing); setModal((m) => ({ ...m, open: false })); } catch (e: any) { onKeycardAbort(e, () => doDeleteEvent()); }
   };
+  // ADR 0021: set my attendance on the event being edited (self-scoped; local-first + snappy).
+  const onRsvpEvent = async (status: string) => {
+    if (!modal.editing) return;
+    try { await setRsvp(modal.calId, modal.editing.id, status); await refresh(); }
+    catch (e: any) { onKeycardAbort(e, () => onRsvpEvent(status)); }
+  };
+  const removeEvent = () => {
+    if (!modal.editing) return;
+    const title = modal.editing.title || "(untitled)";
+    const recurring = !!modal.editing.recur;
+    Alert.alert(
+      "Delete event",
+      `Delete "${title}"?${recurring ? " This removes the whole repeating series." : ""}\n\nThis can't be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => { doDeleteEvent(); } },
+      ],
+    );
+  };
+  // Duplicate the event being edited → a new event with the same fields (same time; move/edit after).
+  const dupBusy = useRef(false);
+  const duplicateEvent = async () => {
+    if (!modal.editing || dupBusy.current) return;   // guard against double-fire → multiple copies
+    dupBusy.current = true;
+    const s = modal.editing; const cid = modal.calId;
+    setModal((m) => ({ ...m, open: false }));         // close NOW so it can't be tapped again
+    const copy = {
+      title: (s.title || "(untitled)") + " (copy)", startTime: s.startTime, endTime: s.endTime,
+      allDay: s.allDay, description: s.description, location: s.location, url: s.url,
+      reminderMin: s.reminderMin, recur: s.recur, fields: (s as any).fields, attachments: s.attachments,
+    };
+    try {
+      await createEvent(cid, copy as any);
+      await refresh();
+      ToastAndroid.show("Event duplicated", ToastAndroid.SHORT);   // explicit success
+    } catch (e: any) {
+      const raw = String((e && e.message) || e || "");
+      if (!raw.includes("cancelled")) Alert.alert("Couldn't duplicate", raw + "\n\nNothing was saved."); // explicit failure
+    } finally { dupBusy.current = false; }
+  };
+  // ── drag-drop: press-hold a day-list event and drop it on a month-grid day to move it ──
+  const cellRects = useRef<Record<string, CellRect>>({});
+  const onCellLayout = useCallback((r: CellRect) => { cellRects.current[r.date.toISOString()] = r; }, []);
+  const dragXY = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const [dragEv, setDragEv] = useState<CalEvent | null>(null);
+  const [dropDate, setDropDate] = useState<Date | null>(null);
+  const lastDrop = useRef<string>("");   // guard: only setState when the hovered cell changes
+  const hitTestCell = (x: number, y: number): Date | null => {
+    for (const k in cellRects.current) {
+      const r = cellRects.current[k];
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r.date;
+    }
+    return null;
+  };
+  // Move an event's series master to `day`, preserving time-of-day + duration (mirrors desktop).
+  const moveEvent = async (occ: CalEvent, day: Date) => {
+    const m = events.find((e) => e.id === occ.id) || occ;   // edit the master (recurrence-safe)
+    const st = new Date(m.startTime);
+    if (sameDay(st, day)) return;                            // dropped on its own day — no-op
+    // Mirror the desktop: refuse a move you're not allowed to make, up front, with a clear message —
+    // don't persist-then-let-the-fold-drop-it, and don't misroute an authz rejection to onKeycardAbort.
+    const cal = cals.find((c) => c.id === m.calendarId);
+    if (!canEditEvent(cal, m)) { ToastAndroid.show("You can't move this event.", ToastAndroid.SHORT); return; }
+    const dur = m.endTime - m.startTime;
+    const ns = new Date(day.getFullYear(), day.getMonth(), day.getDate(), st.getHours(), st.getMinutes(), 0, 0);
+    const up = { ...m, startTime: ns.getTime(), endTime: ns.getTime() + dur };
+    try {
+      await updateEvent(up);
+      await refresh();
+      ToastAndroid.show((m.recur ? "Moved series to " : "Moved to ") + ns.toLocaleDateString(undefined, { month: "short", day: "numeric" }), ToastAndroid.SHORT);
+    } catch (e: any) { onKeycardAbort(e, () => moveEvent(occ, day)); }
+  };
+  // A per-card long-press→pan gesture. Runs on the JS thread (no reanimated installed).
+  const makeDragGesture = (occ: CalEvent) =>
+    Gesture.Pan()
+      .activateAfterLongPress(250)
+      .onStart((e) => { setDragEv(occ); lastDrop.current = ""; setDropDate(null); dragXY.setValue({ x: e.absoluteX, y: e.absoluteY }); })
+      .onUpdate((e) => {
+        dragXY.setValue({ x: e.absoluteX, y: e.absoluteY });
+        const d = hitTestCell(e.absoluteX, e.absoluteY);
+        const key = d ? d.toISOString() : "";
+        if (key !== lastDrop.current) { lastDrop.current = key; setDropDate(d); }
+      })
+      .onEnd((e) => {
+        const d = hitTestCell(e.absoluteX, e.absoluteY);
+        if (d) moveEvent(occ, d);
+        setDragEv(null); setDropDate(null); lastDrop.current = "";
+      })
+      .onFinalize(() => { setDragEv(null); setDropDate(null); lastDrop.current = ""; });
   // ADR 0017: fetch a sealed attachment from Logos Storage, decrypt it with the calendar key, save.
   const openAttachment = async (att: Attachment) => {
     const cal = cals.find((c) => c.id === modal.calId);
     if (!cal?.encryptionKey) { Alert.alert("Attachment", "This calendar has no key — can't decrypt."); return; }
     if (!att.storageCid) { Alert.alert("Attachment", "Not uploaded yet (no CID)."); return; }
     if (!codexStorage.available()) { Alert.alert("Attachment", "Storage module not in this build."); return; }
+    setAttachFetching(att.name || att.storageCid.slice(0, 12)); // non-blocking "fetching…" overlay
     try {
-      Alert.alert("Attachment", `Fetching ${att.name || att.storageCid.slice(0, 12)}…`);
       await codexStorage.init({ "bootstrap-node": [codexBoot.trim()] });   // ride our own Loam Storage network
       const dir = await codexStorage.filesDir();
       const sealedPath = `${dir}/attach-dl/${att.storageCid}.sealed`;
@@ -554,17 +755,19 @@ export default function App() {
       Alert.alert("Attachment ✅", `Saved ${att.name || "file"} (${plain.length} bytes)\nto ${savedAt}`);
     } catch (e: any) {
       Alert.alert("Attachment ❌", `[${e?.code ?? "?"}] ${e?.message ?? e}`);
+    } finally {
+      setAttachFetching(null);
     }
   };
 
   // Custom-field editing for the NEW-calendar form (mirrors settings' addField/removeField, staged
   // in newCalSchema and written into the single cal.meta on Create). Reuses the `nf` input.
   const addNewCalField = () => {
-    const key = nf.key.trim().replace(/\s+/g, "_");
-    if (!key) return;
-    if (newCalSchema.some((f) => f.key === key)) { Alert.alert("Field exists", `"${key}" is already defined.`); return; }
-    setNewCalSchema((v) => [...v, { key, label: nf.label.trim() || key, type: nf.type }]);
-    setNf({ key: "", label: "", type: "text" });
+    const def = buildFieldDef();
+    if (!def) return;
+    if (newCalSchema.some((f) => f.key === def.key)) { Alert.alert("Field exists", `"${def.key}" is already defined.`); return; }
+    setNewCalSchema((v) => [...v, def]);
+    setNf({ key: "", label: "", type: "text", options: "" });
   };
   const removeNewCalField = (key: string) => setNewCalSchema((v) => v.filter((f) => f.key !== key));
   const doCreateCal = async () => {
@@ -573,7 +776,7 @@ export default function App() {
         { schema: newCalSchema, ...tierMeta(newCalTier) });
       setNewCalOpen(false);
       setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalTier("closed");
-      setNf({ key: "", label: "", type: "text" });
+      setNf({ key: "", label: "", type: "text", options: "" });
       setCurrentCalId(cal.id); setLastInvite(buildInvite(cal));
       // Fire-and-forget: the calendar is already saved locally. Awaiting node bring-up here stalled
       // ~10s offline and, if it threw, surfaced a false "nothing was saved" + duplicate-creating Retry.
@@ -600,6 +803,7 @@ export default function App() {
   const shiftMonth = (delta: number) => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <SafeAreaView style={s.root} edges={["top", "left", "right", "bottom"]}>
         <StatusBar style="light" />
@@ -627,9 +831,9 @@ export default function App() {
         {/* view toggle + search */}
         <View style={s.viewBar}>
           <View style={s.segment}>
-            {(["month", "agenda"] as const).map((m) => (
+            {(["month", "week", "day", "agenda"] as const).map((m) => (
               <Pressable key={m} onPress={() => setViewMode(m)} style={[s.segBtn, viewMode === m && s.segBtnOn]}>
-                <Text style={[s.segT, viewMode === m && s.segTOn]}>{m === "month" ? "Month" : "Agenda"}</Text>
+                <Text style={[s.segT, viewMode === m && s.segTOn]}>{m === "month" ? "Month" : m === "week" ? "Week" : m === "day" ? "Day" : "Agenda"}</Text>
               </Pressable>
             ))}
           </View>
@@ -643,9 +847,53 @@ export default function App() {
           <MonthGrid
             month={cursor.getMonth()} year={cursor.getFullYear()}
             events={monthEvents} selected={selected} colorFor={colorFor} onSelect={setSelected}
+            onCellLayout={onCellLayout} dropDate={dropDate}
           />
         </View>
 
+        <View style={s.dayHead}>
+          <Text style={s.dayTitle}>{selected.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text>
+          {dayEvents.length > 0 && <Text style={s.sub}>Hold an event, then drag it onto a day to move it.</Text>}
+        </View>
+        <ScrollView style={{ flex: 1 }} scrollEnabled={!dragEv}>
+          {dayEvents.length === 0 && <Text style={[s.sub, { padding: 16 }]}>No events. Tap + to add one.</Text>}
+          {dayEvents.map((ev) => (
+            <GestureDetector key={`${ev.id}-${ev.startTime}`} gesture={makeDragGesture(ev)}>
+              <Pressable style={[s.event, dragEv?.id === ev.id && { opacity: 0.4 }]} onPress={() => openEdit(ev)}>
+                <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
+                <View style={{ flex: 1 }}>
+                  <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
+                  <Text style={s.sub}>
+                    {ev.allDay
+                      ? "All day"
+                      : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
+                    {ev.location ? ` · ${ev.location}` : ""}
+                    {ev.description ? ` · ${ev.description}` : ""}
+                  </Text>
+                  <EventBadges ev={ev} />
+                </View>
+              </Pressable>
+            </GestureDetector>
+          ))}
+          <View style={{ height: 90 }} />
+        </ScrollView>
+        </>) : viewMode === "week" ? (<>
+        <View style={s.weekStrip}>
+          {weekDays.map((d) => {
+            const isToday = sameDay(d, new Date());
+            const isSel = sameDay(d, selected);
+            const dots = weekOccurrences.filter((o) => sameDay(new Date(o.startTime), d)).slice(0, 3).map((o) => evColor(o));
+            return (
+              <Pressable key={d.toISOString()} style={[s.weekCell, isSel && s.weekCellOn]} onPress={() => setSelected(d)}>
+                <Text style={s.weekDow}>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][(d.getDay() + 6) % 7]}</Text>
+                <View style={[s.weekDateCircle, isToday && { backgroundColor: C.today }]}>
+                  <Text style={[s.weekDate, isToday && { color: C.bg, fontWeight: "700" }]}>{d.getDate()}</Text>
+                </View>
+                <View style={s.weekDots}>{dots.map((c, i) => <View key={i} style={[s.weekDot, { backgroundColor: c }]} />)}</View>
+              </Pressable>
+            );
+          })}
+        </View>
         <View style={s.dayHead}>
           <Text style={s.dayTitle}>{selected.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text>
         </View>
@@ -653,20 +901,52 @@ export default function App() {
           {dayEvents.length === 0 && <Text style={[s.sub, { padding: 16 }]}>No events. Tap + to add one.</Text>}
           {dayEvents.map((ev) => (
             <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
-              <View style={[s.dot, { backgroundColor: colorFor(ev.calendarId) }]} />
+              <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
               <View style={{ flex: 1 }}>
-                <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
-                <Text style={s.sub}>
-                  {ev.allDay
-                    ? "All day"
-                    : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
-                  {ev.location ? ` · ${ev.location}` : ""}
-                  {ev.description ? ` · ${ev.description}` : ""}
-                </Text>
+                <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
+                <Text style={s.sub}>{ev.allDay ? "All day" : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}{ev.location ? ` · ${ev.location}` : ""}</Text>
               </View>
             </Pressable>
           ))}
           <View style={{ height: 90 }} />
+        </ScrollView>
+        </>) : viewMode === "day" ? (<>
+        <View style={s.dayHead}>
+          <Text style={s.dayTitle}>{selected.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text>
+        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 90 }}>
+          {dayTimeline.allDay.length > 0 && (
+            <View style={s.allDayBand}>
+              {dayTimeline.allDay.map((ev) => (
+                <Pressable key={`${ev.id}-ad`} onPress={() => openEdit(ev)} style={[s.allDayChip, { borderLeftColor: evColor(ev) }]}>
+                  <Text style={s.allDayChipT} numberOfLines={1}>{ev.title || "(untitled)"}{ev.recur ? "  ↻" : ""}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          {!dayTimeline.hasTimed && dayTimeline.allDay.length === 0 && (
+            <Text style={[s.sub, { padding: 16 }]}>No events. Tap + to add one.</Text>
+          )}
+          {dayTimeline.hasTimed && dayTimeline.hours.map(({ hour, items }) => {
+            const isNowHour = sameDay(selected, new Date()) && new Date().getHours() === hour;
+            return (
+              <View key={hour} style={s.hourRow}>
+                <Text style={[s.hourLabel, isNowHour && { color: C.today, fontWeight: "700" }]}>{String(hour).padStart(2, "0")}:00</Text>
+                <View style={s.hourLine}>
+                  {items.length === 0 ? <View style={s.hourEmpty} /> : items.map((ev) => (
+                    <Pressable key={`${ev.id}-${ev.startTime}`} onPress={() => openEdit(ev)} style={[s.hourEvent, { borderLeftColor: evColor(ev) }]}>
+                      <EvTitle ev={ev} pending={pendingIds.has(ev.id)} oneLine myRsvp={myRsvpFor(ev)} />
+                      <Text style={s.sub} numberOfLines={1}>
+                        {new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – {new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                        {ev.location ? ` · ${ev.location}` : ""}
+                      </Text>
+                      <EventBadges ev={ev} />
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            );
+          })}
         </ScrollView>
         </>) : (
         <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
@@ -676,15 +956,16 @@ export default function App() {
               <View style={s.dayHead}><Text style={s.dayTitle}>{g.date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text></View>
               {g.items.map((ev) => (
                 <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
-                  <View style={[s.dot, { backgroundColor: colorFor(ev.calendarId) }]} />
+                  <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
                   <View style={{ flex: 1 }}>
-                    <Text style={s.evTitle}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+                    <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
                     <Text style={s.sub}>
                       {ev.allDay
                         ? "All day"
                         : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
                       {ev.location ? ` · ${ev.location}` : ""}
                     </Text>
+                    <EventBadges ev={ev} />
                   </View>
                 </Pressable>
               ))}
@@ -729,10 +1010,16 @@ export default function App() {
               {cals.length === 0 && <Text style={s.sub}>None yet.</Text>}
               {cals.map((c) => (
                 <Pressable key={c.id} onPress={() => { setCurrentCalId(c.id); setDrawer(false); }} style={s.calRow}>
-                  <View style={[s.dot, { backgroundColor: colorForId(c.id) }]} />
+                  {/* Tap the dot to show/hide this calendar in the combined views (local only). */}
+                  <Pressable onPress={() => toggleCalVisible(c.id)} hitSlop={10} style={{ paddingRight: 2 }}>
+                    <View style={[s.dot, hiddenCals.has(c.id)
+                      ? { backgroundColor: "transparent", borderWidth: 2, borderColor: C.sub }
+                      : { backgroundColor: colorForId(c.id) }]} />
+                  </Pressable>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <Text style={s.calName}>{displayName(c)}</Text>
+                      <Text style={[s.calName, hiddenCals.has(c.id) && { color: C.sub }]}>{displayName(c)}</Text>
+                      {hiddenCals.has(c.id) && <Text style={s.roleBadge}>hidden</Text>}
                       {currentCalId === c.id && <Text style={[s.roleBadge, { color: C.accent, borderColor: C.accent }]}>active</Text>}
                       {!!aliasMap[c.id] && <Text style={s.roleBadge}>alias</Text>}
                       {c.rolesConfigured && <Text style={s.roleBadge}>{roleOf(c)}</Text>}
@@ -747,7 +1034,7 @@ export default function App() {
                 </Pressable>
               ))}
 
-              <Pressable style={[s.smBtn, { marginTop: 4, alignItems: "center" }]} onPress={() => { setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalTier("closed"); setNf({ key: "", label: "", type: "text" }); setNewCalOpen(true); }}>
+              <Pressable style={[s.smBtn, { marginTop: 4, alignItems: "center" }]} onPress={() => { setNewCalName(""); setNewCalDesc(""); setNewCalSchema([]); setNewCalTier("closed"); setNf({ key: "", label: "", type: "text", options: "" }); setNewCalOpen(true); }}>
                 <Text style={s.smBtnT}>+ New calendar</Text>
               </Pressable>
 
@@ -836,6 +1123,9 @@ export default function App() {
                     ))}
                   </View>
                 </ScrollView>
+                {nf.type === "enum" && (
+                  <TextInput style={[s.input, { marginTop: 6 }]} value={nf.options} onChangeText={(t) => setNf((v) => ({ ...v, options: t }))} placeholder="options, comma-separated (e.g. Draft, Confirmed, Cancelled)" placeholderTextColor={C.sub} autoCapitalize="none" />
+                )}
                 <Pressable style={[s.smBtn, { marginTop: 8, alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]} onPress={addField}><Text style={[s.smBtnT, { color: C.text }]}>+ Add field</Text></Pressable>
 
                 {/* #3: sharing & roles — who can edit. Identity = an address; share yours to be added. */}
@@ -932,6 +1222,9 @@ export default function App() {
                     ))}
                   </View>
                 </ScrollView>
+                {nf.type === "enum" && (
+                  <TextInput style={[s.input, { marginTop: 6 }]} value={nf.options} onChangeText={(t) => setNf((v) => ({ ...v, options: t }))} placeholder="options, comma-separated (e.g. Draft, Confirmed, Cancelled)" placeholderTextColor={C.sub} autoCapitalize="none" />
+                )}
                 <Pressable style={[s.smBtn, { marginTop: 8, alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]} onPress={addNewCalField}><Text style={[s.smBtnT, { color: C.text }]}>+ Add field</Text></Pressable>
 
                 {/* Access — one 3-way tier (ADR 0019), chosen up front; same widget as settings. */}
@@ -1057,17 +1350,49 @@ export default function App() {
           readonlyReason={readonlyReason(cals.find((c) => c.id === modal.calId), modal.editing)}
           onSave={saveEvent}
           onDelete={modal.editing ? removeEvent : undefined}
+          onDuplicate={modal.editing && canAddTo(cals.find((c) => c.id === modal.calId)) ? duplicateEvent : undefined}
           onClose={() => setModal((m) => ({ ...m, open: false }))}
           schema={cals.find((c) => c.id === modal.calId)?.schema || []}
           loadHistory={modal.editing ? () => getEventHistory(modal.calId, modal.editing!.id) : undefined}
           onOpenAttachment={openAttachment}
+          rsvps={((events.find((e) => e.id === (modal.editing as any)?.id) || modal.editing) as any)?.rsvps}
+          myAddr={addrFor(cals.find((c) => c.id === modal.calId))}
+          onRsvp={modal.editing ? onRsvpEvent : undefined}
         />
       </SafeAreaView>
     </SafeAreaProvider>
+    {/* Floating drag proxy — screen-coord positioned (sibling of SafeAreaProvider) so it tracks the finger. */}
+    {dragEv && (
+      <Animated.View
+        pointerEvents="none"
+        style={[s.dragProxy, { transform: [{ translateX: Animated.subtract(dragXY.x, 80) }, { translateY: Animated.subtract(dragXY.y, 22) }] }]}
+      >
+        <View style={[s.dot, { backgroundColor: evColor(dragEv) }]} />
+        <Text style={[s.evTitle, { flexShrink: 1 }]} numberOfLines={1}>{dragEv.title || "(untitled)"}</Text>
+      </Animated.View>
+    )}
+    {/* Attachment fetch — a non-blocking overlay (was an interrupting alert). */}
+    {attachFetching && (
+      <View style={s.fetchOverlay} pointerEvents="none">
+        <View style={s.fetchCard}>
+          <ActivityIndicator color={C.primary} />
+          <Text style={s.fetchText} numberOfLines={1}>Fetching {attachFetching}…</Text>
+        </View>
+      </View>
+    )}
+    </GestureHandlerRootView>
   );
 }
 
 const s = StyleSheet.create({
+  weekStrip: { flexDirection: "row", paddingHorizontal: 12, paddingVertical: 8, gap: 4 },
+  weekCell: { flex: 1, alignItems: "center", paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: "transparent" },
+  weekCellOn: { backgroundColor: C.surface, borderColor: C.primary },
+  weekDow: { color: C.sub, fontSize: 10, fontWeight: "600", marginBottom: 3 },
+  weekDateCircle: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  weekDate: { color: C.text, fontSize: 13 },
+  weekDots: { flexDirection: "row", gap: 2, marginTop: 3, height: 5 },
+  weekDot: { width: 4, height: 4, borderRadius: 2 },
   root: { flex: 1, backgroundColor: C.bg },
   header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingTop: 6 },
   menu: { color: C.text, fontSize: 22, width: 24 },
@@ -1085,7 +1410,21 @@ const s = StyleSheet.create({
   dayHead: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4, borderTopWidth: 1, borderTopColor: C.border, marginTop: 6 },
   dayTitle: { color: C.text, fontSize: 15, fontWeight: "700" },
   event: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.surface, borderRadius: 10, padding: 12, marginHorizontal: 12, marginTop: 8, borderWidth: 1, borderColor: C.border },
+  dragProxy: { position: "absolute", top: 0, left: 0, width: 160, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.surface, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: C.primary, zIndex: 9999, elevation: 12, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  fetchOverlay: { position: "absolute", left: 0, right: 0, bottom: 40, alignItems: "center", zIndex: 9999, elevation: 12 },
+  fetchCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 18, borderWidth: 1, borderColor: C.border, maxWidth: "88%" },
+  fetchText: { color: C.text, fontSize: 14, fontWeight: "600", flexShrink: 1 },
+  // Day timeline
+  allDayBand: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
+  allDayChip: { backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, paddingHorizontal: 10, paddingVertical: 6, maxWidth: "100%" },
+  allDayChipT: { color: C.text, fontSize: 13, fontWeight: "600" },
+  hourRow: { flexDirection: "row", paddingHorizontal: 12, minHeight: 44 },
+  hourLabel: { color: C.sub, fontSize: 11, fontWeight: "600", width: 46, paddingTop: 8 },
+  hourLine: { flex: 1, borderTopWidth: 1, borderTopColor: C.border, paddingBottom: 6 },
+  hourEmpty: { height: 32 },
+  hourEvent: { backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, padding: 10, marginTop: 6 },
   evTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
+  syncPill: { color: C.today, fontSize: 10, fontWeight: "700", borderWidth: 1, borderColor: C.today, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, overflow: "hidden" },
   sub: { color: C.sub, fontSize: 12 },
   dot: { width: 12, height: 12, borderRadius: 6 },
   roleBadge: { fontSize: 10, fontWeight: "700", color: "#9399b2", borderColor: "#313244", borderWidth: 1, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1, overflow: "hidden", textTransform: "uppercase" },
