@@ -1355,7 +1355,7 @@ export default function App() {
           schema={cals.find((c) => c.id === modal.calId)?.schema || []}
           loadHistory={modal.editing ? () => getEventHistory(modal.calId, modal.editing!.id) : undefined}
           onOpenAttachment={openAttachment}
-          rsvps={(modal.editing as any)?.rsvps}
+          rsvps={((events.find((e) => e.id === (modal.editing as any)?.id) || modal.editing) as any)?.rsvps}
           myAddr={addrFor(cals.find((c) => c.id === modal.calId))}
           onRsvp={modal.editing ? onRsvpEvent : undefined}
         />

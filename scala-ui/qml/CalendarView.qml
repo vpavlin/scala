@@ -1180,7 +1180,10 @@ Item {
     }
     // Merge my optimistic RSVP over the folded map, count a status.
     function rsvpCount(status) {
-        var m = {}; var r = root.editingEvent ? root.editingEvent.rsvps : null
+        // Read the LIVE folded event (root.events updates on poll), not the open-time snapshot, so a
+        // peer's RSVP that arrives while the editor is open is counted.
+        var ev = root.editingEvent ? (root.eventById(root.editingEvent.id) || root.editingEvent) : null
+        var m = {}; var r = ev ? ev.rsvps : null
         if (r) for (var k in r) m[k] = r[k]
         var me = root.addrFor(root.calById(root.editCalId))
         if (me) { if (root.evMyRsvp) m[me] = root.evMyRsvp; else delete m[me] }
