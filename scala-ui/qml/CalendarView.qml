@@ -1025,6 +1025,7 @@ Item {
         return ""
     }
     property var evHistory: []             // getEventHistory result while editing
+    property string evMyRsvp: ""           // ADR 0021: my optimistic attendance on the event being edited
 
     // ── richer-editor state (null-safe: absent on old events) ──
     property bool evAllDay: false
@@ -1162,8 +1163,26 @@ Item {
         seedFieldVals(ev.calendarId, ev)
         root.evAttachments = (ev.attachments && ev.attachments.length) ? ev.attachments.slice() : []
         root.attachBusy = false; root.attachMsg = ""
+        root.evMyRsvp = (ev.rsvps && ev.rsvps[root.addrFor(root.calById(ev.calendarId))]) || ""
         evHistory = root.j(core("getEventHistory", [ev.calendarId, ev.id]), [])
         eventPopup.open()
+    }
+    // ADR 0021: set my attendance (self-scoped); optimistic + refresh. "" retracts.
+    function setRsvp(status) {
+        if (!root.editingEvent) return
+        var next = (root.evMyRsvp === status) ? "" : status
+        root.evMyRsvp = next
+        core("setRsvp", [root.editCalId, root.editingEvent.id, next])
+        refresh()
+    }
+    // Merge my optimistic RSVP over the folded map, count a status.
+    function rsvpCount(status) {
+        var m = {}; var r = root.editingEvent ? root.editingEvent.rsvps : null
+        if (r) for (var k in r) m[k] = r[k]
+        var me = root.addrFor(root.calById(root.editCalId))
+        if (me) { if (root.evMyRsvp) m[me] = root.evMyRsvp; else delete m[me] }
+        var n = 0; for (var a in m) if (m[a] === status) n++
+        return n
     }
     function saveEvent() {
         var s = parseDateTime(evDate.text, evStart.text)
@@ -1567,6 +1586,31 @@ Item {
                 }
             }
 
+            // ── RSVP (ADR 0021) — your own attendance; any member can set it ──
+            ColumnLayout {
+                visible: root.editingEvent !== null
+                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: 4
+                LogosText { text: "Your RSVP"; color: root.cFaint; font.pixelSize: 11 }
+                Flow {
+                    Layout.fillWidth: true; spacing: 6
+                    Repeater {
+                        model: [{ k: "going", l: "Going" }, { k: "maybe", l: "Maybe" }, { k: "no", l: "No" }]
+                        delegate: Rectangle {
+                            height: 28; radius: 14; width: rsvpLbl.width + 20
+                            color: root.evMyRsvp === modelData.k ? root.cSurface : root.cBase
+                            border.width: 1
+                            border.color: root.evMyRsvp === modelData.k ? root.cBlue : root.cSurface2
+                            LogosText { id: rsvpLbl; anchors.centerIn: parent; text: modelData.l; color: root.cText; font.pixelSize: 13 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.setRsvp(modelData.k) }
+                        }
+                    }
+                }
+                LogosText {
+                    text: root.rsvpCount("going") + " going · " + root.rsvpCount("maybe") + " maybe · " + root.rsvpCount("no") + " no"
+                    color: root.cSub; font.pixelSize: 11
+                }
+            }
+
             // ── edit history (only when editing an existing event) ──
             ColumnLayout {
                 visible: root.editingEvent !== null && root.evHistory && root.evHistory.length > 0
@@ -1576,7 +1620,9 @@ Item {
                     model: root.evHistory || []
                     delegate: LogosText {
                         Layout.fillWidth: true
-                        text: "· " + (modelData.action || "changed") + " by " + root.shortAuthor(modelData.author)
+                        text: "· " + (modelData.action || "changed")
+                              + ((modelData.action === "edited" && modelData.changed && modelData.changed.length) ? " (" + modelData.changed.join(", ") + ")" : "")
+                              + " by " + root.shortAuthor(modelData.author)
                               + " — " + Qt.formatDateTime(new Date(modelData.at), "MMM d, hh:mm")
                         color: root.cSub; font.pixelSize: 11; elide: Text.ElideRight
                     }

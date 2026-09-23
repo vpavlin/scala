@@ -88,6 +88,7 @@ public:
 
     /// #4: per-event edit history — [{author,at,action,payload}] from the raw log.
     std::string getEventHistory(const std::string& calId, const std::string& eventId);
+    std::string setRsvp(const std::string& calendarId, const std::string& eventId, const std::string& status); // ADR 0021
 
     /// Get a single event by ID. Returns JSON object string.
     std::string getEvent(const std::string& id);
