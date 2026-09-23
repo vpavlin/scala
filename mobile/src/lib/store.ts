@@ -8,6 +8,7 @@
 //   scala.log.<calId>     – that calendar's append-only event log (Event[])
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Event, mergeEvents, foldCalendar, eventFromJson, FoldedCalendar } from "./engine";
+import { verifyCacheLoad, verifyCacheDump } from "./identity";
 
 export interface Calendar {
   id: string;
@@ -118,11 +119,33 @@ async function removeCalendar(id: string): Promise<void> {
 // the whole dataset on every keystroke/sync tick. Cold start still folds once per calendar.
 const foldCache = new Map<string, FoldedCalendar>();
 function invalidateFold(calId: string) { foldCache.delete(calId); }
+
+// The fold verifies every event's signature (secp256k1, slow on Hermes). identity.ts memoizes each
+// result; we persist that memo across launches so a COLD start skips the crypto entirely. Hydrate
+// once before the first fold; save (debounced) after folds that verified new events.
+const VCACHE_KEY = "scala.vcache";
+let _vcacheHydrate: Promise<void> | null = null;
+function ensureVerifyCache(): Promise<void> {
+  if (!_vcacheHydrate) {
+    _vcacheHydrate = (async () => {
+      try { verifyCacheLoad(await readJson<[string, boolean][]>(VCACHE_KEY, [])); } catch { /* first run */ }
+    })();
+  }
+  return _vcacheHydrate;
+}
+let _vcacheSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleVerifyCacheSave(): void {
+  if (_vcacheSaveTimer) clearTimeout(_vcacheSaveTimer);
+  _vcacheSaveTimer = setTimeout(() => { writeJson(VCACHE_KEY, verifyCacheDump()).catch(() => {}); }, 3000);
+}
+
 async function foldedFor(calId: string): Promise<FoldedCalendar> {
   const cached = foldCache.get(calId);
   if (cached) return cached;
+  await ensureVerifyCache();                 // memo loaded before folding → cold fold skips secp256k1
   const f = foldCalendar(calId, await getLog(calId));
   foldCache.set(calId, f);
+  scheduleVerifyCacheSave();                  // persist any newly-verified events
   return f;
 }
 

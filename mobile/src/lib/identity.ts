@@ -85,6 +85,13 @@ export function signEvent(id: Identity, ev: any): any {
 }
 
 // True iff the event is well-signed by the key whose address it claims (dev). Never throws.
+// Verification is deterministic in an event's immutable content, and secp256k1.verify is SLOW on
+// Hermes (~40ms) — so the fold re-verifying every event on every fold dominated startup. Memoize the
+// verify result, keyed by (pub, sig, digest) so a tampered payload (different digest) never reuses a
+// real event's result. The store persists this across launches so cold start skips the crypto.
+const _verifyMemo = new Map<string, boolean>();
+export function verifyCacheLoad(entries: [string, boolean][]): void { for (const [k, v] of entries) _verifyMemo.set(k, v); }
+export function verifyCacheDump(): [string, boolean][] { return Array.from(_verifyMemo.entries()); }
 export function verifyEvent(ev: any): boolean {
   try {
     if (!ev || !ev.pub || !ev.sig || !ev.type || !ev.id) return false;
@@ -94,7 +101,12 @@ export function verifyEvent(ev: any): boolean {
     if (pub.length !== 33) return false;
     if (addressFor(pub) !== dev) return false;
     const digest = sha256(utf8Bytes(canonicalMessage(ev)));
-    return secp256k1.verify(fromHex(ev.sig), digest, pub);
+    const key = ev.pub + "|" + ev.sig + "|" + hex(digest); // (pub,sig,content) fully determines the result
+    const memo = _verifyMemo.get(key);
+    if (memo !== undefined) return memo;
+    const ok = secp256k1.verify(fromHex(ev.sig), digest, pub);
+    _verifyMemo.set(key, ok);
+    return ok;
   } catch {
     return false;
   }
