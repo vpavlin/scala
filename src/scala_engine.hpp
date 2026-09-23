@@ -50,6 +50,15 @@ namespace ET {
 // eventToJson / eventFromJson / mergeEvents now come from logos_sync (aliased
 // above) — they were byte-identical to the copies that used to live here.
 
+// Safe string field read: "" when the key is missing OR present with a non-string value.
+// nlohmann's value("k", "") THROWS type_error if the key exists with a non-string type, which
+// would abort the whole fold on a single crafted event — so never use value() on attacker-set
+// fields. Mirrors the TS fold's `typeof x === "string" ? x : ""`.
+inline std::string jstr(const json& o, const char* k) {
+    auto it = o.find(k);
+    return (it != o.end() && it->is_string()) ? it->get<std::string>() : std::string();
+}
+
 // ── fold: merged log → calendar state ────────────────────────────────────────
 // Returns {name, color, events:[…]}. cal.meta is LWW (last by HLC wins). Events are
 // LWW upsert by event id; a tombstone is TERMINAL (a later edit can't resurrect it).
@@ -161,23 +170,22 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
             // Generic extension (ADR 0021). Any verified member may CREATE (its own id); a SUPERSEDE
             // (same id) is honoured only from the creator or an editor/owner. `data` opaque to Scala.
             const json& p = e.payload;
-            std::string id = p.value("id", std::string());
-            std::string target = p.value("target", std::string());
+            std::string id = jstr(p, "id");
+            std::string target = jstr(p, "target");
             if (id.empty() || target.empty() || extTomb.count(id)) continue;   // need id+target; tombstone terminal
             auto cit = extCreator.find(id);
             json data = p.contains("data") ? p["data"] : json(nullptr);
             if (cit == extCreator.end()) {
                 extCreator[id] = author;
-                extItem[id] = ExtItem{p.value("ns", std::string()), p.value("kind", std::string()),
-                                      target, id, author, e.hlc, data};
+                extItem[id] = ExtItem{jstr(p, "ns"), jstr(p, "kind"), target, id, author, e.hlc, data};
             } else {
                 if (author != cit->second && !isEditor(author, verified)) continue; // supersede: creator/editor only
-                ExtItem& it = extItem[id];   // keep ns/kind/target/author from creation; advance data+hlc
-                it.data = data; it.hlc = e.hlc;
+                ExtItem& it = extItem[id];   // keep ns/kind/target/author/hlc from CREATION; only data advances
+                it.data = data;              // (hlc stays first-posted → the item holds its place in the thread)
             }
         } else if (e.type == ET::EXT_DEL) {
             // Tombstone an ext item — by its author (creator) OR an owner/editor (moderation). Terminal.
-            std::string id = e.payload.value("id", std::string());
+            std::string id = jstr(e.payload, "id");
             auto cit = extCreator.find(id);
             if (id.empty() || cit == extCreator.end()) continue;   // unknown id → nothing to authorise/delete
             if (author != cit->second && !isEditor(author, verified)) continue;

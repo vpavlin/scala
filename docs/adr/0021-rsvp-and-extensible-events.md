@@ -62,9 +62,14 @@ event is signed and dropped-if-unverified like all content ([0007](0007-event-si
   significant to the test, so each `state.ext[target]` array is sorted by **(HLC, then id)** — total and
   identical on both platforms. Item shape: `{ ns, kind, id, author, hlc, data }` (`target` is the group key).
 - **Ownership / supersede.** The **first** author to use an `id` is its *creator*. A later `ext` with the
-  same `id` is a **supersede** honoured only from the **creator or an owner/editor**; it advances `data` +
-  `hlc` but keeps the creation `ns`/`kind`/`target` and the **creator** as `author` (a moderator edit does
-  not steal authorship). A cross-author `id` reuse by a non-privileged member is dropped (no griefing).
+  same `id` is a **supersede** honoured only from the **creator or an owner/editor**; it advances `data`
+  only and keeps the creation `ns`/`kind`/`target`, the **creator** as `author`, and the **creation `hlc`**
+  — so ordering is by *first-posted* time and an edited/moderated item holds its place in the thread rather
+  than jumping to the tail. A cross-author `id` reuse by a non-privileged member is dropped (no griefing).
+- **Untrusted fields.** `id`/`target`/`ns`/`kind` are read as strings that default to `""` when missing OR
+  present with a non-string type (both folds; C++ via a `jstr` helper, never nlohmann `value()` which
+  *throws* on a type mismatch and would abort the whole fold on one crafted event). A non-string `id`/`target`
+  → dropped; a non-string `ns`/`kind` → `""`. `data` is stored verbatim; absent → `null` on both platforms.
 - **Delete.** `ext.del` is terminal (tombstone), honoured for the creator or an owner/editor; a later `ext`
   reusing a tombstoned `id` stays dropped. Missing `id`/`target` → dropped. `data` absent → normalised to
   `null` on both platforms (so JS `undefined` and C++ `null` don't diverge).

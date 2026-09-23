@@ -207,22 +207,24 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
       // Generic extension (ADR 0021). Any verified member may CREATE an item (its own id); a
       // SUPERSEDE (same id) is honoured only from the creator or an editor/owner. `data` opaque.
       const p: any = e.payload;
-      const id: string = p?.id ?? "";
-      const target: string = p?.target ?? "";
+      // Safe string reads: "" for a missing OR non-string field (matches the C++ jstr helper), so a
+      // crafted non-string id/target/ns can't diverge the two folds.
+      const jstr = (o: any, k: string): string => (typeof o?.[k] === "string" ? o[k] : "");
+      const id = jstr(p, "id");
+      const target = jstr(p, "target");
       if (!id || !target || extTomb.has(id)) continue; // need id+target; tombstone terminal
       const exists = extCreator.has(id);
       if (!exists) {
         extCreator.set(id, author);
-        extItems.set(id, { ns: p?.ns ?? "", kind: p?.kind ?? "", target, id, author, hlc: e.hlc, data: p?.data ?? null });
+        extItems.set(id, { ns: jstr(p, "ns"), kind: jstr(p, "kind"), target, id, author, hlc: e.hlc, data: p?.data ?? null });
       } else {
         if (author !== extCreator.get(id) && !isEditor(author, verified)) continue; // supersede: creator/editor only
-        const it = extItems.get(id)!; // keep ns/kind/target/author from creation; advance data+hlc
-        it.data = p?.data ?? null;
-        it.hlc = e.hlc;
+        const it = extItems.get(id)!; // keep ns/kind/target/author/hlc from CREATION; only data advances
+        it.data = p?.data ?? null;    // (hlc stays first-posted → the item holds its place in the thread)
       }
     } else if (e.type === ET.EXT_DEL) {
       // Tombstone an ext item — by its author (creator) OR an owner/editor (moderation). Terminal.
-      const id: string = e.payload?.id ?? "";
+      const id: string = typeof e.payload?.id === "string" ? e.payload.id : "";
       if (!id || !extCreator.has(id)) continue; // unknown id → nothing to authorise/delete
       if (author !== extCreator.get(id) && !isEditor(author, verified)) continue;
       extTomb.add(id);
