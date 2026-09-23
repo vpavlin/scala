@@ -1349,8 +1349,16 @@ Item {
         anchors.centerIn: Overlay.overlay
         width: 420; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
-        ColumnLayout {
-            anchors.fill: parent; spacing: Theme.spacing.small
+        contentItem: Item {
+            implicitHeight: evColContent.implicitHeight
+            // Wrap the column in a plain Item so its explicit width is honoured — as the Popup's
+            // contentItem the ColumnLayout's width was overridden, and the DS popup's content width
+            // ignores rightPadding, so fillWidth inputs ran to the edge. Bound + centre it here.
+            ColumnLayout {
+            id: evColContent
+            anchors { top: parent.top; horizontalCenter: parent.horizontalCenter }
+            width: parent.width - 16
+            spacing: Theme.spacing.small
             LogosText { text: root.editingEvent ? "Edit event" : "New event"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
 
             LogosText { text: "Calendar"; color: root.cFaint; font.pixelSize: 11 }
@@ -1664,6 +1672,7 @@ Item {
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Cancel"; onClicked: eventPopup.close() }
                 LogosButton { visible: !root.eventReadOnly; text: root.editingEvent ? "Save" : "Create"; enabled: root.eventError() === ""; onClicked: root.saveEvent() }
+            }
             }
         }
     }
