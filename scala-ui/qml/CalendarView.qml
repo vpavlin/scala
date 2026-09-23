@@ -1237,7 +1237,7 @@ Item {
         delete up.seriesId; delete up.occ
         up.startTime = ns.getTime(); up.endTime = ns.getTime() + dur
         core("updateEvent", [JSON.stringify(up)])
-        refresh(); root.notify("Moved to " + Qt.formatDate(ns, "MMM d"))
+        refresh(); root.notify((ev.recur ? "Moved series to " : "Moved to ") + Qt.formatDate(ns, "MMM d"))
     }
     function deleteEvent() { if (editingEvent) deleteEventPopup.open() }   // confirm first (destructive)
     function doDeleteEvent() {

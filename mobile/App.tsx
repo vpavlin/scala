@@ -694,13 +694,17 @@ export default function App() {
     const m = events.find((e) => e.id === occ.id) || occ;   // edit the master (recurrence-safe)
     const st = new Date(m.startTime);
     if (sameDay(st, day)) return;                            // dropped on its own day — no-op
+    // Mirror the desktop: refuse a move you're not allowed to make, up front, with a clear message —
+    // don't persist-then-let-the-fold-drop-it, and don't misroute an authz rejection to onKeycardAbort.
+    const cal = cals.find((c) => c.id === m.calendarId);
+    if (!canEditEvent(cal, m)) { ToastAndroid.show("You can't move this event.", ToastAndroid.SHORT); return; }
     const dur = m.endTime - m.startTime;
     const ns = new Date(day.getFullYear(), day.getMonth(), day.getDate(), st.getHours(), st.getMinutes(), 0, 0);
     const up = { ...m, startTime: ns.getTime(), endTime: ns.getTime() + dur };
     try {
       await updateEvent(up);
       await refresh();
-      ToastAndroid.show("Moved to " + ns.toLocaleDateString(undefined, { month: "short", day: "numeric" }), ToastAndroid.SHORT);
+      ToastAndroid.show((m.recur ? "Moved series to " : "Moved to ") + ns.toLocaleDateString(undefined, { month: "short", day: "numeric" }), ToastAndroid.SHORT);
     } catch (e: any) { onKeycardAbort(e, () => moveEvent(occ, day)); }
   };
   // A per-card long-press→pan gesture. Runs on the JS thread (no reanimated installed).
