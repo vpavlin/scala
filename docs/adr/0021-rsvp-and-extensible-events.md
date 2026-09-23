@@ -55,6 +55,29 @@ event is signed and dropped-if-unverified like all content ([0007](0007-event-si
   **Frequencies** reduces `ns=xyz.frequencies, kind=comment` into a comment thread (append), and could
   add votes, links, etc. later with **no Scala change**.
 
+#### Implemented (scala core 0.9.24 / mobile) — settled details
+
+- **Both folds** (`src/scala_engine.hpp`, `mobile/src/lib/engine.ts`) handle `ext` / `ext.del`, guarded
+  by the golden-vector parity test (`mobile/test/parity.sh`, fixtures `x1…x13`). Array **order** is
+  significant to the test, so each `state.ext[target]` array is sorted by **(HLC, then id)** — total and
+  identical on both platforms. Item shape: `{ ns, kind, id, author, hlc, data }` (`target` is the group key).
+- **Ownership / supersede.** The **first** author to use an `id` is its *creator*. A later `ext` with the
+  same `id` is a **supersede** honoured only from the **creator or an owner/editor**; it advances `data`
+  only and keeps the creation `ns`/`kind`/`target`, the **creator** as `author`, and the **creation `hlc`**
+  — so ordering is by *first-posted* time and an edited/moderated item holds its place in the thread rather
+  than jumping to the tail. A cross-author `id` reuse by a non-privileged member is dropped (no griefing).
+- **Untrusted fields.** `id`/`target`/`ns`/`kind` are read as strings that default to `""` when missing OR
+  present with a non-string type (both folds; C++ via a `jstr` helper, never nlohmann `value()` which
+  *throws* on a type mismatch and would abort the whole fold on one crafted event). A non-string `id`/`target`
+  → dropped; a non-string `ns`/`kind` → `""`. `data` is stored verbatim; absent → `null` on both platforms.
+- **Delete.** `ext.del` is terminal (tombstone), honoured for the creator or an owner/editor; a later `ext`
+  reusing a tombstoned `id` stays dropped. Missing `id`/`target` → dropped. `data` absent → normalised to
+  `null` on both platforms (so JS `undefined` and C++ `null` don't diverge).
+- **API.** Desktop core (universal-exposed): `postExt(cal, ns, kind, target, id, dataJson)` (empty `id` →
+  fresh; reuse to supersede), `deleteExt(cal, id)`, `getExts(cal, target)`. Mobile (`calendar.ts`):
+  `postExt`, `delExt`, `getExts(cal, target, {ns?, kind?})`. Local-first like every write; **no Scala UI**
+  ships yet (the parity test is the proof-of-capability until Frequencies consumes it).
+
 ## Consequences
 
 - **One generic fold change unlocks unlimited app event types.** After `ext` ships (both folds + a

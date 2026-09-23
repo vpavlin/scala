@@ -91,6 +91,17 @@ public:
     // Set MY attendance on an event (ADR 0021); self-scoped, no edit-rights needed.
     std::string setRsvp(const std::string& calendarId, const std::string& eventId, const std::string& status);
 
+    // ── Generic extensions (ADR 0021): app data on a target; `data` is OPAQUE to Scala. ──
+    // Post an ext item; reuse `id` to supersede/edit (empty → fresh id). `dataJson` = the app's
+    // opaque payload as a JSON string. Returns the item id. (Comments stay ABOVE the decl — a
+    // trailing comment after `);` makes the universal-expose parser skip the method.)
+    std::string postExt(const std::string& calendarId, const std::string& ns, const std::string& kind,
+                        const std::string& target, const std::string& id, const std::string& dataJson);
+    // Tombstone an ext item (honoured for its creator or an owner/editor).
+    std::string deleteExt(const std::string& calendarId, const std::string& id);
+    // Read a target's ext items (HLC order) as a JSON array string.
+    std::string getExts(const std::string& calendarId, const std::string& target);
+
     /// Get a single event by ID. Returns JSON object string.
     std::string getEvent(const std::string& id);
 

@@ -42,6 +42,8 @@ export const ET = {
   EVENT_DEL: "event.del", // {id}                   — tombstone an event (terminal)
   MEMBER_SET: "member.set", // {member,role}        — roles (#3): owner/admin grants admin|viewer|remove; opt-in
   EVENT_RSVP: "event.rsvp", // {eventId,status}     — attendance (ADR 0021): LWW per (eventId,author); self-scoped
+  EXT: "ext", // {ns,kind,target,id,data}          — generic extension (ADR 0021): app data on a target; `data` OPAQUE to Scala. supersede by id (creator/editor)
+  EXT_DEL: "ext.del", // {id}                       — tombstone an ext item (terminal); by the item's author OR an owner/editor (moderation)
   SYNC_REQ: "sync.req", // {from}                  — catch-up: ask peers to re-serve; NOT stored/folded
 } as const;
 
@@ -97,6 +99,9 @@ export interface FoldedCalendar {
   open: boolean;
   collab: boolean;
   events: any[];
+  // ADR 0021 generic extensions: target id -> app items in HLC order. Scala never interprets
+  // `data`; a consuming app (e.g. Frequencies) filters by ns/kind and reduces into its feature.
+  ext: Record<string, Array<{ ns: string; kind: string; id: string; author: string; hlc: HLC; data: any }>>;
 }
 
 // ── fold: merged log → calendar state ────────────────────────────────────────
@@ -113,6 +118,11 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   const events = new Map<string, any>(); // event id -> payload
   const tombstones = new Set<string>();
   const rsvpOf = new Map<string, Map<string, string>>(); // eventId -> (author -> status) — ADR 0021, LWW by HLC
+  // ADR 0021 generic extensions. extCreator: id -> first author (owns supersede/delete). extItems:
+  // id -> current item (author stays the creator; data/hlc advance on supersede). extTomb: deleted ids.
+  const extCreator = new Map<string, string>();
+  const extItems = new Map<string, { ns: string; kind: string; target: string; id: string; author: string; hlc: HLC; data: any }>();
+  const extTomb = new Set<string>();
 
   // Roles + permissions (two rules) — parity with scala_engine.hpp. owner/editor/viewer +
   // an Open toggle: (1) owner/editors do anything, viewers read-only; (2) everyone else may
@@ -193,6 +203,32 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
       let m = rsvpOf.get(eid);
       if (!m) { m = new Map<string, string>(); rsvpOf.set(eid, m); }
       if (status === "") m.delete(author); else m.set(author, status);
+    } else if (e.type === ET.EXT) {
+      // Generic extension (ADR 0021). Any verified member may CREATE an item (its own id); a
+      // SUPERSEDE (same id) is honoured only from the creator or an editor/owner. `data` opaque.
+      const p: any = e.payload;
+      // Safe string reads: "" for a missing OR non-string field (matches the C++ jstr helper), so a
+      // crafted non-string id/target/ns can't diverge the two folds.
+      const jstr = (o: any, k: string): string => (typeof o?.[k] === "string" ? o[k] : "");
+      const id = jstr(p, "id");
+      const target = jstr(p, "target");
+      if (!id || !target || extTomb.has(id)) continue; // need id+target; tombstone terminal
+      const exists = extCreator.has(id);
+      if (!exists) {
+        extCreator.set(id, author);
+        extItems.set(id, { ns: jstr(p, "ns"), kind: jstr(p, "kind"), target, id, author, hlc: e.hlc, data: p?.data ?? null });
+      } else {
+        if (author !== extCreator.get(id) && !isEditor(author, verified)) continue; // supersede: creator/editor only
+        const it = extItems.get(id)!; // keep ns/kind/target/author/hlc from CREATION; only data advances
+        it.data = p?.data ?? null;    // (hlc stays first-posted → the item holds its place in the thread)
+      }
+    } else if (e.type === ET.EXT_DEL) {
+      // Tombstone an ext item — by its author (creator) OR an owner/editor (moderation). Terminal.
+      const id: string = typeof e.payload?.id === "string" ? e.payload.id : "";
+      if (!id || !extCreator.has(id)) continue; // unknown id → nothing to authorise/delete
+      if (author !== extCreator.get(id) && !isEditor(author, verified)) continue;
+      extTomb.add(id);
+      extItems.delete(id);
     }
   }
 
@@ -205,11 +241,27 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
     ev.rsvps = rsvps;
   }
 
+  // Materialize ext grouped by target. Array ORDER is significant for parity (the golden test
+  // compares arrays element-wise), so sort each target's items by HLC then id — total + identical
+  // to the C++ fold. Empty targets are omitted.
+  const extByTarget = new Map<string, Array<{ ns: string; kind: string; target: string; id: string; author: string; hlc: HLC; data: any }>>();
+  for (const it of extItems.values()) {
+    let arr = extByTarget.get(it.target);
+    if (!arr) { arr = []; extByTarget.set(it.target, arr); }
+    arr.push(it);
+  }
+  const ext: FoldedCalendar["ext"] = {};
+  [...extByTarget.keys()].sort().forEach((t) => {
+    const arr = extByTarget.get(t)!;
+    arr.sort((x, y) => compareHlc(x.hlc, y.hlc) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+    ext[t] = arr.map((it) => ({ ns: it.ns, kind: it.kind, id: it.id, author: it.author, hlc: it.hlc, data: it.data }));
+  });
+
   // Match C++ std::map iteration: events ordered by id string.
   const ids = [...events.keys()].sort();
   const roles: Record<string, string> = {};
   [...roleOf.keys()].sort().forEach((k) => (roles[k] = roleOf.get(k)!));
-  return { id: calId, name, color, description, schema, owner, roles, rolesConfigured, open: openCal, collab: collabCal, events: ids.map((id) => events.get(id)) };
+  return { id: calId, name, color, description, schema, owner, roles, rolesConfigured, open: openCal, collab: collabCal, events: ids.map((id) => events.get(id)), ext };
 }
 
 // ── Clock: stamps local events, advances past ingested causes ────────────────

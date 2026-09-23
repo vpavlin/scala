@@ -348,6 +348,40 @@ export async function getEventHistory(
   });
 }
 
+// ── Generic extensions (ADR 0021) — app data on a target, `data` opaque to Scala ─────────────
+// A consuming app (e.g. Frequencies) posts `ext` items against an event/calendar id and reduces
+// them by its own ns/kind. Post is open to any member; the fold gates supersede/delete to the
+// item's creator or an owner/editor, so no assertAuthorable here. Local-first like every write.
+export async function postExt(
+  calId: string,
+  item: { ns: string; kind: string; target: string; data: any; id?: string },
+): Promise<string> {
+  const id = item.id || Crypto.randomUUID(); // reuse an id to SUPERSEDE (edit) an existing item
+  await publishAndApply(calId, await mkEvent(ET.EXT, { ns: item.ns, kind: item.kind, target: item.target, id, data: item.data }, calId));
+  notifyChange();
+  return id;
+}
+
+// Tombstone an ext item (terminal). Honoured by its creator or an owner/editor (moderation).
+export async function delExt(calId: string, id: string): Promise<void> {
+  await publishAndApply(calId, await mkEvent(ET.EXT_DEL, { id }, calId));
+  notifyChange();
+}
+
+// Read the ext items on a target (event or calendar id), in HLC order, optionally filtered by
+// ns/kind. Returns the folded items ({ns,kind,id,author,hlc,data}); an app reduces these itself.
+export async function getExts(
+  calId: string,
+  target: string,
+  filter?: { ns?: string; kind?: string },
+): Promise<Array<{ ns: string; kind: string; id: string; author: string; hlc: any; data: any }>> {
+  const folded: any = await store.folded(calId); // cached fold
+  let items: any[] = (folded.ext && folded.ext[target]) || [];
+  if (filter?.ns) items = items.filter((i) => i.ns === filter.ns);
+  if (filter?.kind) items = items.filter((i) => i.kind === filter.kind);
+  return items;
+}
+
 // Roles (#3): grant/revoke a member by their device id (owner/admin only — the fold
 // enforces it). role "remove" clears the grant. Writes a member.set event.
 export async function setMemberRole(calId: string, member: string, role: "editor" | "admin" | "viewer" | "remove"): Promise<void> {

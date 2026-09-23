@@ -436,7 +436,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.23"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.24"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -528,6 +528,29 @@ std::string ScalaImpl::setRsvp(const std::string& calendarId, const std::string&
     json p; p["eventId"] = eventId; p["status"] = status;
     authorAndPublish(scala::ET::EVENT_RSVP, p, calendarId);
     return "ok";
+}
+// ADR 0021 generic extensions. Post is open to any member; the fold gates supersede/delete to the
+// item's creator or an owner/editor. `data` stays opaque to Scala (parsed only to re-embed as JSON).
+std::string ScalaImpl::postExt(const std::string& calendarId, const std::string& ns, const std::string& kind,
+                               const std::string& target, const std::string& id, const std::string& dataJson) {
+    if (target.empty()) return "";
+    std::string itemId = id.empty() ? generateUuid() : id;   // reuse an id to SUPERSEDE (edit)
+    json data = json::parse(dataJson, nullptr, false);       // opaque; tolerate non-JSON → null
+    if (data.is_discarded()) data = json(nullptr);
+    json p{{"ns", ns}, {"kind", kind}, {"target", target}, {"id", itemId}, {"data", data}};
+    authorAndPublish(scala::ET::EXT, p, calendarId);
+    return itemId;
+}
+std::string ScalaImpl::deleteExt(const std::string& calendarId, const std::string& id) {
+    if (id.empty()) return "";
+    authorAndPublish(scala::ET::EXT_DEL, json{{"id", id}}, calendarId);
+    return "ok";
+}
+std::string ScalaImpl::getExts(const std::string& calendarId, const std::string& target) {
+    json f = scala::foldCalendar(calendarId, m_store->log(calendarId));
+    json ext = f.contains("ext") ? f["ext"] : json::object();
+    if (ext.is_object() && ext.contains(target)) return ext[target].dump();
+    return json::array().dump();
 }
 std::string ScalaImpl::listCalendars() {
     ensureDelivery();   // kym self-drive
