@@ -41,7 +41,7 @@ their own ADRs and are cross-referenced rather than restated:
 - [0018](0018-icalendar-interop.md) — iCalendar (.ics) import/export — interop with the world
 - [0019](0019-collaborative-calendar-mode.md) — Collaborative calendar mode — the third permission tier
 - [0020](0020-local-first-responsiveness.md) — Local-first responsiveness — apply now, sync later; cache the fold
-- [0021](0021-rsvp-and-extensible-events.md) — RSVP (built-in) + extensible events (apps add their own types) *(proposed)*
+- [0021](0021-rsvp-and-extensible-events.md) — RSVP (built-in) + extensible events (apps add their own types)
 
 Scala also ships an SDK guide for apps built on it — [`docs/sdk.md`](../sdk.md).
 Superseded planning docs are archived under [`../archive/`](../archive/).

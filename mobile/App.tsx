@@ -13,7 +13,7 @@ import {
   onChange, startSyncing, joinFromInvite, createEvent, updateEvent, deleteEvent,
   createCalendar, deleteCalendar, buildInvite, getSharedNode, setSharedNode,
   updateCalendarMeta, getAlias, setAlias, getEventHistory, getDeviceId, setMemberRole,
-  setCalendarIdentity, calendarIdentityId, pendingEventIds,
+  setCalendarIdentity, calendarIdentityId, pendingEventIds, setRsvp,
 } from "./src/lib/calendar";
 import { FieldDef } from "./src/components/EventModal";
 
@@ -640,6 +640,12 @@ export default function App() {
   const doDeleteEvent = async () => {
     if (!modal.editing) return;
     try { await deleteEvent(modal.editing); setModal((m) => ({ ...m, open: false })); } catch (e: any) { onKeycardAbort(e, () => doDeleteEvent()); }
+  };
+  // ADR 0021: set my attendance on the event being edited (self-scoped; local-first + snappy).
+  const onRsvpEvent = async (status: string) => {
+    if (!modal.editing) return;
+    try { await setRsvp(modal.calId, modal.editing.id, status); await refresh(); }
+    catch (e: any) { onKeycardAbort(e, () => onRsvpEvent(status)); }
   };
   const removeEvent = () => {
     if (!modal.editing) return;
@@ -1344,6 +1350,9 @@ export default function App() {
           schema={cals.find((c) => c.id === modal.calId)?.schema || []}
           loadHistory={modal.editing ? () => getEventHistory(modal.calId, modal.editing!.id) : undefined}
           onOpenAttachment={openAttachment}
+          rsvps={(modal.editing as any)?.rsvps}
+          myAddr={addrFor(cals.find((c) => c.id === modal.calId))}
+          onRsvp={modal.editing ? onRsvpEvent : undefined}
         />
       </SafeAreaView>
     </SafeAreaProvider>

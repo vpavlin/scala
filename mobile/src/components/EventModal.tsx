@@ -44,6 +44,7 @@ export interface HistoryEntry { author: string; at: number; action: string; payl
 export function EventModal({
   visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onDuplicate, onClose,
   schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment,
+  rsvps, myAddr, onRsvp,
 }: {
   visible: boolean;
   initial: EventDraft;
@@ -60,6 +61,9 @@ export function EventModal({
   canEdit?: boolean;             // false = viewer on a role-managed calendar → read-only
   readonlyReason?: string;       // specific "why you can't edit" copy (owner/identity mismatch, closed, viewer)
   onOpenAttachment?: (att: Attachment) => void; // fetch+decrypt+open a Logos Storage attachment
+  rsvps?: Record<string, string>;   // ADR 0021: folded attendance (author addr → status)
+  myAddr?: string;                  // my address on this calendar (to show/set my own RSVP)
+  onRsvp?: (status: string) => void; // set my attendance ("going"|"maybe"|"no"|"" to retract)
 }) {
   const [title, setTitle] = useState(initial.title);
   const [start, setStart] = useState(new Date(initial.startTime));
@@ -73,6 +77,7 @@ export function EventModal({
   const [recur, setRecur] = useState<Recur | undefined>(initial.recur);
   const [fields, setFields] = useState<Record<string, any>>(initial.fields || {});
   const [attachments, setAttachments] = useState<Attachment[]>(initial.attachments || []);
+  const [myRsvp, setMyRsvp] = useState<string>((myAddr && rsvps?.[myAddr]) || ""); // optimistic own RSVP
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pick, setPick] = useState<null | { which: "start" | "end" | "until"; mode: "date" | "time" }>(null);
   const [calOpen, setCalOpen] = useState(false); // #6: select-box dropdown open?
@@ -92,6 +97,7 @@ export function EventModal({
       setReminderMin(initial.reminderMin ?? 10);
       setRecur(initial.recur);
       setFields(initial.fields || {});
+      setMyRsvp((myAddr && rsvps?.[myAddr]) || "");
       setHistory([]);
       if (initial.id && loadHistory) loadHistory().then(setHistory).catch(() => setHistory([]));
     }
@@ -170,6 +176,13 @@ export function EventModal({
     });
   };
 
+  // RSVP (ADR 0021): my optimistic status merged over the folded map, for the count summary.
+  const rsvpMerged: Record<string, string> = { ...(rsvps || {}) };
+  if (myAddr) { if (myRsvp) rsvpMerged[myAddr] = myRsvp; else delete rsvpMerged[myAddr]; }
+  const rsvpCount = (st: string) => Object.values(rsvpMerged).filter((v) => v === st).length;
+  const pickRsvp = (st: string) => { const next = myRsvp === st ? "" : st; setMyRsvp(next); onRsvp && onRsvp(next); };
+  const showRsvp = !!(initial.id && onRsvp && myAddr);
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView style={s.backdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -235,6 +248,23 @@ export function EventModal({
               <Pressable style={s.pill} onPress={() => setPick({ which: "end", mode: "date" })}><Text style={s.pillT}>{fmtDate(end)}</Text></Pressable>
               {!allDay && <Pressable style={s.pill} onPress={() => setPick({ which: "end", mode: "time" })}><Text style={s.pillT}>{fmtTime(end)}</Text></Pressable>}
             </View>
+
+            {/* RSVP (ADR 0021) — your own attendance; anyone in the calendar can set it. */}
+            {showRsvp && (
+              <>
+                <Text style={s.label}>Your RSVP</Text>
+                <View style={s.calRow}>
+                  {[{ k: "going", l: "Going" }, { k: "maybe", l: "Maybe" }, { k: "no", l: "No" }].map((o) => (
+                    <Pressable key={o.k} onPress={() => pickRsvp(o.k)} style={[s.calChip, myRsvp === o.k && s.calChipOn]}>
+                      <Text style={[s.calChipT, myRsvp === o.k && { color: C.text }]}>{o.l}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={{ color: C.sub, fontSize: 12, marginTop: 6 }}>
+                  {rsvpCount("going")} going · {rsvpCount("maybe")} maybe · {rsvpCount("no")} no
+                </Text>
+              </>
+            )}
 
             <Text style={s.label}>Location</Text>
             <TextInput style={s.input} value={location} editable={canEdit} onChangeText={setLocation} placeholder="Where" placeholderTextColor={C.sub} />

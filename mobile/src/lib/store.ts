@@ -50,6 +50,7 @@ export interface CalEvent {
   allDay?: boolean;             // all-day span (time pickers hidden)
   reminderMin?: number;         // reminder lead in minutes (undefined = default 10; 0 = none)
   recur?: import("./recur").Recur; // recurrence rule (undefined = does not repeat)
+  rsvps?: Record<string, string>; // ADR 0021: author address → "going"|"maybe"|"no" (folded, read-only)
   fields?: Record<string, any>; // #8: custom schema field values
   attachments?: Attachment[];   // ADR 0017: files stored in Logos Storage, referenced by CID
   creatorId?: string;

@@ -1,6 +1,6 @@
 # 21. RSVP (built-in) + extensible events (apps add their own types)
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-09-23
 
 ## Context

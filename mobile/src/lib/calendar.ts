@@ -237,6 +237,14 @@ export async function updateEvent(ev: CalEvent): Promise<void> {
   notifyChange();
 }
 
+// Set MY attendance on an event (ADR 0021). Self-scoped: any member may RSVP for themselves, so this
+// does NOT go through assertAuthorable (no add/edit role needed) — the fold keys by the signer.
+// status ∈ "going" | "maybe" | "no"; "" retracts. Local-first like every write.
+export async function setRsvp(calId: string, eventId: string, status: string): Promise<void> {
+  await publishAndApply(calId, await mkEvent(ET.EVENT_RSVP, { eventId, status }, calId));
+  notifyChange();
+}
+
 export async function deleteEvent(ev: CalEvent): Promise<void> {
   await assertAuthorable(ev.calendarId, ev.id);
   await publishAndApply(ev.calendarId, await mkEvent(ET.EVENT_DEL, { id: ev.id }, ev.calendarId));
