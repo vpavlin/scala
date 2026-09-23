@@ -137,6 +137,7 @@ export default function App() {
   const [cals, setCals] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set()); // event ids saved locally, not yet synced
+  const [attachFetching, setAttachFetching] = useState<string | null>(null); // an attachment being fetched → non-blocking overlay
   // Per-device: calendars hidden from the combined views (local convenience, never synced).
   const [hiddenCals, setHiddenCals] = useState<Set<string>>(new Set());
   const HIDDEN_KEY = "scala.hiddenCals";
@@ -446,10 +447,20 @@ export default function App() {
     Alert.alert("Member added", `${id.slice(0, 16)}… is now ${nm.role}. They'll appear once the change syncs.`);
     setCalSet(null);
   };
-  const removeMember = async (id: string) => {
+  const removeMember = (id: string) => {
     if (!calSet) return;
-    await setMemberRole(calSet.cal.id, id, "remove");
-    setCalSet(null);
+    const calId = calSet.cal.id;
+    Alert.alert(
+      "Remove member",
+      `Remove ${id.slice(0, 16)}… from "${calSet.cal.name}"? They lose access on this calendar (they keep any local copy).`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: async () => {
+          try { await setMemberRole(calId, id, "remove"); setCalSet(null); }
+          catch (e: any) { onKeycardAbort(e, () => removeMember(id)); }
+        } },
+      ],
+    );
   };
   const copyIdentity = async () => { await Clipboard.setStringAsync(me); Alert.alert("Copied", "Your identity is on the clipboard — share it so an owner can add you."); };
   const removeCalendar = () => {
@@ -715,8 +726,8 @@ export default function App() {
     if (!cal?.encryptionKey) { Alert.alert("Attachment", "This calendar has no key — can't decrypt."); return; }
     if (!att.storageCid) { Alert.alert("Attachment", "Not uploaded yet (no CID)."); return; }
     if (!codexStorage.available()) { Alert.alert("Attachment", "Storage module not in this build."); return; }
+    setAttachFetching(att.name || att.storageCid.slice(0, 12)); // non-blocking "fetching…" overlay
     try {
-      Alert.alert("Attachment", `Fetching ${att.name || att.storageCid.slice(0, 12)}…`);
       await codexStorage.init({ "bootstrap-node": [codexBoot.trim()] });   // ride our own Loam Storage network
       const dir = await codexStorage.filesDir();
       const sealedPath = `${dir}/attach-dl/${att.storageCid}.sealed`;
@@ -729,6 +740,8 @@ export default function App() {
       Alert.alert("Attachment ✅", `Saved ${att.name || "file"} (${plain.length} bytes)\nto ${savedAt}`);
     } catch (e: any) {
       Alert.alert("Attachment ❌", `[${e?.code ?? "?"}] ${e?.message ?? e}`);
+    } finally {
+      setAttachFetching(null);
     }
   };
 
@@ -1340,6 +1353,15 @@ export default function App() {
         <Text style={[s.evTitle, { flexShrink: 1 }]} numberOfLines={1}>{dragEv.title || "(untitled)"}</Text>
       </Animated.View>
     )}
+    {/* Attachment fetch — a non-blocking overlay (was an interrupting alert). */}
+    {attachFetching && (
+      <View style={s.fetchOverlay} pointerEvents="none">
+        <View style={s.fetchCard}>
+          <ActivityIndicator color={C.primary} />
+          <Text style={s.fetchText} numberOfLines={1}>Fetching {attachFetching}…</Text>
+        </View>
+      </View>
+    )}
     </GestureHandlerRootView>
   );
 }
@@ -1371,6 +1393,9 @@ const s = StyleSheet.create({
   dayTitle: { color: C.text, fontSize: 15, fontWeight: "700" },
   event: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.surface, borderRadius: 10, padding: 12, marginHorizontal: 12, marginTop: 8, borderWidth: 1, borderColor: C.border },
   dragProxy: { position: "absolute", top: 0, left: 0, width: 160, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.surface, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: C.primary, zIndex: 9999, elevation: 12, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  fetchOverlay: { position: "absolute", left: 0, right: 0, bottom: 40, alignItems: "center", zIndex: 9999, elevation: 12 },
+  fetchCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 18, borderWidth: 1, borderColor: C.border, maxWidth: "88%" },
+  fetchText: { color: C.text, fontSize: 14, fontWeight: "600", flexShrink: 1 },
   // Day timeline
   allDayBand: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
   allDayChip: { backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, paddingHorizontal: 10, paddingVertical: 6, maxWidth: "100%" },
