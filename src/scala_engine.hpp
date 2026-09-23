@@ -42,6 +42,8 @@ namespace ET {
     constexpr const char* EVENT_DEL = "event.del";   // {id}                  — tombstone an event (terminal)
     constexpr const char* MEMBER_SET = "member.set"; // {member,role}         — roles (#3): owner/admin grants admin|viewer|remove. Opt-in: no member.set = open calendar.
     constexpr const char* EVENT_RSVP = "event.rsvp"; // {eventId,status}       — attendance (ADR 0021): LWW per (eventId,author); self-scoped
+    constexpr const char* EXT       = "ext";         // {ns,kind,target,id,data}— generic extension (ADR 0021): app data on a target; `data` OPAQUE. supersede by id (creator/editor)
+    constexpr const char* EXT_DEL   = "ext.del";     // {id}                   — tombstone an ext item (terminal); by the item's author OR an owner/editor
     constexpr const char* SYNC_REQ  = "sync.req";    // {have:[id…], from} — CATCH-UP: a joining peer publishes the ids it already holds; peers serve ONLY the delta (logos_sync::catchup). NOT stored, NOT folded (foldCalendar ignores unknown types); handled in the receive path → onSyncReq().
 }
 
@@ -59,6 +61,12 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     std::map<std::string, json> events;   // event id -> event payload
     std::set<std::string> tombstones;
     std::map<std::string, std::map<std::string, std::string>> rsvpOf; // eventId -> (author -> status) — ADR 0021, LWW by HLC
+    // ADR 0021 generic extensions. extCreator: id -> first author (owns supersede/delete). extItem:
+    // id -> current item (author stays the creator; data/hlc advance on supersede). extTomb: deleted.
+    struct ExtItem { std::string ns, kind, target, id, author; HLC hlc; json data; };
+    std::map<std::string, std::string> extCreator;
+    std::map<std::string, ExtItem> extItem;
+    std::set<std::string> extTomb;
 
     // ── roles + permissions (two rules; owner/editor/viewer + Open toggle) ────
     // owner = author of the earliest cal.meta. roleOf grants "editor"/"viewer". Two rules:
@@ -149,6 +157,31 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
             std::string status = e.payload.value("status", std::string());
             if (status.empty()) rsvpOf[eid].erase(author);
             else rsvpOf[eid][author] = status;
+        } else if (e.type == ET::EXT) {
+            // Generic extension (ADR 0021). Any verified member may CREATE (its own id); a SUPERSEDE
+            // (same id) is honoured only from the creator or an editor/owner. `data` opaque to Scala.
+            const json& p = e.payload;
+            std::string id = p.value("id", std::string());
+            std::string target = p.value("target", std::string());
+            if (id.empty() || target.empty() || extTomb.count(id)) continue;   // need id+target; tombstone terminal
+            auto cit = extCreator.find(id);
+            json data = p.contains("data") ? p["data"] : json(nullptr);
+            if (cit == extCreator.end()) {
+                extCreator[id] = author;
+                extItem[id] = ExtItem{p.value("ns", std::string()), p.value("kind", std::string()),
+                                      target, id, author, e.hlc, data};
+            } else {
+                if (author != cit->second && !isEditor(author, verified)) continue; // supersede: creator/editor only
+                ExtItem& it = extItem[id];   // keep ns/kind/target/author from creation; advance data+hlc
+                it.data = data; it.hlc = e.hlc;
+            }
+        } else if (e.type == ET::EXT_DEL) {
+            // Tombstone an ext item — by its author (creator) OR an owner/editor (moderation). Terminal.
+            std::string id = e.payload.value("id", std::string());
+            auto cit = extCreator.find(id);
+            if (id.empty() || cit == extCreator.end()) continue;   // unknown id → nothing to authorise/delete
+            if (author != cit->second && !isEditor(author, verified)) continue;
+            extTomb.insert(id); extItem.erase(id);
         }
     }
 
@@ -165,10 +198,30 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     for (auto& kv : events) evArr.push_back(kv.second);
     json roles = json::object();
     for (auto& kv : roleOf) roles[kv.first] = kv.second;
+
+    // Materialize ext grouped by target. Array ORDER is significant for parity (the golden test
+    // compares arrays element-wise), so sort each target's items by HLC then id — total + identical
+    // to the TS fold. Empty targets are omitted.
+    std::map<std::string, std::vector<const ExtItem*>> extByTarget;
+    for (auto& kv : extItem) extByTarget[kv.second.target].push_back(&kv.second);
+    json ext = json::object();
+    for (auto& kv : extByTarget) {
+        auto& v = kv.second;
+        std::sort(v.begin(), v.end(), [](const ExtItem* a, const ExtItem* b) {
+            int c = compareHlc(a->hlc, b->hlc); return c != 0 ? c < 0 : a->id < b->id;
+        });
+        json arr = json::array();
+        for (const ExtItem* it : v)
+            arr.push_back(json{{"ns", it->ns}, {"kind", it->kind}, {"id", it->id}, {"author", it->author},
+                               {"hlc", {{"wall", it->hlc.wall}, {"ctr", it->hlc.ctr}, {"dev", it->hlc.dev}}},
+                               {"data", it->data}});
+        ext[kv.first] = arr;
+    }
+
     return json{{"id", calId}, {"name", name}, {"color", color},
                 {"description", description}, {"schema", schema},
                 {"owner", owner}, {"roles", roles}, {"rolesConfigured", rolesConfigured},
-                {"open", openCal}, {"collab", collabCal}, {"events", evArr}};
+                {"open", openCal}, {"collab", collabCal}, {"events", evArr}, {"ext", ext}};
 }
 
 } // namespace scala
