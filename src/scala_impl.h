@@ -91,6 +91,14 @@ public:
     // Set MY attendance on an event (ADR 0021); self-scoped, no edit-rights needed.
     std::string setRsvp(const std::string& calendarId, const std::string& eventId, const std::string& status);
 
+    // ── Snapshots (ADR 0020): bootstrap catch-up from one sealed Storage blob ──
+    // Cut the calendar's log at the latest completed epoch (default 1h), serialize + AES-seal it +
+    // upload to Storage; the CID arrives async (getSnapshotPointer). `epochSizeMsStr` = epoch size ms
+    // as a string ("" → 3600000). Returns {"ok":true,"status":"uploading",epoch,count} JSON.
+    std::string snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr);
+    // The last COMPLETED snapshot pointer for a calendar: {v,cid,epoch,coversUpToHlc,count} — or "{}".
+    std::string getSnapshotPointer(const std::string& calendarId);
+
     /// Get a single event by ID. Returns JSON object string.
     std::string getEvent(const std::string& id);
 
@@ -227,6 +235,9 @@ private:
     std::map<std::string, PendingUp> m_pendUp;     // storage sessionId -> pending upload
     struct PendingDown { std::string calId, name, cid, sealedPath, outPath; };
     std::map<std::string, PendingDown> m_pendDown; // storage sessionId -> pending download
+    struct PendingSnap { std::string calId, tmpPath; long long epoch = 0, count = 0; };
+    std::map<std::string, PendingSnap> m_pendSnap;   // storage sessionId -> pending snapshot upload (ADR 0020)
+    std::map<std::string, std::string> m_lastSnapshot; // calId -> last completed snapshot pointer JSON
     void onStorageUploadDone(const std::string& payload);
     void onStorageDownloadDone(const std::string& payload);
     std::map<std::string, std::string> m_attachResults;   // ref -> result JSON, polled by attachmentStatus

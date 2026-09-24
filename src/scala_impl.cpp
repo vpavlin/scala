@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include "logos_transport.hpp"
 #include "logos_sync/catchup.hpp"   // delta catch-up (buildRequest / answerRequest)
+#include "logos_sync/snapshot.hpp"  // ADR 0020: deterministic log snapshots (epoch cut + serialize)
 #include <QTimer>                    // catch-up retry timers (mesh forms ~10s after start)
 
 #include <chrono>
@@ -436,7 +437,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.23"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.25"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1083,10 +1084,65 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
     return blobId;   // ref the view correlates on attachmentUploaded
 }
 
+// ── Snapshots (ADR 0020) ───────────────────────────────────────────────────────
+// Cut the log at the latest completed epoch, serialize (canonical), AES-seal with the calendar key
+// (CalendarSync::sealBlob — mobile opens it with the same scheme), and upload to Storage. The CID
+// arrives async via onStorageUploadDone → getSnapshotPointer.
+std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr) {
+    ensureStorage();
+    long long E = 3600000; // default epoch = 1h
+    if (!epochSizeMsStr.empty()) { try { E = std::stoll(epochSizeMsStr); } catch (...) {} }
+    if (E <= 0) E = 3600000;
+    std::vector<scala::Event> log = m_store->log(calendarId);
+    long long now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    long long boundary = logos_sync::snapshot::epochBoundary(now, E);
+    std::vector<scala::Event> cut = logos_sync::snapshot::selectCut(log, boundary);
+    if (cut.empty())
+        return json{{"ok", false}, {"error", "empty cut (no events before the epoch boundary)"}, {"epoch", boundary}}.dump();
+    std::string plaintext = logos_sync::snapshot::serializeSnapshot(cut, logos_sync::snapshot::boundaryHlc(boundary));
+    std::string sealId = scalaSha256Hex(plaintext);                   // deterministic nonce → same cut → same bytes
+    std::string sealed = m_sync ? m_sync->sealBlob(calendarId, plaintext, sealId) : std::string();
+    if (sealed.empty())
+        return json{{"ok", false}, {"error", "seal failed (unknown calendar key? is the calendar syncing?)"}}.dump();
+    std::string tmpPath = m_storageDir + "/tmp/snap-" + scalaSha256Hex(sealed);
+    if (!scalaWriteFile(tmpPath, sealed))
+        return json{{"ok", false}, {"error", "cannot stage snapshot"}}.dump();
+    StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536);
+    if (!r.success)
+        return json{{"ok", false}, {"error", r.error.empty() ? "upload rejected" : r.error}}.dump();
+    std::string sess = resVal(r);
+    m_pendSnap[sess] = PendingSnap{ calendarId, tmpPath, boundary, (long long)cut.size() };
+    fprintf(stderr, "Scala: snapshot cal=%s epoch=%lld count=%zu → uploading (session %s)\n",
+            calendarId.c_str(), boundary, cut.size(), sess.c_str());
+    return json{{"ok", true}, {"status", "uploading"}, {"epoch", boundary}, {"count", (long long)cut.size()}}.dump();
+}
+
+std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
+    auto it = m_lastSnapshot.find(calendarId);
+    return it == m_lastSnapshot.end() ? std::string("{}") : it->second;
+}
+
 void ScalaImpl::onStorageUploadDone(const std::string& payload) {
     json p = json::parse(payload, nullptr, false);
     if (p.is_discarded() || !p.is_object()) return;
     std::string sess = p.value("sessionId", std::string());
+    // ADR 0020: a snapshot upload completing → record the pointer (getSnapshotPointer serves it).
+    auto sit = m_pendSnap.find(sess);
+    if (sit != m_pendSnap.end()) {
+        PendingSnap sn = sit->second; m_pendSnap.erase(sit);
+        std::error_code ec; afs::remove(sn.tmpPath, ec);
+        if (p.value("success", false)) {
+            std::string cid = p.value("cid", std::string());
+            json ptr{{"v", 1}, {"cid", cid}, {"epoch", sn.epoch},
+                     {"coversUpToHlc", {{"wall", sn.epoch}, {"ctr", 0}, {"dev", ""}}}, {"count", sn.count}};
+            m_lastSnapshot[sn.calId] = ptr.dump();
+            fprintf(stderr, "Scala: snapshot uploaded cal=%s cid=%s count=%lld\n", sn.calId.c_str(), cid.c_str(), sn.count);
+        } else {
+            fprintf(stderr, "Scala: snapshot upload FAILED cal=%s: %s\n", sn.calId.c_str(), p.value("error", std::string()).c_str());
+        }
+        return;
+    }
     auto it = m_pendUp.find(sess);
     if (it == m_pendUp.end()) return;
     PendingUp up = it->second; m_pendUp.erase(it);
