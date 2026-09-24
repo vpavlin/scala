@@ -121,14 +121,22 @@ function parseQuery(q: string): Record<string, string> {
   }
   return out;
 }
-export function parseInvite(link: string): { calendarId: string; key: string; name?: string } | null {
+export function parseInvite(link: string): {
+  calendarId: string; key: string; name?: string;
+  // Optional ADR-0020 bootstrap hint: a snapshot pointer + the Codex peer to fetch it from, both
+  // base64url(JSON). When present, join bootstraps from the snapshot first, then RBSR-tails the delta.
+  snap?: any; stor?: { peerId: string; addrs: string[] };
+} | null {
   try {
     const q = link.split("?")[1] || "";
     const p = parseQuery(q);
     const id = p["id"] || "";
     const keyB64 = p["key"] || "";
     if (!id || !keyB64) return null;
-    return { calendarId: id, key: b64urlDecode(keyB64), name: p["name"] || undefined };
+    let snap: any; let stor: { peerId: string; addrs: string[] } | undefined;
+    if (p["snap"]) { try { snap = JSON.parse(b64urlDecode(p["snap"])); } catch {} }
+    if (p["stor"]) { try { stor = JSON.parse(b64urlDecode(p["stor"])); } catch {} }
+    return { calendarId: id, key: b64urlDecode(keyB64), name: p["name"] || undefined, snap, stor };
   } catch {
     return null;
   }
@@ -425,7 +433,17 @@ export async function joinFromInvite(link: string, identityId?: string): Promise
   (async () => {
     try {
       await sync.joinCalendar(inv.calendarId, inv.key);
-      await sendSyncReq(inv.calendarId).catch(() => {}); // just joined → pull history
+      // ADR 0020: if the invite carries a snapshot pointer, bootstrap from Storage FIRST (one fetch),
+      // then RBSR-tail the delta — instead of pulling the whole log over the wire.
+      if (inv.snap) {
+        try {
+          await storage.init();
+          if (inv.stor) await storage.connect(inv.stor.peerId, inv.stor.addrs);
+          const n = await bootstrapFromSnapshot(inv.calendarId, inv.snap);
+          console.log(`[scala] bootstrapped ${n} events from snapshot ${inv.snap?.cid}`);
+        } catch (e) { console.log("[scala] snapshot bootstrap failed, falling back to full sync:", e); }
+      }
+      await sendSyncReq(inv.calendarId).catch(() => {}); // pull the delta (or the whole log if no snapshot)
     } catch { /* offline — catch-up runs when sync comes up */ }
   })();
   return f;
