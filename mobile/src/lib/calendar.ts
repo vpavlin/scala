@@ -14,6 +14,10 @@ import { authorEvent, defaultAddress, bindCalendar, identityForCalendar } from "
 import * as sstat from "./syncstatus";
 import * as sync from "./scala-sync";
 import { buildInitial, respond } from "./catchup";
+import { open as cryptoOpen } from "./crypto";
+import { verifyEvent } from "./identity";
+import * as snapshot from "./snapshot";
+import * as storage from "./logos-storage";
 
 // ── device identity (SDS senderId + event author) ───────────────────────────
 // The identity is now a secp256k1 keypair (identity.ts); its ADDRESS ("0x…") is the
@@ -346,6 +350,34 @@ export async function getEventHistory(
     }
     return { author: e.dev, at: e.hlc.wall, action, payload: e.payload, changed };
   });
+}
+
+// Bootstrap catch-up from a sealed log snapshot in Storage (ADR 0020). Fetches ONE content-addressed
+// blob and folds it, instead of receiving hundreds of relay-served messages; normal RBSR sync then
+// fills the delta after `pointer.coversUpToHlc`. RBSR stays the guarantee — every event is re-verified,
+// so a bad/stale snapshotter can only omit (healed by sync) or forge (dropped). Returns #new events.
+//
+// NOTE: the phone's Storage client is FETCH-ONLY, so writing snapshots is the hub/desktop's job
+// (C++ core + storage_module); this is the reader half. Needs a reachable Codex node + a snapshot
+// pointer (a `snapshot {cid,epoch,coversUpToHlc,count}` control message on the channel) — both are the
+// remaining live wiring, so this runs only once Storage is connected and a pointer has arrived.
+export async function bootstrapFromSnapshot(calId: string, pointer: snapshot.SnapshotPointer): Promise<number> {
+  const reg = await store.getReg(calId);
+  if (!reg || !storage.available()) return 0;
+  const dir = await storage.filesDir();
+  const path = `${dir}/snap-${pointer.cid}.bin`;
+  await storage.fetch(pointer.cid);            // pull from the network if not held locally
+  await storage.downloadToFile(pointer.cid, path);
+  const sealed = toByteArray(await storage.readFileB64(path)); // base64 file → bytes
+  const clock = await ensureClock();
+  const { ingested } = await snapshot.ingestSnapshot(sealed, {
+    open: (s) => cryptoOpen(reg.key, s),       // decrypt with the calendar's key (members-only)
+    verify: verifyEvent,                        // re-verify every signature (never trust the snapshotter)
+    append: (e) => store.appendEvent(calId, e), // idempotent (dedup by id); also invalidates the fold
+    observe: (h) => clock.receive(h),           // advance the clock past ingested causes
+  });
+  if (ingested) notifyChange();
+  return ingested;
 }
 
 // Roles (#3): grant/revoke a member by their device id (owner/admin only — the fold
