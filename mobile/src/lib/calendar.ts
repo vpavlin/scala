@@ -123,9 +123,10 @@ function parseQuery(q: string): Record<string, string> {
 }
 export function parseInvite(link: string): {
   calendarId: string; key: string; name?: string;
-  // Optional ADR-0020 bootstrap hint: a snapshot pointer + the Codex peer to fetch it from, both
-  // base64url(JSON). When present, join bootstraps from the snapshot first, then RBSR-tails the delta.
-  snap?: any; stor?: { peerId: string; addrs: string[] };
+  // Optional ADR-0020 bootstrap hint: a snapshot pointer (base64url JSON) + the Codex `stor` SPR
+  // (base64url string) to fetch it from. When present, join bootstraps from the snapshot first,
+  // then RBSR-tails the delta.
+  snap?: any; stor?: string;
 } | null {
   try {
     const q = link.split("?")[1] || "";
@@ -133,9 +134,9 @@ export function parseInvite(link: string): {
     const id = p["id"] || "";
     const keyB64 = p["key"] || "";
     if (!id || !keyB64) return null;
-    let snap: any; let stor: { peerId: string; addrs: string[] } | undefined;
+    let snap: any; let stor: string | undefined;
     if (p["snap"]) { try { snap = JSON.parse(b64urlDecode(p["snap"])); } catch {} }
-    if (p["stor"]) { try { stor = JSON.parse(b64urlDecode(p["stor"])); } catch {} }
+    if (p["stor"]) { try { stor = b64urlDecode(p["stor"]); } catch {} }
     return { calendarId: id, key: b64urlDecode(keyB64), name: p["name"] || undefined, snap, stor };
   } catch {
     return null;
@@ -437,8 +438,7 @@ export async function joinFromInvite(link: string, identityId?: string): Promise
       // then RBSR-tail the delta — instead of pulling the whole log over the wire.
       if (inv.snap) {
         try {
-          await storage.init();
-          if (inv.stor) await storage.connect(inv.stor.peerId, inv.stor.addrs);
+          await storage.init(inv.stor ? { "bootstrap-node": [inv.stor] } : {}); // reach the hub's Codex
           const n = await bootstrapFromSnapshot(inv.calendarId, inv.snap);
           console.log(`[scala] bootstrapped ${n} events from snapshot ${inv.snap?.cid}`);
         } catch (e) { console.log("[scala] snapshot bootstrap failed, falling back to full sync:", e); }
