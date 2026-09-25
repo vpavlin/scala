@@ -3,7 +3,7 @@
 // events into the log, and folds for the UI — the exact model the desktop core
 // (scala_impl.cpp publishAndApply / applyIncoming) uses. Also parses/builds the
 // `scala://` invite links the desktop uses to share a calendar's key.
-import { AppState } from "react-native";
+import { AppState, ToastAndroid } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { fromByteArray, toByteArray } from "base64-js";
@@ -14,6 +14,10 @@ import { authorEvent, defaultAddress, bindCalendar, identityForCalendar } from "
 import * as sstat from "./syncstatus";
 import * as sync from "./scala-sync";
 import { buildInitial, respond } from "./catchup";
+import { open as cryptoOpen } from "./crypto";
+import { verifyEvent } from "./identity";
+import * as snapshot from "./snapshot";
+import * as storage from "./logos-storage";
 
 // ── device identity (SDS senderId + event author) ───────────────────────────
 // The identity is now a secp256k1 keypair (identity.ts); its ADDRESS ("0x…") is the
@@ -117,14 +121,23 @@ function parseQuery(q: string): Record<string, string> {
   }
   return out;
 }
-export function parseInvite(link: string): { calendarId: string; key: string; name?: string } | null {
+export function parseInvite(link: string): {
+  calendarId: string; key: string; name?: string;
+  // Optional ADR-0020 bootstrap hint: a snapshot pointer (base64url JSON) + the Codex `stor` SPR
+  // (base64url string) to fetch it from. When present, join bootstraps from the snapshot first,
+  // then RBSR-tails the delta.
+  snap?: any; stor?: string;
+} | null {
   try {
     const q = link.split("?")[1] || "";
     const p = parseQuery(q);
     const id = p["id"] || "";
     const keyB64 = p["key"] || "";
     if (!id || !keyB64) return null;
-    return { calendarId: id, key: b64urlDecode(keyB64), name: p["name"] || undefined };
+    let snap: any; let stor: string | undefined;
+    if (p["snap"]) { try { snap = JSON.parse(b64urlDecode(p["snap"])); } catch {} }
+    if (p["stor"]) { try { stor = b64urlDecode(p["stor"]); } catch {} }
+    return { calendarId: id, key: b64urlDecode(keyB64), name: p["name"] || undefined, snap, stor };
   } catch {
     return null;
   }
@@ -348,6 +361,34 @@ export async function getEventHistory(
   });
 }
 
+// Bootstrap catch-up from a sealed log snapshot in Storage (ADR 0020). Fetches ONE content-addressed
+// blob and folds it, instead of receiving hundreds of relay-served messages; normal RBSR sync then
+// fills the delta after `pointer.coversUpToHlc`. RBSR stays the guarantee — every event is re-verified,
+// so a bad/stale snapshotter can only omit (healed by sync) or forge (dropped). Returns #new events.
+//
+// NOTE: the phone's Storage client is FETCH-ONLY, so writing snapshots is the hub/desktop's job
+// (C++ core + storage_module); this is the reader half. Needs a reachable Codex node + a snapshot
+// pointer (a `snapshot {cid,epoch,coversUpToHlc,count}` control message on the channel) — both are the
+// remaining live wiring, so this runs only once Storage is connected and a pointer has arrived.
+export async function bootstrapFromSnapshot(calId: string, pointer: snapshot.SnapshotPointer): Promise<number> {
+  const reg = await store.getReg(calId);
+  if (!reg || !storage.available()) return 0;
+  const dir = await storage.filesDir();
+  const path = `${dir}/snap-${pointer.cid}.bin`;
+  await storage.fetch(pointer.cid);            // pull from the network if not held locally
+  await storage.downloadToFile(pointer.cid, path);
+  const sealed = toByteArray(await storage.readFileB64(path)); // base64 file → bytes
+  const clock = await ensureClock();
+  const { ingested } = await snapshot.ingestSnapshot(sealed, {
+    open: (s) => cryptoOpen(reg.key, s),       // decrypt with the calendar's key (members-only)
+    verify: verifyEvent,                        // re-verify every signature (never trust the snapshotter)
+    append: (e) => store.appendEvent(calId, e), // idempotent (dedup by id); also invalidates the fold
+    observe: (h) => clock.receive(h),           // advance the clock past ingested causes
+  });
+  if (ingested) notifyChange();
+  return ingested;
+}
+
 // Roles (#3): grant/revoke a member by their device id (owner/admin only — the fold
 // enforces it). role "remove" clears the grant. Writes a member.set event.
 export async function setMemberRole(calId: string, member: string, role: "editor" | "admin" | "viewer" | "remove"): Promise<void> {
@@ -393,7 +434,21 @@ export async function joinFromInvite(link: string, identityId?: string): Promise
   (async () => {
     try {
       await sync.joinCalendar(inv.calendarId, inv.key);
-      await sendSyncReq(inv.calendarId).catch(() => {}); // just joined → pull history
+      // ADR 0020: if the invite carries a snapshot pointer, bootstrap from Storage FIRST (one fetch),
+      // then RBSR-tail the delta — instead of pulling the whole log over the wire.
+      if (inv.snap) {
+        try {
+          ToastAndroid.show(`Snapshot: fetching ${String(inv.snap?.cid).slice(0, 10)}…`, ToastAndroid.SHORT);
+          await storage.init(inv.stor ? { "bootstrap-node": [inv.stor] } : {}); // reach the hub's Codex
+          const n = await bootstrapFromSnapshot(inv.calendarId, inv.snap);
+          ToastAndroid.show(`Snapshot: bootstrapped ${n} events ✓`, ToastAndroid.LONG);
+          console.log(`[scala] bootstrapped ${n} events from snapshot ${inv.snap?.cid}`);
+        } catch (e) {
+          ToastAndroid.show(`Snapshot failed (full sync): ${String(e).slice(0, 90)}`, ToastAndroid.LONG);
+          console.log("[scala] snapshot bootstrap failed, falling back to full sync:", e);
+        }
+      }
+      await sendSyncReq(inv.calendarId).catch(() => {}); // pull the delta (or the whole log if no snapshot)
     } catch { /* offline — catch-up runs when sync comes up */ }
   })();
   return f;

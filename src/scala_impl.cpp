@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include "logos_transport.hpp"
 #include "logos_sync/catchup.hpp"   // delta catch-up (buildRequest / answerRequest)
+#include "logos_sync/snapshot.hpp"  // ADR 0020: deterministic log snapshots (epoch cut + serialize)
 #include <QTimer>                    // catch-up retry timers (mesh forms ~10s after start)
 
 #include <chrono>
@@ -35,21 +36,49 @@ using scala::json;
 // (string) when this host is on the mesh, else "" — used to ride the mesh for Storage without
 // a public IP or relay. Link-local (fe80::/10) is skipped.
 static std::string detectShroomsMeshIPv6() {
+    // The mesh IP is a ULA (fc00::/7) on the overlay tun. The interface name varies by host
+    // (logos01 on the hub, but tun*/shrooms*/wg*/utun* elsewhere), so match by the ULA prefix on ANY
+    // interface, preferring a known overlay name. Skip loopback + link-local.
     struct ifaddrs* ifas = nullptr;
     if (getifaddrs(&ifas) != 0) return "";
-    std::string found;
+    std::string preferred, any;
     for (struct ifaddrs* ifa = ifas; ifa; ifa = ifa->ifa_next) {
-        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET6) continue;
-        if (!ifa->ifa_name || std::strncmp(ifa->ifa_name, "logos", 5) != 0) continue;
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET6 || !ifa->ifa_name) continue;
         auto* sa = reinterpret_cast<struct sockaddr_in6*>(ifa->ifa_addr);
         const unsigned char* b = sa->sin6_addr.s6_addr;
         if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) continue;   // skip link-local fe80::/10
-        if ((b[0] & 0xfe) != 0xfc) continue;                    // ULA fc00::/7 only
+        if ((b[0] & 0xfe) != 0xfc) continue;                    // ULA fc00::/7 only (the mesh)
         char buf[INET6_ADDRSTRLEN] = {0};
-        if (inet_ntop(AF_INET6, &sa->sin6_addr, buf, sizeof(buf))) { found = buf; break; }
+        if (!inet_ntop(AF_INET6, &sa->sin6_addr, buf, sizeof(buf))) continue;
+        const char* n = ifa->ifa_name;
+        bool pref = std::strncmp(n, "logos", 5) == 0 || std::strncmp(n, "shrooms", 7) == 0 ||
+                    std::strncmp(n, "tun", 3) == 0 || std::strncmp(n, "utun", 4) == 0 ||
+                    std::strncmp(n, "wg", 2) == 0 || std::strncmp(n, "mesh", 4) == 0;
+        if (pref && preferred.empty()) preferred = buf;
+        if (any.empty()) any = buf;
     }
     freeifaddrs(ifas);
-    return found;
+    return !preferred.empty() ? preferred : any;
+}
+
+// Pick a mesh-reachable extip for the storage node. PREFER the mesh ULA IPv6 (fdb0:… on the overlay
+// tun) — the shrooms mesh carries TCP on all ports over IPv6, but its IPv4 (198.19.0.0/16) RSTs every
+// port except :22, so an IPv4 extip is undialable for Storage's :8199. Only fall back to the 198.19/16
+// IPv4 if no mesh IPv6 is found. Empty when the node isn't on the overlay.
+static std::string detectMeshExtip() {
+    std::string v6 = detectShroomsMeshIPv6();   // ULA on a logos*/tun*/… iface — the overlay IPv6
+    if (!v6.empty()) return v6;
+    struct ifaddrs* ifas = nullptr;
+    if (getifaddrs(&ifas) != 0) return "";
+    std::string v4;
+    for (struct ifaddrs* ifa = ifas; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET || !v4.empty()) continue;
+        auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
+        const unsigned char* b = reinterpret_cast<const unsigned char*>(&sa->sin_addr);
+        if (b[0] == 198 && b[1] == 19) { char buf[INET_ADDRSTRLEN] = {0}; if (inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf))) v4 = buf; }
+    }
+    freeifaddrs(ifas);
+    return v4;
 }
 
 // ── small helpers ────────────────────────────────────────────────────────────
@@ -436,7 +465,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.23"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.30"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1020,8 +1049,11 @@ void ScalaImpl::ensureStorage() {
     afs::create_directories(m_storageDir + "/dl", ec);
     afs::create_directories(m_storageDir + "/files", ec);
 
-    modules().storage_module.onStorageUploadDone([this](const std::string& payload) { onStorageUploadDone(payload); });
-    modules().storage_module.onStorageDownloadDone([this](const std::string& payload) { onStorageDownloadDone(payload); });
+    if (!m_storageCbReg) {   // register once — callbacks live on the module, survive a node restart
+        modules().storage_module.onStorageUploadDone([this](const std::string& payload) { onStorageUploadDone(payload); });
+        modules().storage_module.onStorageDownloadDone([this](const std::string& payload) { onStorageDownloadDone(payload); });
+        m_storageCbReg = true;
+    }
 
     json cfg;
     cfg["log-level"] = getSetting("storage_loglevel", "INFO");   // INFO so node startup + uploads are visible
@@ -1083,10 +1115,87 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
     return blobId;   // ref the view correlates on attachmentUploaded
 }
 
+// ── Snapshots (ADR 0020) ───────────────────────────────────────────────────────
+// Cut the log at the latest completed epoch, serialize (canonical), AES-seal with the calendar key
+// (CalendarSync::sealBlob — mobile opens it with the same scheme), and upload to Storage. The CID
+// arrives async via onStorageUploadDone → getSnapshotPointer.
+std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr) {
+    ensureStorageMesh();   // make our Codex mesh-dialable so the QR's SPR works for a phone over the overlay
+    long long E = 3600000; // default epoch = 1h
+    if (!epochSizeMsStr.empty()) { try { E = std::stoll(epochSizeMsStr); } catch (...) {} }
+    if (E <= 0) E = 3600000;
+    std::vector<scala::Event> log = m_store->log(calendarId);
+    long long now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    long long boundary = logos_sync::snapshot::epochBoundary(now, E);
+    std::vector<scala::Event> cut = logos_sync::snapshot::selectCut(log, boundary);
+    if (cut.empty())
+        return json{{"ok", false}, {"error", "empty cut (no events before the epoch boundary)"}, {"epoch", boundary}}.dump();
+    std::string plaintext = logos_sync::snapshot::serializeSnapshot(cut, logos_sync::snapshot::boundaryHlc(boundary));
+    std::string sealId = scalaSha256Hex(plaintext);                   // deterministic nonce → same cut → same bytes
+    std::string sealed = m_sync ? m_sync->sealBlob(calendarId, plaintext, sealId) : std::string();
+    if (sealed.empty())
+        return json{{"ok", false}, {"error", "seal failed (unknown calendar key? is the calendar syncing?)"}}.dump();
+    std::string tmpPath = m_storageDir + "/tmp/snap-" + scalaSha256Hex(sealed);
+    if (!scalaWriteFile(tmpPath, sealed))
+        return json{{"ok", false}, {"error", "cannot stage snapshot"}}.dump();
+    StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536);
+    if (!r.success)
+        return json{{"ok", false}, {"error", r.error.empty() ? "upload rejected" : r.error}}.dump();
+    std::string sess = resVal(r);
+    m_pendSnap[sess] = PendingSnap{ calendarId, tmpPath, boundary, (long long)cut.size() };
+    fprintf(stderr, "Scala: snapshot cal=%s epoch=%lld count=%zu → uploading (session %s)\n",
+            calendarId.c_str(), boundary, cut.size(), sess.c_str());
+    return json{{"ok", true}, {"status", "uploading"}, {"epoch", boundary}, {"count", (long long)cut.size()},
+                {"extip", detectMeshExtip()}}.dump();
+}
+
+std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
+    auto it = m_lastSnapshot.find(calendarId);
+    return it == m_lastSnapshot.end() ? std::string("{}") : it->second;
+}
+// (Re)start the storage node in shrooms-mesh mode so its Codex SPR announces a mesh-dialable address.
+// Off the mesh (no mesh iface) it's a no-op. Persists storage_mesh=1 so future launches stay reachable.
+void ScalaImpl::ensureStorageMesh() {
+    std::string extip = detectMeshExtip();                   // prefer the 198.19/16 mesh IPv4
+    if (extip.empty()) { ensureStorage(); return; }          // not on the mesh → best-effort default
+    bool v6 = extip.find(':') != std::string::npos;
+    setSetting("storage_extip", extip);                      // explicit extip always wins in ensureStorage()
+    setSetting("storage_mesh", v6 ? "1" : "");               // listen :: only for an IPv6 extip; else 0.0.0.0
+    if (m_storageInit && !m_storageMeshOn) {                 // already up in non-mesh mode → restart to re-announce
+        fprintf(stderr, "[scala] restarting storage, mesh extip %s\n", extip.c_str());
+        try { modules().storage_module.stop(); } catch (...) {}
+        m_storageInit = false;
+    }
+    ensureStorage();
+    m_storageMeshOn = true;
+}
+std::string ScalaImpl::getStorageSpr() {
+    ensureStorage();
+    try { StdLogosResult r = modules().storage_module.spr(); if (r.success) return resVal(r); } catch (...) {}
+    return std::string();
+}
+
 void ScalaImpl::onStorageUploadDone(const std::string& payload) {
     json p = json::parse(payload, nullptr, false);
     if (p.is_discarded() || !p.is_object()) return;
     std::string sess = p.value("sessionId", std::string());
+    // ADR 0020: a snapshot upload completing → record the pointer (getSnapshotPointer serves it).
+    auto sit = m_pendSnap.find(sess);
+    if (sit != m_pendSnap.end()) {
+        PendingSnap sn = sit->second; m_pendSnap.erase(sit);
+        std::error_code ec; afs::remove(sn.tmpPath, ec);
+        if (p.value("success", false)) {
+            std::string cid = p.value("cid", std::string());
+            json ptr{{"v", 1}, {"cid", cid}, {"epoch", sn.epoch},
+                     {"coversUpToHlc", {{"wall", sn.epoch}, {"ctr", 0}, {"dev", ""}}}, {"count", sn.count}};
+            m_lastSnapshot[sn.calId] = ptr.dump();
+            fprintf(stderr, "Scala: snapshot uploaded cal=%s cid=%s count=%lld\n", sn.calId.c_str(), cid.c_str(), sn.count);
+        } else {
+            fprintf(stderr, "Scala: snapshot upload FAILED cal=%s: %s\n", sn.calId.c_str(), p.value("error", std::string()).c_str());
+        }
+        return;
+    }
     auto it = m_pendUp.find(sess);
     if (it == m_pendUp.end()) return;
     PendingUp up = it->second; m_pendUp.erase(it);

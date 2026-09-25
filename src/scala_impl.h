@@ -91,6 +91,17 @@ public:
     // Set MY attendance on an event (ADR 0021); self-scoped, no edit-rights needed.
     std::string setRsvp(const std::string& calendarId, const std::string& eventId, const std::string& status);
 
+    // ── Snapshots (ADR 0020): bootstrap catch-up from one sealed Storage blob ──
+    // Cut the calendar's log at the latest completed epoch (default 1h), serialize + AES-seal it +
+    // upload to Storage; the CID arrives async (getSnapshotPointer). `epochSizeMsStr` = epoch size ms
+    // as a string ("" → 3600000). Returns {"ok":true,"status":"uploading",epoch,count} JSON.
+    std::string snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr);
+    // The last COMPLETED snapshot pointer for a calendar: {v,cid,epoch,coversUpToHlc,count} — or "{}".
+    std::string getSnapshotPointer(const std::string& calendarId);
+    // This node's Codex SPR (signed peer record) — the `stor` a snapshot invite carries so a fetcher
+    // can dial this node's storage. Empty string if storage isn't up.
+    std::string getStorageSpr();
+
     /// Get a single event by ID. Returns JSON object string.
     std::string getEvent(const std::string& id);
 
@@ -220,13 +231,21 @@ private:
 
     // ── Attachments / Logos Storage (ADR 0017) ────────────────────────────────
     bool m_storageInit = false;          // storage_module init+start issued + events subscribed
+    bool m_storageCbReg = false;         // upload/download callbacks registered (once, survive node restart)
+    bool m_storageMeshOn = false;        // storage node started in shrooms-mesh mode (dialable mesh extip)
     std::string m_storageDir;            // libstorage data-dir (persistent cache)
     void ensureStorage();                // idempotent: subscribe events + init + start the node
+    // ADR 0020: (re)start the storage node so its Codex SPR announces a shrooms-mesh address, so a
+    // fetcher (e.g. a phone that is a mesh peer) can dial it over the overlay. No-op off the mesh.
+    void ensureStorageMesh();
     void cacheAttachments(const scala::Event& e);  // cache-on-see: fetch any attachment CID we lack → become a provider
     struct PendingUp { std::string calId, name, mime, blobId, tmpPath; long long size = 0; };
     std::map<std::string, PendingUp> m_pendUp;     // storage sessionId -> pending upload
     struct PendingDown { std::string calId, name, cid, sealedPath, outPath; };
     std::map<std::string, PendingDown> m_pendDown; // storage sessionId -> pending download
+    struct PendingSnap { std::string calId, tmpPath; long long epoch = 0, count = 0; };
+    std::map<std::string, PendingSnap> m_pendSnap;   // storage sessionId -> pending snapshot upload (ADR 0020)
+    std::map<std::string, std::string> m_lastSnapshot; // calId -> last completed snapshot pointer JSON
     void onStorageUploadDone(const std::string& payload);
     void onStorageDownloadDone(const std::string& payload);
     std::map<std::string, std::string> m_attachResults;   // ref -> result JSON, polled by attachmentStatus

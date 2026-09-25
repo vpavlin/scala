@@ -2472,23 +2472,58 @@ Item {
 
     // ── share popup (link + a real QR the phone can scan) ─────────────────────
     property var qrData: null    // { n, cells } from core qrMatrix
-    function openShare(cal) {
-        var link = core("generateShareLink", [cal.id])
-        link = root.j(link, link)   // unwrap if the bridge quoted it
+    property var shareCal: null  // the calendar being shared (for "add snapshot")
+    property int snapPolls: 0
+    function b64url(s) { return Qt.btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") }
+    function setShareQr(link) {
         shareLink.text = (typeof link === "string" ? link : "")
-        shareTitle.text = cal.name || "calendar"
-        // Build a scannable QR matrix from the core (drawn on a Canvas; data: URIs
-        // are blocked in the sandbox, so we render cells ourselves).
         root.qrData = null
         var m = root.j(core("qrMatrix", [shareLink.text]), null)
         if (m && m.ok && m.n && m.cells && m.cells.length >= m.n * m.n) root.qrData = { n: m.n, cells: m.cells }
         qrCanvas.requestPaint()
+    }
+    function openShare(cal) {
+        root.shareCal = cal
+        shareTitle.text = cal.name || "calendar"
+        shareStatus.text = ""
+        var link = root.j(core("generateShareLink", [cal.id]), "")
+        root.setShareQr(link)
         sharePopup.open()
+    }
+    // ADR 0020: write a snapshot of this calendar, then rebuild the invite with &snap=<pointer>&stor=<codex spr>
+    // so a joining phone bootstraps from Storage instead of a full-log sync. The CID arrives async → poll.
+    property string snapExtip: ""
+    function shareWithSnapshot() {
+        if (!root.shareCal) return
+        shareStatus.text = "Creating snapshot…"
+        var res = root.j(core("snapshotCalendar", [root.shareCal.id, "1000"]), null)  // small epoch → just-seeded events are in a completed cut
+        root.snapExtip = (res && res.extip) ? res.extip : ""
+        root.snapPolls = 0
+        snapPollTimer.start()
+    }
+    Timer {
+        id: snapPollTimer; interval: 1200; repeat: true
+        onTriggered: {
+            root.snapPolls++
+            var p = root.j(core("getSnapshotPointer", [root.shareCal ? root.shareCal.id : ""]), null)
+            if (p && p.cid) {
+                stop()
+                var spr = root.j(core("getStorageSpr", []), "")
+                var base = root.j(core("generateShareLink", [root.shareCal.id]), "")
+                var link = base + "&snap=" + root.b64url(JSON.stringify(p)) + (spr ? "&stor=" + root.b64url(spr) : "")
+                shareStatus.text = "Snapshot ready — " + (p.count || 0) + " events · "
+                    + (root.snapExtip ? "mesh extip " + root.snapExtip : "⚠ NO MESH EXTIP (not on mesh?)")
+                    + (spr ? "" : " · no SPR!")
+                root.setShareQr(link)
+            } else if (root.snapPolls > 12) {
+                stop(); shareStatus.text = "Snapshot timed out (storage up?)"
+            }
+        }
     }
     Popup {
         id: sharePopup
         anchors.centerIn: Overlay.overlay
-        width: 460; modal: true; padding: Theme.spacing.large
+        width: 520; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         onOpened: qrCanvas.requestPaint()
         ColumnLayout {
@@ -2497,10 +2532,10 @@ Item {
             LogosText { text: "Scan this on the phone, or copy the link:"; color: root.cFaint; font.pixelSize: 12 }
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
-                width: 220; height: 220; radius: Theme.spacing.radiusSmall; color: "#ffffff"
+                width: 440; height: 440; radius: Theme.spacing.radiusSmall; color: "#ffffff"
                 visible: root.qrData !== null
                 Canvas {
-                    id: qrCanvas; anchors.fill: parent; anchors.margins: 10
+                    id: qrCanvas; anchors.fill: parent; anchors.margins: 12
                     onPaint: {
                         var ctx = getContext("2d"); ctx.reset()
                         ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height)
@@ -2514,8 +2549,10 @@ Item {
                 }
             }
             Field { id: shareLink; Layout.fillWidth: true; readOnly: true; selectByMouse: true }
+            LogosText { id: shareStatus; text: ""; visible: text !== ""; color: root.cFaint; font.pixelSize: 12 }
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
+                LogosButton { text: "＋ Snapshot"; onClicked: root.shareWithSnapshot() }
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Copy"; onClicked: { shareLink.selectAll(); shareLink.copy() } }
                 LogosButton { text: "Close"; onClicked: sharePopup.close() }
