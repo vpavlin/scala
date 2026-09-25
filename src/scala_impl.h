@@ -98,6 +98,9 @@ public:
     std::string snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr);
     // The last COMPLETED snapshot pointer for a calendar: {v,cid,epoch,coversUpToHlc,count} — or "{}".
     std::string getSnapshotPointer(const std::string& calendarId);
+    // This node's Codex SPR (signed peer record) — the `stor` a snapshot invite carries so a fetcher
+    // can dial this node's storage. Empty string if storage isn't up.
+    std::string getStorageSpr();
 
     /// Get a single event by ID. Returns JSON object string.
     std::string getEvent(const std::string& id);

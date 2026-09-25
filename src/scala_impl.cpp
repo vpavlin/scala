@@ -437,7 +437,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.25"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.26"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1121,6 +1121,11 @@ std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std
 std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
     auto it = m_lastSnapshot.find(calendarId);
     return it == m_lastSnapshot.end() ? std::string("{}") : it->second;
+}
+std::string ScalaImpl::getStorageSpr() {
+    ensureStorage();
+    try { StdLogosResult r = modules().storage_module.spr(); if (r.success) return resVal(r); } catch (...) {}
+    return std::string();
 }
 
 void ScalaImpl::onStorageUploadDone(const std::string& payload) {
