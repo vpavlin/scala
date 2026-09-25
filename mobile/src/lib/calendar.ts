@@ -3,7 +3,7 @@
 // events into the log, and folds for the UI — the exact model the desktop core
 // (scala_impl.cpp publishAndApply / applyIncoming) uses. Also parses/builds the
 // `scala://` invite links the desktop uses to share a calendar's key.
-import { AppState } from "react-native";
+import { AppState, ToastAndroid } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { fromByteArray, toByteArray } from "base64-js";
@@ -438,10 +438,15 @@ export async function joinFromInvite(link: string, identityId?: string): Promise
       // then RBSR-tail the delta — instead of pulling the whole log over the wire.
       if (inv.snap) {
         try {
+          ToastAndroid.show(`Snapshot: fetching ${String(inv.snap?.cid).slice(0, 10)}…`, ToastAndroid.SHORT);
           await storage.init(inv.stor ? { "bootstrap-node": [inv.stor] } : {}); // reach the hub's Codex
           const n = await bootstrapFromSnapshot(inv.calendarId, inv.snap);
+          ToastAndroid.show(`Snapshot: bootstrapped ${n} events ✓`, ToastAndroid.LONG);
           console.log(`[scala] bootstrapped ${n} events from snapshot ${inv.snap?.cid}`);
-        } catch (e) { console.log("[scala] snapshot bootstrap failed, falling back to full sync:", e); }
+        } catch (e) {
+          ToastAndroid.show(`Snapshot failed (full sync): ${String(e).slice(0, 90)}`, ToastAndroid.LONG);
+          console.log("[scala] snapshot bootstrap failed, falling back to full sync:", e);
+        }
       }
       await sendSyncReq(inv.calendarId).catch(() => {}); // pull the delta (or the whole log if no snapshot)
     } catch { /* offline — catch-up runs when sync comes up */ }
