@@ -2519,7 +2519,7 @@ Item {
     Popup {
         id: sharePopup
         anchors.centerIn: Overlay.overlay
-        width: 460; modal: true; padding: Theme.spacing.large
+        width: 520; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         onOpened: qrCanvas.requestPaint()
         ColumnLayout {
@@ -2528,10 +2528,10 @@ Item {
             LogosText { text: "Scan this on the phone, or copy the link:"; color: root.cFaint; font.pixelSize: 12 }
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
-                width: 220; height: 220; radius: Theme.spacing.radiusSmall; color: "#ffffff"
+                width: 440; height: 440; radius: Theme.spacing.radiusSmall; color: "#ffffff"
                 visible: root.qrData !== null
                 Canvas {
-                    id: qrCanvas; anchors.fill: parent; anchors.margins: 10
+                    id: qrCanvas; anchors.fill: parent; anchors.margins: 12
                     onPaint: {
                         var ctx = getContext("2d"); ctx.reset()
                         ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height)
