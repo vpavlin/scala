@@ -61,30 +61,24 @@ static std::string detectShroomsMeshIPv6() {
     return !preferred.empty() ? preferred : any;
 }
 
-// Pick a mesh-reachable extip for the storage node. The shrooms/logos overlay assigns IPv4 in
-// 198.19.0.0/16 to every peer, which is the most reliable signal (a host can have several ULAs — e.g.
-// a docker fd3b:… — so "any ULA" can pick the wrong one). Prefer the 198.19/16 IPv4; fall back to the
-// mesh ULA IPv6. Empty when the node isn't on the overlay.
+// Pick a mesh-reachable extip for the storage node. PREFER the mesh ULA IPv6 (fdb0:… on the overlay
+// tun) — the shrooms mesh carries TCP on all ports over IPv6, but its IPv4 (198.19.0.0/16) RSTs every
+// port except :22, so an IPv4 extip is undialable for Storage's :8199. Only fall back to the 198.19/16
+// IPv4 if no mesh IPv6 is found. Empty when the node isn't on the overlay.
 static std::string detectMeshExtip() {
+    std::string v6 = detectShroomsMeshIPv6();   // ULA on a logos*/tun*/… iface — the overlay IPv6
+    if (!v6.empty()) return v6;
     struct ifaddrs* ifas = nullptr;
     if (getifaddrs(&ifas) != 0) return "";
-    std::string v4, v6;
+    std::string v4;
     for (struct ifaddrs* ifa = ifas; ifa; ifa = ifa->ifa_next) {
-        if (!ifa->ifa_addr) continue;
-        if (ifa->ifa_addr->sa_family == AF_INET && v4.empty()) {
-            auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
-            const unsigned char* b = reinterpret_cast<const unsigned char*>(&sa->sin_addr);
-            if (b[0] == 198 && b[1] == 19) { char buf[INET_ADDRSTRLEN] = {0}; if (inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf))) v4 = buf; }
-        } else if (ifa->ifa_addr->sa_family == AF_INET6 && v6.empty()) {
-            auto* sa = reinterpret_cast<struct sockaddr_in6*>(ifa->ifa_addr);
-            const unsigned char* b = sa->sin6_addr.s6_addr;
-            if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) continue;   // link-local
-            if ((b[0] & 0xfe) != 0xfc) continue;                    // ULA
-            char buf[INET6_ADDRSTRLEN] = {0}; if (inet_ntop(AF_INET6, &sa->sin6_addr, buf, sizeof(buf))) v6 = buf;
-        }
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET || !v4.empty()) continue;
+        auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
+        const unsigned char* b = reinterpret_cast<const unsigned char*>(&sa->sin_addr);
+        if (b[0] == 198 && b[1] == 19) { char buf[INET_ADDRSTRLEN] = {0}; if (inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf))) v4 = buf; }
     }
     freeifaddrs(ifas);
-    return !v4.empty() ? v4 : v6;
+    return v4;
 }
 
 // ── small helpers ────────────────────────────────────────────────────────────
@@ -471,7 +465,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.29"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.30"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
