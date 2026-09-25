@@ -61,6 +61,32 @@ static std::string detectShroomsMeshIPv6() {
     return !preferred.empty() ? preferred : any;
 }
 
+// Pick a mesh-reachable extip for the storage node. The shrooms/logos overlay assigns IPv4 in
+// 198.19.0.0/16 to every peer, which is the most reliable signal (a host can have several ULAs — e.g.
+// a docker fd3b:… — so "any ULA" can pick the wrong one). Prefer the 198.19/16 IPv4; fall back to the
+// mesh ULA IPv6. Empty when the node isn't on the overlay.
+static std::string detectMeshExtip() {
+    struct ifaddrs* ifas = nullptr;
+    if (getifaddrs(&ifas) != 0) return "";
+    std::string v4, v6;
+    for (struct ifaddrs* ifa = ifas; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr) continue;
+        if (ifa->ifa_addr->sa_family == AF_INET && v4.empty()) {
+            auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
+            const unsigned char* b = reinterpret_cast<const unsigned char*>(&sa->sin_addr);
+            if (b[0] == 198 && b[1] == 19) { char buf[INET_ADDRSTRLEN] = {0}; if (inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf))) v4 = buf; }
+        } else if (ifa->ifa_addr->sa_family == AF_INET6 && v6.empty()) {
+            auto* sa = reinterpret_cast<struct sockaddr_in6*>(ifa->ifa_addr);
+            const unsigned char* b = sa->sin6_addr.s6_addr;
+            if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) continue;   // link-local
+            if ((b[0] & 0xfe) != 0xfc) continue;                    // ULA
+            char buf[INET6_ADDRSTRLEN] = {0}; if (inet_ntop(AF_INET6, &sa->sin6_addr, buf, sizeof(buf))) v6 = buf;
+        }
+    }
+    freeifaddrs(ifas);
+    return !v4.empty() ? v4 : v6;
+}
+
 // ── small helpers ────────────────────────────────────────────────────────────
 // RFC-4122-ish v4 UUID. MUST use a properly-seeded high-quality RNG: std::rand()
 // is deterministic when unseeded (replays the same sequence from seed 1 every
@@ -445,7 +471,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.28"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.29"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1127,7 +1153,7 @@ std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std
     fprintf(stderr, "Scala: snapshot cal=%s epoch=%lld count=%zu → uploading (session %s)\n",
             calendarId.c_str(), boundary, cut.size(), sess.c_str());
     return json{{"ok", true}, {"status", "uploading"}, {"epoch", boundary}, {"count", (long long)cut.size()},
-                {"extip", detectShroomsMeshIPv6()}}.dump();
+                {"extip", detectMeshExtip()}}.dump();
 }
 
 std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
@@ -1137,15 +1163,17 @@ std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
 // (Re)start the storage node in shrooms-mesh mode so its Codex SPR announces a mesh-dialable address.
 // Off the mesh (no mesh iface) it's a no-op. Persists storage_mesh=1 so future launches stay reachable.
 void ScalaImpl::ensureStorageMesh() {
-    std::string mesh = detectShroomsMeshIPv6();
-    if (mesh.empty()) { ensureStorage(); return; }          // not on the mesh → best-effort default
-    setSetting("storage_mesh", "1");
+    std::string extip = detectMeshExtip();                   // prefer the 198.19/16 mesh IPv4
+    if (extip.empty()) { ensureStorage(); return; }          // not on the mesh → best-effort default
+    bool v6 = extip.find(':') != std::string::npos;
+    setSetting("storage_extip", extip);                      // explicit extip always wins in ensureStorage()
+    setSetting("storage_mesh", v6 ? "1" : "");               // listen :: only for an IPv6 extip; else 0.0.0.0
     if (m_storageInit && !m_storageMeshOn) {                 // already up in non-mesh mode → restart to re-announce
-        fprintf(stderr, "[scala] restarting storage in mesh mode (extip %s)\n", mesh.c_str());
+        fprintf(stderr, "[scala] restarting storage, mesh extip %s\n", extip.c_str());
         try { modules().storage_module.stop(); } catch (...) {}
         m_storageInit = false;
     }
-    ensureStorage();                                         // re-reads storage_mesh=1 → listen :: + extip=mesh IPv6
+    ensureStorage();
     m_storageMeshOn = true;
 }
 std::string ScalaImpl::getStorageSpr() {
