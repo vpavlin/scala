@@ -437,7 +437,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.26"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.27"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1021,8 +1021,11 @@ void ScalaImpl::ensureStorage() {
     afs::create_directories(m_storageDir + "/dl", ec);
     afs::create_directories(m_storageDir + "/files", ec);
 
-    modules().storage_module.onStorageUploadDone([this](const std::string& payload) { onStorageUploadDone(payload); });
-    modules().storage_module.onStorageDownloadDone([this](const std::string& payload) { onStorageDownloadDone(payload); });
+    if (!m_storageCbReg) {   // register once — callbacks live on the module, survive a node restart
+        modules().storage_module.onStorageUploadDone([this](const std::string& payload) { onStorageUploadDone(payload); });
+        modules().storage_module.onStorageDownloadDone([this](const std::string& payload) { onStorageDownloadDone(payload); });
+        m_storageCbReg = true;
+    }
 
     json cfg;
     cfg["log-level"] = getSetting("storage_loglevel", "INFO");   // INFO so node startup + uploads are visible
@@ -1089,7 +1092,7 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
 // (CalendarSync::sealBlob — mobile opens it with the same scheme), and upload to Storage. The CID
 // arrives async via onStorageUploadDone → getSnapshotPointer.
 std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr) {
-    ensureStorage();
+    ensureStorageMesh();   // make our Codex mesh-dialable so the QR's SPR works for a phone over the overlay
     long long E = 3600000; // default epoch = 1h
     if (!epochSizeMsStr.empty()) { try { E = std::stoll(epochSizeMsStr); } catch (...) {} }
     if (E <= 0) E = 3600000;
@@ -1121,6 +1124,20 @@ std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std
 std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
     auto it = m_lastSnapshot.find(calendarId);
     return it == m_lastSnapshot.end() ? std::string("{}") : it->second;
+}
+// (Re)start the storage node in shrooms-mesh mode so its Codex SPR announces a mesh-dialable address.
+// Off the mesh (no mesh iface) it's a no-op. Persists storage_mesh=1 so future launches stay reachable.
+void ScalaImpl::ensureStorageMesh() {
+    std::string mesh = detectShroomsMeshIPv6();
+    if (mesh.empty()) { ensureStorage(); return; }          // not on the mesh → best-effort default
+    setSetting("storage_mesh", "1");
+    if (m_storageInit && !m_storageMeshOn) {                 // already up in non-mesh mode → restart to re-announce
+        fprintf(stderr, "[scala] restarting storage in mesh mode (extip %s)\n", mesh.c_str());
+        try { modules().storage_module.stop(); } catch (...) {}
+        m_storageInit = false;
+    }
+    ensureStorage();                                         // re-reads storage_mesh=1 → listen :: + extip=mesh IPv6
+    m_storageMeshOn = true;
 }
 std::string ScalaImpl::getStorageSpr() {
     ensureStorage();

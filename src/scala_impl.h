@@ -231,8 +231,13 @@ private:
 
     // ── Attachments / Logos Storage (ADR 0017) ────────────────────────────────
     bool m_storageInit = false;          // storage_module init+start issued + events subscribed
+    bool m_storageCbReg = false;         // upload/download callbacks registered (once, survive node restart)
+    bool m_storageMeshOn = false;        // storage node started in shrooms-mesh mode (dialable mesh extip)
     std::string m_storageDir;            // libstorage data-dir (persistent cache)
     void ensureStorage();                // idempotent: subscribe events + init + start the node
+    // ADR 0020: (re)start the storage node so its Codex SPR announces a shrooms-mesh address, so a
+    // fetcher (e.g. a phone that is a mesh peer) can dial it over the overlay. No-op off the mesh.
+    void ensureStorageMesh();
     void cacheAttachments(const scala::Event& e);  // cache-on-see: fetch any attachment CID we lack → become a provider
     struct PendingUp { std::string calId, name, mime, blobId, tmpPath; long long size = 0; };
     std::map<std::string, PendingUp> m_pendUp;     // storage sessionId -> pending upload
