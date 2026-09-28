@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -94,13 +95,18 @@ public:
     // ── Snapshots (ADR 0020): bootstrap catch-up from one sealed Storage blob ──
     // Cut the calendar's log at the latest completed epoch (default 1h), serialize + AES-seal it +
     // upload to Storage; the CID arrives async (getSnapshotPointer). `epochSizeMsStr` = epoch size ms
-    // as a string ("" → 3600000). Returns {"ok":true,"status":"uploading",epoch,count} JSON.
+    // as a string ("" → 3600000). Returns {"ok":true,"status":"uploading"|"restarting storage",epoch,count}
+    // JSON; "restarting storage" means the node is being restarted to announce its mesh address and
+    // the upload runs once it is back (poll getSnapshotPointer either way).
     std::string snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr);
     // The last COMPLETED snapshot pointer for a calendar: {v,cid,epoch,coversUpToHlc,count} — or "{}".
     std::string getSnapshotPointer(const std::string& calendarId);
     // This node's Codex SPR (signed peer record) — the `stor` a snapshot invite carries so a fetcher
     // can dial this node's storage. Empty string if storage isn't up.
     std::string getStorageSpr();
+    // The address the RUNNING storage node announces (its extip), or "" if it announces none. This is
+    // what peers can actually dial, as opposed to what the settings will apply on the next start.
+    std::string getStorageExtip();
 
     /// Get a single event by ID. Returns JSON object string.
     std::string getEvent(const std::string& id);
@@ -231,13 +237,24 @@ private:
 
     // ── Attachments / Logos Storage (ADR 0017) ────────────────────────────────
     bool m_storageInit = false;          // storage_module init+start issued + events subscribed
-    bool m_storageCbReg = false;         // upload/download callbacks registered (once, survive node restart)
-    bool m_storageMeshOn = false;        // storage node started in shrooms-mesh mode (dialable mesh extip)
+    bool m_storageCbReg = false;         // upload/download/stop/start callbacks registered (once)
     std::string m_storageDir;            // libstorage data-dir (persistent cache)
+    std::string m_storageRunningCfg;     // config the running node was started with ("" = not started)
+    bool m_storageRestarting = false;    // stop() issued to re-announce; finishes in onStorageStop/onStorageStart
+    bool m_storageAwaitStart = false;    // restart past destroy+init+start, waiting for the storageStart event
+    long long m_storageRestartAt = 0;    // when the restart began (ms since epoch)
+    std::vector<std::pair<std::string, std::string>> m_snapAfterRestart; // (calId, epochSizeMsStr) queued mid-restart
+    nlohmann::json storageConfig();      // the config ensureStorage would start the node with right now
     void ensureStorage();                // idempotent: subscribe events + init + start the node
-    // ADR 0020: (re)start the storage node so its Codex SPR announces a shrooms-mesh address, so a
-    // fetcher (e.g. a phone that is a mesh peer) can dial it over the overlay. No-op off the mesh.
-    void ensureStorageMesh();
+    // ADR 0020: make the storage node announce the shrooms-mesh address so a fetcher (e.g. a phone that
+    // is a mesh peer) can dial it. Persists the setting; restarts a running node whose config differs.
+    // Returns true when the node is already announcing it, false while a restart is in progress or off
+    // the mesh.
+    bool ensureStorageMesh();
+    void restartStorage();               // stop → (storageStop) destroy+init+start → (storageStart) flush queue
+    void onLoop(std::function<void()> fn); // run fn on the module's event loop, after the current callback
+    void onStorageStop(const std::string& payload);
+    void onStorageStart(const std::string& payload);
     void cacheAttachments(const scala::Event& e);  // cache-on-see: fetch any attachment CID we lack → become a provider
     struct PendingUp { std::string calId, name, mime, blobId, tmpPath; long long size = 0; };
     std::map<std::string, PendingUp> m_pendUp;     // storage sessionId -> pending upload

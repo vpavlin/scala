@@ -2492,12 +2492,16 @@ Item {
     }
     // ADR 0020: write a snapshot of this calendar, then rebuild the invite with &snap=<pointer>&stor=<codex spr>
     // so a joining phone bootstraps from Storage instead of a full-log sync. The CID arrives async → poll.
-    property string snapExtip: ""
     function shareWithSnapshot() {
         if (!root.shareCal) return
-        shareStatus.text = "Creating snapshot…"
         var res = root.j(core("snapshotCalendar", [root.shareCal.id, "1000"]), null)  // small epoch → just-seeded events are in a completed cut
-        root.snapExtip = (res && res.extip) ? res.extip : ""
+        if (!res || res.ok === false) {
+            shareStatus.text = "Snapshot failed: " + ((res && res.error) ? res.error : "no response from the core")
+            return
+        }
+        shareStatus.text = res.status === "restarting storage"
+            ? "Restarting storage to announce the mesh address…"
+            : "Creating snapshot…"
         root.snapPolls = 0
         snapPollTimer.start()
     }
@@ -2509,14 +2513,15 @@ Item {
             if (p && p.cid) {
                 stop()
                 var spr = root.j(core("getStorageSpr", []), "")
+                var ext = root.j(core("getStorageExtip", []), "")  // what the running node announces
                 var base = root.j(core("generateShareLink", [root.shareCal.id]), "")
                 var link = base + "&snap=" + root.b64url(JSON.stringify(p)) + (spr ? "&stor=" + root.b64url(spr) : "")
                 shareStatus.text = "Snapshot ready — " + (p.count || 0) + " events · "
-                    + (root.snapExtip ? "mesh extip " + root.snapExtip : "⚠ NO MESH EXTIP (not on mesh?)")
-                    + (spr ? "" : " · no SPR!")
+                    + (ext ? "reachable at " + ext : "⚠ this device announces no address; a phone may not reach it")
+                    + (spr ? "" : " · no SPR")
                 root.setShareQr(link)
-            } else if (root.snapPolls > 12) {
-                stop(); shareStatus.text = "Snapshot timed out (storage up?)"
+            } else if (root.snapPolls > 75) {  // ~90 s: covers a storage restart before the upload
+                stop(); shareStatus.text = "Snapshot timed out — is Logos Storage running?"
             }
         }
     }

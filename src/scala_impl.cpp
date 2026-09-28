@@ -465,7 +465,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.30"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.32"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1036,25 +1036,11 @@ std::string ScalaImpl::attachmentsDir() {
     return d + "/files";
 }
 
-// Idempotent: subscribe to completion events, then init+start the storage node. Config is
-// setting-driven: `storage_bootstrap` (our hub SPR — bootstrap off our own Kademlia network,
-// NOT public logos.test), `storage_extip` (declare a reachable LAN/mesh IP so a hub advertises),
-// `storage_dir` (persistent cache dir).
-void ScalaImpl::ensureStorage() {
-    if (m_storageInit) return;
-    m_storageInit = true;
-    m_storageDir = getSetting("storage_dir", std::string(getenv("HOME") ? getenv("HOME") : ".") + "/.scala-storage");
-    std::error_code ec;
-    afs::create_directories(m_storageDir + "/tmp", ec);
-    afs::create_directories(m_storageDir + "/dl", ec);
-    afs::create_directories(m_storageDir + "/files", ec);
-
-    if (!m_storageCbReg) {   // register once — callbacks live on the module, survive a node restart
-        modules().storage_module.onStorageUploadDone([this](const std::string& payload) { onStorageUploadDone(payload); });
-        modules().storage_module.onStorageDownloadDone([this](const std::string& payload) { onStorageDownloadDone(payload); });
-        m_storageCbReg = true;
-    }
-
+// The storage node config, derived from settings: `storage_bootstrap` (our hub SPR — bootstrap off
+// our own Kademlia network, NOT public logos.test), `storage_extip` (declare a reachable LAN/mesh IP
+// so a hub advertises), `storage_mesh`, `storage_root`. Pure: ensureStorageMesh compares it with the
+// running node's config to decide whether a restart is needed.
+json ScalaImpl::storageConfig() {
     json cfg;
     cfg["log-level"] = getSetting("storage_loglevel", "INFO");   // INFO so node startup + uploads are visible
     cfg["data-dir"] = m_storageDir + "/node";
@@ -1084,14 +1070,45 @@ void ScalaImpl::ensureStorage() {
     // to pull this node's uploads over the mesh). An explicit storage_extip always wins.
     std::string meshMode = getSetting("storage_mesh", "");
     std::string meshV6 = (meshMode == "1" || meshMode == "true") ? detectShroomsMeshIPv6() : std::string();
-    if (!meshV6.empty() && !isRoot) {
+    // storage_mesh applies to a ROOT's listener too: a mesh hub (storage_root=1 + IPv6 extip) MUST
+    // listen on `::` or it binds IPv4 0.0.0.0 while ANNOUNCING the IPv6 extip, and fetchers dialing
+    // the announced fdb0:…:8199 hit nothing ("Connection refused").
+    if (!meshV6.empty()) {
         cfg["listen-ip"] = "::";
-        if (extip.empty()) extip = meshV6;
-        fprintf(stderr, "[scala] storage_mesh on: mesh IPv6 %s\n", meshV6.c_str());
+        // A client may announce its detected mesh address. A root announces only an explicit
+        // storage_extip: its SPR is what every client bootstraps from, so a guessed address (a
+        // mesh-only one, or another VPN's ULA) would strand all of them.
+        if (extip.empty() && !isRoot) extip = meshV6;
+        else if (extip.empty()) fprintf(stderr, "[scala] storage root with storage_mesh=1 but no storage_extip: announcing nothing\n");
     } else {
         cfg["listen-ip"] = "0.0.0.0";
     }
     if (!extip.empty()) cfg["nat"] = "extip:" + extip;
+    return cfg;
+}
+
+// Idempotent: subscribe to storage events, then init+start the node with storageConfig().
+void ScalaImpl::ensureStorage() {
+    if (m_storageInit) return;
+    m_storageInit = true;
+    m_storageDir = getSetting("storage_dir", std::string(getenv("HOME") ? getenv("HOME") : ".") + "/.scala-storage");
+    std::error_code ec;
+    afs::create_directories(m_storageDir + "/tmp", ec);
+    afs::create_directories(m_storageDir + "/dl", ec);
+    afs::create_directories(m_storageDir + "/files", ec);
+
+    if (!m_storageCbReg) {   // register once — callbacks live on the module, survive a node restart
+        modules().storage_module.onStorageUploadDone([this](const std::string& payload) { onStorageUploadDone(payload); });
+        modules().storage_module.onStorageDownloadDone([this](const std::string& payload) { onStorageDownloadDone(payload); });
+        modules().storage_module.onStorageStop([this](const std::string& payload) { onStorageStop(payload); });
+        modules().storage_module.onStorageStart([this](const std::string& payload) { onStorageStart(payload); });
+        m_storageCbReg = true;
+    }
+
+    json cfg = storageConfig();
+    m_storageRunningCfg = cfg.dump();
+    fprintf(stderr, "[scala] storage start: listen %s, announce %s\n",
+            cfg.value("listen-ip", std::string()).c_str(), cfg.value("nat", std::string("nothing")).c_str());
     try { modules().storage_module.init(cfg.dump()); modules().storage_module.start(); }
     catch (...) { /* best-effort; upload/fetch will retry the calls */ }
 }
@@ -1120,7 +1137,14 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
 // (CalendarSync::sealBlob — mobile opens it with the same scheme), and upload to Storage. The CID
 // arrives async via onStorageUploadDone → getSnapshotPointer.
 std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr) {
-    ensureStorageMesh();   // make our Codex mesh-dialable so the QR's SPR works for a phone over the overlay
+    ensureStorageMesh();   // make our Storage node mesh-dialable so the QR's SPR works for a phone over the overlay
+    if (m_storageRestarting) {
+        // The node is restarting to announce the mesh address; upload once it's back (onStorageStart).
+        if (nowMs() - m_storageRestartAt > 60000)
+            return json{{"ok", false}, {"error", "storage restart did not finish; restart Basecamp and try again"}}.dump();
+        m_snapAfterRestart.emplace_back(calendarId, epochSizeMsStr);
+        return json{{"ok", true}, {"status", "restarting storage"}}.dump();
+    }
     long long E = 3600000; // default epoch = 1h
     if (!epochSizeMsStr.empty()) { try { E = std::stoll(epochSizeMsStr); } catch (...) {} }
     if (E <= 0) E = 3600000;
@@ -1147,33 +1171,92 @@ std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std
     fprintf(stderr, "Scala: snapshot cal=%s epoch=%lld count=%zu → uploading (session %s)\n",
             calendarId.c_str(), boundary, cut.size(), sess.c_str());
     return json{{"ok", true}, {"status", "uploading"}, {"epoch", boundary}, {"count", (long long)cut.size()},
-                {"extip", detectMeshExtip()}}.dump();
+                {"extip", getStorageExtip()}}.dump();
 }
 
 std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
     auto it = m_lastSnapshot.find(calendarId);
     return it == m_lastSnapshot.end() ? std::string("{}") : it->second;
 }
-// (Re)start the storage node in shrooms-mesh mode so its Codex SPR announces a mesh-dialable address.
-// Off the mesh (no mesh iface) it's a no-op. Persists storage_mesh=1 so future launches stay reachable.
-void ScalaImpl::ensureStorageMesh() {
-    std::string extip = detectMeshExtip();                   // prefer the 198.19/16 mesh IPv4
-    if (extip.empty()) { ensureStorage(); return; }          // not on the mesh → best-effort default
+// Make the storage node announce the shrooms-mesh address so its SPR is mesh-dialable. Persists the
+// settings (future launches start that way), then restarts a running node whose config differs.
+// Off the mesh (no mesh iface) it only ensures the node is up.
+bool ScalaImpl::ensureStorageMesh() {
+    std::string extip = detectMeshExtip();                   // prefers the mesh IPv6
+    if (extip.empty()) { ensureStorage(); return false; }    // not on the mesh → best-effort default
     bool v6 = extip.find(':') != std::string::npos;
-    setSetting("storage_extip", extip);                      // explicit extip always wins in ensureStorage()
+    setSetting("storage_extip", extip);                      // explicit extip always wins in storageConfig()
     setSetting("storage_mesh", v6 ? "1" : "");               // listen :: only for an IPv6 extip; else 0.0.0.0
-    if (m_storageInit && !m_storageMeshOn) {                 // already up in non-mesh mode → restart to re-announce
-        fprintf(stderr, "[scala] restarting storage, mesh extip %s\n", extip.c_str());
-        try { modules().storage_module.stop(); } catch (...) {}
-        m_storageInit = false;
-    }
-    ensureStorage();
-    m_storageMeshOn = true;
+    if (!m_storageInit) { ensureStorage(); return true; }
+    if (m_storageRestarting) return false;
+    if (storageConfig().dump() == m_storageRunningCfg) return true;
+    restartStorage();
+    return false;
 }
+
+// Restart the running node with the current settings. stop() is async and init() must not run twice
+// on one instance, so this is event-driven: stop → storageStop → destroy + init + start →
+// storageStart → run the snapshots queued meanwhile. (Calling init+start right after stop() leaves a
+// zombie that uploads locally but has no listener or advertiser.)
+void ScalaImpl::restartStorage() {
+    fprintf(stderr, "[scala] restarting storage to announce the mesh address\n");
+    m_storageRestarting = true;          // set first: the stop event may arrive before stop() returns
+    m_storageAwaitStart = false;
+    m_storageRestartAt = nowMs();
+    bool ok = false;
+    std::string err;
+    try { StdLogosResult r = modules().storage_module.stop(); ok = r.success; err = r.error; }
+    catch (...) { err = "stop threw"; }
+    if (!ok) {
+        m_storageRestarting = false;
+        fprintf(stderr, "[scala] storage stop rejected (%s); keeping the running node\n", err.c_str());
+    }
+}
+
+// Module calls made from inside a module-event callback block on the 20 s IPC timeout (the reply
+// can't be delivered while the callback runs, and the next event can be lost), so the storage event
+// handlers defer their work here. The context object pins the call to the event-loop thread even
+// when the callback fires on another one.
+void ScalaImpl::onLoop(std::function<void()> fn) {
+    if (m_resyncTimer) QTimer::singleShot(0, m_resyncTimer, std::move(fn));
+    else QTimer::singleShot(0, std::move(fn));
+}
+
+void ScalaImpl::onStorageStop(const std::string& /*payload*/) {
+    if (!m_storageRestarting || m_storageAwaitStart) return;   // not a stop we asked for
+    m_storageAwaitStart = true;
+    onLoop([this] {
+        try { modules().storage_module.destroy(); } catch (...) {}
+        m_storageInit = false;
+        ensureStorage();                                       // init + start with the current settings
+    });
+}
+
+void ScalaImpl::onStorageStart(const std::string& payload) {
+    if (!m_storageAwaitStart) return;                          // the normal startup start, not a restart
+    m_storageAwaitStart = false;
+    onLoop([this, payload] {
+        m_storageRestarting = false;
+        fprintf(stderr, "[scala] storage restarted, announcing %s (%s)\n",
+                getStorageExtip().empty() ? "nothing" : getStorageExtip().c_str(), payload.c_str());
+        auto queued = std::move(m_snapAfterRestart);
+        m_snapAfterRestart.clear();
+        for (const auto& q : queued) snapshotCalendar(q.first, q.second);
+    });
+}
+
 std::string ScalaImpl::getStorageSpr() {
     ensureStorage();
     try { StdLogosResult r = modules().storage_module.spr(); if (r.success) return resVal(r); } catch (...) {}
     return std::string();
+}
+
+std::string ScalaImpl::getStorageExtip() {
+    if (m_storageRestarting) return std::string();             // stopped, or not serving the new config yet
+    json c = json::parse(m_storageRunningCfg, nullptr, false);
+    if (c.is_discarded() || !c.is_object()) return std::string();
+    std::string nat = c.value("nat", std::string());
+    return nat.rfind("extip:", 0) == 0 ? nat.substr(6) : std::string();
 }
 
 void ScalaImpl::onStorageUploadDone(const std::string& payload) {
