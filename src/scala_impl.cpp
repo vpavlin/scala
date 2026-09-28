@@ -36,29 +36,38 @@ using scala::json;
 // (string) when this host is on the mesh, else "" — used to ride the mesh for Storage without
 // a public IP or relay. Link-local (fe80::/10) is skipped.
 static std::string detectShroomsMeshIPv6() {
-    // The mesh IP is a ULA (fc00::/7) on the overlay tun. The interface name varies by host
-    // (logos01 on the hub, but tun*/shrooms*/wg*/utun* elsewhere), so match by the ULA prefix on ANY
-    // interface, preferring a known overlay name. Skip loopback + link-local.
+    // The mesh IP is a ULA (fc00::/7) on the overlay interface. shrooms creates `logos*` (logos01 on
+    // the hub); other hosts may name it shrooms*/mesh*, and a generic VPN name (wg*/tun*/utun*) is
+    // the weakest match because another VPN can own it. Rank by that and take the best. There is no
+    // "any ULA" fallback: docker/libvirt bridges and other VPNs hand out ULAs too (a laptop announced
+    // a docker fd3b:… address this way), and a wrong extip strands every fetcher, so an unrecognised
+    // interface means "not on the mesh". Skip link-local.
+    auto rank = [](const char* n) -> int {
+        if (std::strncmp(n, "logos", 5) == 0) return 4;
+        if (std::strncmp(n, "shrooms", 7) == 0 || std::strncmp(n, "mesh", 4) == 0) return 3;
+        if (std::strncmp(n, "wg", 2) == 0) return 2;
+        if (std::strncmp(n, "tun", 3) == 0 || std::strncmp(n, "utun", 4) == 0) return 1;
+        return 0;
+    };
     struct ifaddrs* ifas = nullptr;
     if (getifaddrs(&ifas) != 0) return "";
-    std::string preferred, any;
+    std::string best;
+    int bestRank = 0;
     for (struct ifaddrs* ifa = ifas; ifa; ifa = ifa->ifa_next) {
         if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET6 || !ifa->ifa_name) continue;
         auto* sa = reinterpret_cast<struct sockaddr_in6*>(ifa->ifa_addr);
         const unsigned char* b = sa->sin6_addr.s6_addr;
         if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) continue;   // skip link-local fe80::/10
         if ((b[0] & 0xfe) != 0xfc) continue;                    // ULA fc00::/7 only (the mesh)
+        int r = rank(ifa->ifa_name);
+        if (r <= bestRank) continue;
         char buf[INET6_ADDRSTRLEN] = {0};
         if (!inet_ntop(AF_INET6, &sa->sin6_addr, buf, sizeof(buf))) continue;
-        const char* n = ifa->ifa_name;
-        bool pref = std::strncmp(n, "logos", 5) == 0 || std::strncmp(n, "shrooms", 7) == 0 ||
-                    std::strncmp(n, "tun", 3) == 0 || std::strncmp(n, "utun", 4) == 0 ||
-                    std::strncmp(n, "wg", 2) == 0 || std::strncmp(n, "mesh", 4) == 0;
-        if (pref && preferred.empty()) preferred = buf;
-        if (any.empty()) any = buf;
+        best = buf;
+        bestRank = r;
     }
     freeifaddrs(ifas);
-    return !preferred.empty() ? preferred : any;
+    return best;
 }
 
 // Pick a mesh-reachable extip for the storage node. PREFER the mesh ULA IPv6 (fdb0:… on the overlay
@@ -465,7 +474,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.32"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.33"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
