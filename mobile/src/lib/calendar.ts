@@ -122,23 +122,35 @@ function parseQuery(q: string): Record<string, string> {
   }
   return out;
 }
+// A pasted invite can pick up line breaks, zero-width spaces or soft hyphens from the app it was
+// copied out of. None of them can appear in a scala:// link (names are percent-encoded), and one
+// inside a base64 value silently corrupts it, so they are removed before parsing.
+export function cleanInviteLink(link: string): string {
+  return link.replace(/[\s­​-‍⁠﻿]/g, "");
+}
+
+const CID_RE = /^[1-9A-HJ-NP-Za-km-z]{20,}$/;   // base58btc (Logos Storage CIDs start with zDv…)
+const SPR_RE = /^spr:[A-Za-z0-9_-]{20,}$/;
+
 export function parseInvite(link: string): {
   calendarId: string; key: string; name?: string;
-  // Optional ADR-0020 bootstrap hint: a snapshot pointer (base64url JSON) + the Codex `stor` SPR
-  // (base64url string) to fetch it from. When present, join bootstraps from the snapshot first,
-  // then RBSR-tails the delta.
+  // Optional ADR-0020 bootstrap hint: the snapshot to fetch — `snapcid=<CID>` (plain), or the older
+  // `snap=<base64url pointer JSON>` — and `stor`, the base64url SPR of the Storage node that has it.
+  // When present, join bootstraps from the snapshot first, then RBSR-tails the delta.
   snap?: any; stor?: string;
 } | null {
   try {
-    const q = link.split("?")[1] || "";
+    const q = cleanInviteLink(link).split("?")[1] || "";
     const p = parseQuery(q);
     const id = p["id"] || "";
     const keyB64 = p["key"] || "";
     if (!id || !keyB64) return null;
     let snap: any; let stor: string | undefined;
-    if (p["snap"]) { try { snap = JSON.parse(b64urlDecode(p["snap"])); } catch {} }
-    if (!snap || typeof snap.cid !== "string" || !snap.cid) snap = undefined; // must name a CID
+    if (p["snapcid"] && CID_RE.test(p["snapcid"])) snap = { v: 1, cid: p["snapcid"] };
+    else if (p["snap"]) { try { snap = JSON.parse(b64urlDecode(p["snap"])); } catch {} }
+    if (!snap || typeof snap.cid !== "string" || !CID_RE.test(snap.cid)) snap = undefined; // must name a CID
     if (p["stor"]) { try { stor = b64urlDecode(p["stor"]); } catch {} }
+    if (stor !== undefined && !SPR_RE.test(stor)) stor = undefined;          // must be a signed peer record
     return { calendarId: id, key: b64urlDecode(keyB64), name: p["name"] || undefined, snap, stor };
   } catch {
     return null;
@@ -455,10 +467,12 @@ async function joinInBackground(link: string, inv: NonNullable<ReturnType<typeof
   lastJoinTrace = trace;
   const D = (s: string) => { trace.push(`+${Date.now() - t0}ms ${s}`); };
   try {
-    D(`join ${inv.calendarId.slice(0, 8)} snap=${inv.snap ? inv.snap.cid.slice(0, 12) : "none"} stor=${inv.stor ? "yes" : "no"} len=${link.length}`);
-    // The link carries a snap param that parseInvite rejected: re-run its exact decode to say why
+    const clean = cleanInviteLink(link);
+    D(`join ${inv.calendarId.slice(0, 8)} snap=${inv.snap ? inv.snap.cid.slice(0, 12) : "none"} stor=${inv.stor ? "yes" : "no"} len=${link.length}${clean.length !== link.length ? ` (${link.length - clean.length} stray chars removed)` : ""}`);
+    // The link carries a snap/stor param that parseInvite rejected: re-run its exact decode to say why
     // (a paste-mangled link decodes to control bytes and fails JSON.parse).
-    const q = parseQuery(link.split("?")[1] || "");
+    const q = parseQuery(clean.split("?")[1] || "");
+    if (q["stor"] !== undefined && !inv.stor) D("stor param rejected (not a signed peer record)");
     if (q["snap"] !== undefined && !inv.snap) {
       try {
         const dec = b64urlDecode(q["snap"]);
@@ -500,7 +514,28 @@ async function runSnapshot(inv: NonNullable<ReturnType<typeof parseInvite>>, D: 
   } catch (e) {
     D(`snapshot failed: ${String(e).slice(0, 120)}`);
     ToastAndroid.show(`Snapshot failed, syncing from peers: ${String(e).slice(0, 80)}`, ToastAndroid.LONG);
+    await storageDiag(D);
   }
+}
+
+// After a failed fetch, record what the Storage node knows (its own addresses, connections, routing
+// table) and try a direct connect to each node it knows, so the trace shows whether this app can
+// actually dial the snapshot hub. Never throws.
+async function storageDiag(D: (s: string) => void): Promise<void> {
+  const within = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms / 1000}s`)), ms))]);
+  try {
+    D(`storage bootstrap nodes: ${storage.bootstrapCount()}`);
+    const d = JSON.parse(await within(storage.debug(), 10000));
+    const nodes: any[] = Array.isArray(d?.table?.nodes) ? d.table.nodes : [];
+    D(`storage self: ${(d?.addrs ?? []).join(", ") || "no addrs"} · connections ${(d?.connections ?? []).length} · table ${nodes.length}`);
+    for (const n of nodes.slice(0, 4)) {
+      const addrs: string[] = Array.isArray(n?.addresses) ? n.addresses : [];
+      D(`node …${String(n?.peerId ?? "?").slice(-8)} at ${addrs.join(", ") || "no addrs"}`);
+      try { await within(storage.connect(String(n.peerId), addrs), 15000); D("  direct connect ok"); }
+      catch (e) { D(`  direct connect failed: ${String(e).slice(0, 110)}`); }
+    }
+  } catch (e) { D(`storage debug failed: ${String(e).slice(0, 100)}`); }
 }
 
 // ── shared-node preference ──────────────────────────────────────────────────

@@ -77,6 +77,11 @@ async function initNow(cfg: StorageConfig): Promise<string> {
   return c;
 }
 
+/** How many bootstrap SPRs the running node was started with (0 = the public logos.test network). */
+export function bootstrapCount(): number {
+  return ctx ? boot.length : 0;
+}
+
 function need(): string {
   if (!ctx) throw new Error("storage node not started — call init() first");
   return ctx;
