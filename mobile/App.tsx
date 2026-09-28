@@ -10,7 +10,7 @@ import { GestureHandlerRootView, GestureDetector, Gesture } from "react-native-g
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { store, Calendar, CalEvent, colorForId } from "./src/lib/store";
 import {
-  onChange, startSyncing, joinFromInvite, createEvent, updateEvent, deleteEvent,
+  onChange, startSyncing, joinFromInvite, getJoinTrace, createEvent, updateEvent, deleteEvent,
   createCalendar, deleteCalendar, buildInvite, getSharedNode, setSharedNode,
   updateCalendarMeta, getAlias, setAlias, getEventHistory, getDeviceId, setMemberRole,
   setCalendarIdentity, calendarIdentityId, pendingEventIds, setRsvp,
@@ -1278,6 +1278,20 @@ export default function App() {
                     {row("open-fail", dbg.rx.openFail, dbg.rx.openFail > 0)}
                     {row("new / dup", `${dbg.rx.new} / ${dbg.rx.dup}`)}
                     {row("sample", dbg.sample || "—")}
+
+                    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 12, marginBottom: 4 }}>
+                      <Text style={{ color: "#89b4fa", fontWeight: "700", flex: 1 }}>Last join</Text>
+                      {getJoinTrace().length > 0 && (
+                        <Pressable hitSlop={10} onPress={async () => { await Clipboard.setStringAsync(getJoinTrace().join("\n")); Alert.alert("Copied", "Join trace copied to clipboard."); }}>
+                          <Text style={{ color: "#6ea8fe", fontSize: 13 }}>Copy</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                    {getJoinTrace().length === 0
+                      ? <Text style={{ color: "#9aa1ad", fontFamily: "monospace", fontSize: 12 }}>No join yet this session.</Text>
+                      : getJoinTrace().map((l, i) => (
+                        <Text key={i} selectable style={{ color: /failed|threw|NOT sent|rejected|undecodable/.test(l) ? "#f38ba8" : "#e8eaed", fontFamily: "monospace", fontSize: 12 }}>{l}</Text>
+                      ))}
 
                     <Text style={{ color: "#89b4fa", marginTop: 12, marginBottom: 4, fontWeight: "700" }}>Event log ({events.length})</Text>
                     {[...events].sort((a, b) => b.startTime - a.startTime).slice(0, 40).map((e) => (

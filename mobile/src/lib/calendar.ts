@@ -93,10 +93,11 @@ async function serveLog(calId: string): Promise<void> {
 // Kick off catch-up: publish the initial reconciliation message (bounded range
 // fingerprints over what we hold). Fresh calendar → empty-set fingerprint →
 // recurses down to receive everything; slightly behind → only the changed range.
-async function sendSyncReq(calId: string): Promise<void> {
+async function sendSyncReq(calId: string): Promise<boolean> {
   const msg = buildInitial(await store.getLog(calId), deviceId);
   const e = await mkEvent(ET.SYNC_REQ, msg);
-  await sync.sendEvent(calId, JSON.stringify(eventToJson(e))).catch(() => {});
+  try { await sync.sendEvent(calId, JSON.stringify(eventToJson(e))); return true; }
+  catch { return false; }
 }
 
 // ── scala:// invite links — MUST match the desktop core byte-for-byte ─────────
@@ -136,6 +137,7 @@ export function parseInvite(link: string): {
     if (!id || !keyB64) return null;
     let snap: any; let stor: string | undefined;
     if (p["snap"]) { try { snap = JSON.parse(b64urlDecode(p["snap"])); } catch {} }
+    if (!snap || typeof snap.cid !== "string" || !snap.cid) snap = undefined; // must name a CID
     if (p["stor"]) { try { stor = b64urlDecode(p["stor"]); } catch {} }
     return { calendarId: id, key: b64urlDecode(keyB64), name: p["name"] || undefined, snap, stor };
   } catch {
@@ -372,7 +374,8 @@ export async function getEventHistory(
 // remaining live wiring, so this runs only once Storage is connected and a pointer has arrived.
 export async function bootstrapFromSnapshot(calId: string, pointer: snapshot.SnapshotPointer): Promise<number> {
   const reg = await store.getReg(calId);
-  if (!reg || !storage.available()) return 0;
+  if (!reg) throw new Error("calendar is not registered on this device");
+  if (!storage.available()) throw new Error("Logos Storage is not in this build");
   const dir = await storage.filesDir();
   const path = `${dir}/snap-${pointer.cid}.bin`;
   await storage.fetch(pointer.cid);            // pull from the network if not held locally
@@ -431,27 +434,73 @@ export async function joinFromInvite(link: string, identityId?: string): Promise
   notifyChange();   // local-first: the calendar shows up NOW; history/subscribe happen in the background
   const f = (await store.listCalendars()).find((c) => c.id === inv.calendarId) || null;
   // Subscribe + pull history off the UI path — never block "joined" on the network.
-  (async () => {
-    try {
-      await sync.joinCalendar(inv.calendarId, inv.key);
-      // ADR 0020: if the invite carries a snapshot pointer, bootstrap from Storage FIRST (one fetch),
-      // then RBSR-tail the delta — instead of pulling the whole log over the wire.
-      if (inv.snap) {
-        try {
-          ToastAndroid.show(`Snapshot: fetching ${String(inv.snap?.cid).slice(0, 10)}…`, ToastAndroid.SHORT);
-          await storage.init(inv.stor ? { "bootstrap-node": [inv.stor] } : {}); // reach the hub's Codex
-          const n = await bootstrapFromSnapshot(inv.calendarId, inv.snap);
-          ToastAndroid.show(`Snapshot: bootstrapped ${n} events ✓`, ToastAndroid.LONG);
-          console.log(`[scala] bootstrapped ${n} events from snapshot ${inv.snap?.cid}`);
-        } catch (e) {
-          ToastAndroid.show(`Snapshot failed (full sync): ${String(e).slice(0, 90)}`, ToastAndroid.LONG);
-          console.log("[scala] snapshot bootstrap failed, falling back to full sync:", e);
-        }
-      }
-      await sendSyncReq(inv.calendarId).catch(() => {}); // pull the delta (or the whole log if no snapshot)
-    } catch { /* offline — catch-up runs when sync comes up */ }
-  })();
+  void joinInBackground(link, inv);
   return f;
+}
+
+// The most recent join's step trace, shown in the Sync debug panel (copied only on request).
+let lastJoinTrace: string[] = [];
+export function getJoinTrace(): string[] {
+  return lastJoinTrace;
+}
+
+// How long peer catch-up waits for a snapshot before asking peers anyway. The wait keeps the RBSR
+// delta small when Storage answers quickly; the cap stops an unreachable Storage node from stalling
+// sync. The snapshot keeps going in the background and ingests whenever it lands.
+const SNAPSHOT_HEAD_START_MS = 20_000;
+
+async function joinInBackground(link: string, inv: NonNullable<ReturnType<typeof parseInvite>>): Promise<void> {
+  const t0 = Date.now();
+  const trace: string[] = [];
+  lastJoinTrace = trace;
+  const D = (s: string) => { trace.push(`+${Date.now() - t0}ms ${s}`); };
+  try {
+    D(`join ${inv.calendarId.slice(0, 8)} snap=${inv.snap ? inv.snap.cid.slice(0, 12) : "none"} stor=${inv.stor ? "yes" : "no"} len=${link.length}`);
+    // The link carries a snap param that parseInvite rejected: re-run its exact decode to say why
+    // (a paste-mangled link decodes to control bytes and fails JSON.parse).
+    const q = parseQuery(link.split("?")[1] || "");
+    if (q["snap"] !== undefined && !inv.snap) {
+      try {
+        const dec = b64urlDecode(q["snap"]);
+        D(`snap param rejected; decodes to ${dec.length} chars: ${JSON.stringify(dec.slice(0, 24))}`);
+        D(`snap parses as ${JSON.stringify(JSON.parse(dec)).slice(0, 60)} but has no string cid`);
+      } catch (e) { D(`snap param undecodable: ${String(e).slice(0, 90)}`); }
+    }
+
+    // A re-join of a calendar that's already subscribed may throw; the snapshot and catch-up below
+    // don't depend on it, so carry on.
+    try { await sync.joinCalendar(inv.calendarId, inv.key); D("joinCalendar ok"); }
+    catch (e) { D(`joinCalendar threw: ${String(e).slice(0, 80)}`); }
+
+    // ADR 0020: bootstrap from one Storage blob, then let RBSR fill the delta.
+    let snapDone = false;
+    const snap = inv.snap ? runSnapshot(inv, D).finally(() => { snapDone = true; }) : null;
+    if (snap) {
+      await Promise.race([snap, new Promise((r) => setTimeout(r, SNAPSHOT_HEAD_START_MS))]);
+      if (!snapDone) D(`snapshot still running after ${SNAPSHOT_HEAD_START_MS / 1000}s; asking peers now`);
+    }
+    D((await sendSyncReq(inv.calendarId)) ? "sync request sent" : "sync request NOT sent (send failed)");
+    if (snap) await snap;
+  } catch (e) {
+    D(`join failed: ${String(e).slice(0, 120)}`);
+    console.log("[scala] background join failed:", e);
+  }
+}
+
+async function runSnapshot(inv: NonNullable<ReturnType<typeof parseInvite>>, D: (s: string) => void): Promise<void> {
+  const cid: string = inv.snap.cid;
+  try {
+    ToastAndroid.show(`Snapshot: fetching ${cid.slice(0, 10)}…`, ToastAndroid.SHORT);
+    D("storage init…");
+    await storage.init(inv.stor ? { "bootstrap-node": [inv.stor] } : {}); // reach the snapshot hub's Storage
+    D("storage ready; fetching snapshot…");
+    const n = await bootstrapFromSnapshot(inv.calendarId, inv.snap);
+    D(`snapshot: ${n} new events`);
+    ToastAndroid.show(n ? `Snapshot: ${n} events loaded ✓` : "Snapshot: nothing new (already have these events)", ToastAndroid.LONG);
+  } catch (e) {
+    D(`snapshot failed: ${String(e).slice(0, 120)}`);
+    ToastAndroid.show(`Snapshot failed, syncing from peers: ${String(e).slice(0, 80)}`, ToastAndroid.LONG);
+  }
 }
 
 // ── shared-node preference ──────────────────────────────────────────────────

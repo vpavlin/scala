@@ -15,6 +15,8 @@ export function available(): boolean {
 }
 
 let ctx: string | null = null;
+let boot: string[] = []; // bootstrap SPRs the running node was started with
+let queue: Promise<unknown> = Promise.resolve(); // serializes init/restart across callers
 
 export interface StorageConfig {
   "log-level"?: string;
@@ -43,20 +45,36 @@ export async function saveToDownloads(fileName: string, mime: string, b64: strin
   return LS.saveToDownloads(fileName, mime, b64);
 }
 
-/** Create + start the node. Idempotent-ish: a second call returns the existing ctx. */
+/**
+ * Create + start the node, or return the running one. A running node only discovers providers
+ * through the bootstrap nodes it started with, so a caller naming a bootstrap SPR the node doesn't
+ * have (an invite pointing at another snapshot hub) restarts it with the union of all SPRs seen.
+ */
 export async function init(cfg: StorageConfig = {}): Promise<string> {
   if (!LS) throw new Error("LogosStorage native module unavailable in this build");
-  if (ctx) return ctx;
+  const run = queue.then(() => initNow(cfg));
+  queue = run.catch(() => {});
+  return run;
+}
+
+async function initNow(cfg: StorageConfig): Promise<string> {
+  const missing = (cfg["bootstrap-node"] ?? []).filter((s) => !boot.includes(s));
+  if (ctx && missing.length === 0) return ctx;
+  const nodes = [...boot, ...missing];
+  if (ctx) await shutdown();
   await LS.setup();
   const dataDir = cfg["data-dir"] ?? `${await LS.filesDir()}/codex`;
   const base: Record<string, unknown> = { "log-level": "WARN" };
   // Ride our OWN Loam Storage network when a bootstrap node is given (the public logos.test
   // bootstrap nodes are kad-incompatible with our build); else fall back to logos.test.
-  if (!cfg["bootstrap-node"] || cfg["bootstrap-node"].length === 0) base.network = "logos.test";
-  const json = JSON.stringify({ ...base, ...cfg, "data-dir": dataDir });
-  ctx = (await LS.newNode(json)) as string;
-  await LS.start(ctx);
-  return ctx;
+  if (nodes.length === 0) base.network = "logos.test";
+  const { "bootstrap-node": _given, ...rest } = cfg;
+  const json = JSON.stringify({ ...base, ...rest, ...(nodes.length ? { "bootstrap-node": nodes } : {}), "data-dir": dataDir });
+  const c = (await LS.newNode(json)) as string;
+  await LS.start(c);
+  ctx = c;
+  boot = nodes;
+  return c;
 }
 
 function need(): string {
@@ -115,6 +133,7 @@ export async function shutdown(): Promise<void> {
   if (!ctx) return;
   const c = ctx;
   ctx = null;
+  boot = [];
   try { await LS.stop(c); } catch { /* */ }
   try { await LS.close(c); } catch { /* */ }
   try { await LS.destroy(c); } catch { /* */ }
