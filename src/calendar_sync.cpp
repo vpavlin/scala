@@ -212,7 +212,9 @@ std::string CalendarSync::seal(const std::string &calendarId, const std::string 
     if (it == m_activeTopics.end()) return std::string();
 
     const std::string &keyHex = it->second;
-    if (keyHex.size() != 64 || keyHex.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return std::string();
+    // Only a MISSING key fails here. Calendar keys are not hex (they're UUID-like strings), and the byte
+    // derivation below is the long-standing %2hhx parse that mobile mirrors exactly (crypto parity).
+    if (keyHex.empty()) return std::string();
     // Convert hex key to bytes
     std::vector<unsigned char> key(32);
     for (size_t i = 0; i < 32 && i * 2 < keyHex.size(); i++) {
