@@ -539,8 +539,10 @@ async function storageDiag(D: (s: string) => void): Promise<void> {
 }
 
 // ── shared-node preference ──────────────────────────────────────────────────
+// Default ON: use Loam when it's installed (the transport falls back to Scala's own node otherwise).
+// Only an explicit "0" (the user switched it off) opts out; opt-in left most users off the BLE mesh.
 export async function getSharedNode(): Promise<boolean> {
-  return (await SecureStore.getItemAsync("scala-shared-node")) === "1";
+  return (await SecureStore.getItemAsync("scala-shared-node")) !== "0";
 }
 export async function setSharedNode(on: boolean): Promise<void> {
   await SecureStore.setItemAsync("scala-shared-node", on ? "1" : "0");
