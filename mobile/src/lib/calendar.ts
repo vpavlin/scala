@@ -59,6 +59,8 @@ async function mkEvent(type: string, payload: any, calId?: string): Promise<Even
 // "syncing". Cleared when the send resolves; if it never does, RBSR catch-up delivers the event
 // anyway (see serveLog / sendSyncReq), so this is only a hint, not the delivery guarantee.
 const pendingSend = new Set<string>();
+const lastServeLog = new Map<string, number>();   // calId -> last whole-log serve (ms)
+const lastFpAnswer = new Map<string, number>();   // calId|peer -> last fingerprint answer (ms)
 export function pendingEventIds(): string[] { return [...pendingSend]; }
 
 // Local-FIRST: persist to disk (the durable source of truth) and return immediately so the UI
@@ -185,7 +187,20 @@ sync.setEventHandler((calendarId, eventJson) => {
       // peer's bare SYNC_REQ → fall back to a whole-log serve so we still feed it.
       if (e.type === ET.SYNC_REQ) {
         const msg: any = e.payload;
-        if (!msg || !msg.t) { await serveLog(calendarId); return; }
+        // Store history arrives through Loam like live messages, so old catch-up requests get replayed.
+        // Throttle: a whole-log serve at most every 30 s per calendar, and one answer to a round-opening
+        // fingerprint per (calendar, peer) every 10 s. Live rounds are further apart than that.
+        const now = Date.now();
+        if (!msg || !msg.t) {
+          if (now - (lastServeLog.get(calendarId) || 0) < 30000) return;
+          lastServeLog.set(calendarId, now);
+          await serveLog(calendarId); return;
+        }
+        if (msg.t === "fp") {
+          const k = calendarId + "|" + String(msg.from);
+          if (now - (lastFpAnswer.get(k) || 0) < 10000) return;
+          lastFpAnswer.set(k, now);
+        }
         sstat.noteCatchup(calendarId); // a reconciliation exchange is live for this calendar
         const step = respond(await store.getLog(calendarId), msg, deviceId);
         for (const ev of step.serve)
