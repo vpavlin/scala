@@ -61,7 +61,10 @@ export function shortAddr(a: string): string { return a && a.length > 12 ? a.sli
 function cjson(v: any): string {
   if (v === null || v === undefined) return "null";
   if (Array.isArray(v)) return "[" + v.map(cjson).join(",") + "]";
-  if (typeof v === "object") { const ks = Object.keys(v).sort(); return "{" + ks.map((k) => JSON.stringify(k) + ":" + cjson(v[k])).join(",") + "}"; }
+  // Skip undefined-valued keys, exactly as JSON does on the wire and in storage. Signing them as "null"
+  // made any event with a nested unset field (custom `fields`, a `recur` option) fail verification as
+  // soon as it was stored or received, so the fold dropped it: "saved, but never shows up".
+  if (typeof v === "object") { const ks = Object.keys(v).filter((k) => v[k] !== undefined).sort(); return "{" + ks.map((k) => JSON.stringify(k) + ":" + cjson(v[k])).join(",") + "}"; }
   if (typeof v === "string") return JSON.stringify(v);
   if (typeof v === "number") return String(v);
   if (typeof v === "boolean") return v ? "true" : "false";

@@ -45,7 +45,9 @@ async function ensureClock(): Promise<Clock> {
 }
 async function mkEvent(type: string, payload: any, calId?: string): Promise<Event> {
   const c = await ensureClock();
-  const e: Event = { v: 1, id: Crypto.randomUUID(), type, hlc: c.send(Date.now()), dev: deviceId, payload };
+  // Signed payloads must be exactly what JSON round-trips to: drop undefined values at every depth.
+  const clean = payload === undefined ? payload : JSON.parse(JSON.stringify(payload));
+  const e: Event = { v: 1, id: Crypto.randomUUID(), type, hlc: c.send(Date.now()), dev: deviceId, payload: clean };
   // Transient sync msgs (SYNC_REQ) are never signed (fire constantly, never folded). Content is
   // signed with the CALENDAR'S identity — authorEvent routes to soft/device/keycard and stamps the
   // author. A Keycard identity prompts the PIN (implicit unlock) and a cancel/failure THROWS so the
