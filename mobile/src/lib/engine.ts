@@ -147,7 +147,10 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
     const signed = isSigned(e);
     const verified = signed && verifyEvent(e);
     if (!verified) continue; // signatures ALWAYS required — every event is signed via the loam identity; drop anything unsigned/tampered
-    const author = e.dev;
+    // The AUTHOR must be the field the signature covers: canonicalMessage()/verifyEvent() in
+    // identity.ts resolve `hlc.dev` first, so trusting `e.dev` here let a member sign as themselves
+    // and claim any author — their authorship, their RSVP and their role. Mirror the C++ fold.
+    const author = (e.hlc && e.hlc.dev) || e.dev;
     if (e.type === ET.CAL_META) {
       const creating = !owner;
       if (creating) owner = author; // creator = first cal.meta author

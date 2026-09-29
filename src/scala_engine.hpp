@@ -103,7 +103,12 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
         const bool signed_ = isSigned(e);
         const bool verified = signed_ && verifyEvent(e);
         if (!verified) continue;   // signatures ALWAYS required — every event is signed via the loam identity; drop unsigned/tampered
-        const std::string& author = e.dev;
+        // The AUTHOR must be the field the signature actually covers. canonicalMessage() and
+        // verifyEvent() both resolve the author as `hlc.dev` when present (scala_identity.hpp:120/219),
+        // so reading `e.dev` here trusted a field the signature does not protect: a member could sign
+        // as themselves and claim any `dev`, which folds as that member's authorship, their RSVP, and
+        // their role (isEditor keys on this). Resolve it the same way the signature does.
+        const std::string author = !e.hlc.dev.empty() ? e.hlc.dev : e.dev;
         if (e.type == ET::CAL_META) {
             bool creating = owner.empty();
             if (creating) owner = author;                  // creator = first cal.meta author
