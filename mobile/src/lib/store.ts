@@ -160,15 +160,36 @@ async function getLog(calId: string): Promise<Event[]> {
   }
   return out;
 }
+// Appends are read-modify-write of the whole log, so they run one at a time per calendar: two
+// interleaved appends (e.g. a snapshot import and live catch-up) each wrote back their own copy and
+// the later write dropped the other's events.
+const calLocks = new Map<string, Promise<unknown>>();
+function withCalLock<T>(calId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = calLocks.get(calId) || Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.catch(() => { /* */ });
+  calLocks.set(calId, tail);
+  tail.then(() => { if (calLocks.get(calId) === tail) calLocks.delete(calId); });
+  return run;
+}
 // Merge one event into the log (dedup by id), persist. Returns true if NEW.
-async function appendEvent(calId: string, ev: Event): Promise<boolean> {
-  if (!ev.id) return false;
-  const log = await getLog(calId);
-  if (log.some((x) => x.id === ev.id)) return false; // dedup — idempotent redelivery
-  const merged = mergeEvents([...log, ev]); // keep HLC-sorted + unique
-  await writeJson(logKey(calId), merged.map((e) => e)); // Event already plain JSON-safe
-  invalidateFold(calId); // log changed → next read re-folds THIS calendar (others stay cached)
-  return true;
+function appendEvent(calId: string, ev: Event): Promise<boolean> {
+  return appendMany(calId, [ev]).then((n) => n > 0);
+}
+// Merge many events with ONE read and ONE write (a snapshot import used to rewrite the whole log per
+// event). Returns how many were new.
+function appendMany(calId: string, evs: Event[]): Promise<number> {
+  return withCalLock(calId, async () => {
+    const log = await getLog(calId);
+    const have = new Set(log.map((x) => x.id));
+    const fresh: Event[] = [];
+    for (const ev of evs) if (ev && ev.id && !have.has(ev.id)) { have.add(ev.id); fresh.push(ev); }
+    if (fresh.length === 0) return 0; // dedup — idempotent redelivery
+    const merged = mergeEvents([...log, ...fresh]); // keep HLC-sorted + unique
+    await writeJson(logKey(calId), merged.map((e) => e)); // Event already plain JSON-safe
+    invalidateFold(calId); // log changed → next read re-folds THIS calendar (others stay cached)
+    return fresh.length;
+  });
 }
 
 // ── folded reads (what the UI consumes) ───────────────────────────────────────
@@ -179,6 +200,7 @@ export const store = {
   removeCalendar,
   getLog,
   appendEvent,
+  appendMany,
   folded: foldedFor,   // cached fold (valid until the calendar's log next changes)
 
   async listCalendars(): Promise<Calendar[]> {

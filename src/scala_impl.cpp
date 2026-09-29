@@ -70,26 +70,6 @@ static std::string detectShroomsMeshIPv6() {
     return best;
 }
 
-// Pick a mesh-reachable extip for the storage node. PREFER the mesh ULA IPv6 (fdb0:… on the overlay
-// tun) — the shrooms mesh carries TCP on all ports over IPv6, but its IPv4 (198.19.0.0/16) RSTs every
-// port except :22, so an IPv4 extip is undialable for Storage's :8199. Only fall back to the 198.19/16
-// IPv4 if no mesh IPv6 is found. Empty when the node isn't on the overlay.
-static std::string detectMeshExtip() {
-    std::string v6 = detectShroomsMeshIPv6();   // ULA on a logos*/tun*/… iface — the overlay IPv6
-    if (!v6.empty()) return v6;
-    struct ifaddrs* ifas = nullptr;
-    if (getifaddrs(&ifas) != 0) return "";
-    std::string v4;
-    for (struct ifaddrs* ifa = ifas; ifa; ifa = ifa->ifa_next) {
-        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET || !v4.empty()) continue;
-        auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
-        const unsigned char* b = reinterpret_cast<const unsigned char*>(&sa->sin_addr);
-        if (b[0] == 198 && b[1] == 19) { char buf[INET_ADDRSTRLEN] = {0}; if (inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf))) v4 = buf; }
-    }
-    freeifaddrs(ifas);
-    return v4;
-}
-
 // ── small helpers ────────────────────────────────────────────────────────────
 // RFC-4122-ish v4 UUID. MUST use a properly-seeded high-quality RNG: std::rand()
 // is deterministic when unseeded (replays the same sequence from seed 1 every
@@ -474,7 +454,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.9.33"; }
+std::string ScalaImpl::coreVersion() const { return "0.9.34"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1078,7 +1058,10 @@ json ScalaImpl::storageConfig() {
     // storage_mesh only when the node is on the same mesh segment as the hub (enables hub cache-on-see
     // to pull this node's uploads over the mesh). An explicit storage_extip always wins.
     std::string meshMode = getSetting("storage_mesh", "");
-    std::string meshV6 = (meshMode == "1" || meshMode == "true") ? detectShroomsMeshIPv6() : std::string();
+    // m_meshSession: a snapshot share asked for mesh mode for THIS run only (ensureStorageMesh). Never
+    // for a root, whose announced address every client bootstraps from.
+    bool meshOn = meshMode == "1" || meshMode == "true" || (m_meshSession && !isRoot);
+    std::string meshV6 = meshOn ? detectShroomsMeshIPv6() : std::string();
     // storage_mesh applies to a ROOT's listener too: a mesh hub (storage_root=1 + IPv6 extip) MUST
     // listen on `::` or it binds IPv4 0.0.0.0 while ANNOUNCING the IPv6 extip, and fetchers dialing
     // the announced fdb0:…:8199 hit nothing ("Connection refused").
@@ -1146,11 +1129,22 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
 // (CalendarSync::sealBlob — mobile opens it with the same scheme), and upload to Storage. The CID
 // arrives async via onStorageUploadDone → getSnapshotPointer.
 std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr) {
+    // A restart whose stop/start event never arrived would otherwise block snapshots, getStorageExtip
+    // and queued work for good: after 60 s, rebuild the node directly (we're in a module call here,
+    // not inside a storage event callback, so calling the module is safe).
+    if (m_storageRestarting && nowMs() - m_storageRestartAt > 60000) {
+        fprintf(stderr, "[scala] storage restart stuck for 60 s; rebuilding the node\n");
+        try { modules().storage_module.destroy(); } catch (...) {}
+        m_storageInit = false; m_storageRestarting = false; m_storageAwaitStart = false;
+        ensureStorage();
+        auto queued = std::move(m_snapAfterRestart);
+        m_snapAfterRestart.clear();
+        for (const auto& q : queued) if (q.first != calendarId) snapshotCalendar(q.first, q.second);
+    }
+    m_lastSnapshot.erase(calendarId);   // the UI polls for the NEW pointer; never hand back the previous CID
     ensureStorageMesh();   // make our Storage node mesh-dialable so the QR's SPR works for a phone over the overlay
     if (m_storageRestarting) {
         // The node is restarting to announce the mesh address; upload once it's back (onStorageStart).
-        if (nowMs() - m_storageRestartAt > 60000)
-            return json{{"ok", false}, {"error", "storage restart did not finish; restart Basecamp and try again"}}.dump();
         m_snapAfterRestart.emplace_back(calendarId, epochSizeMsStr);
         return json{{"ok", true}, {"status", "restarting storage"}}.dump();
     }
@@ -1167,7 +1161,7 @@ std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std
     std::string plaintext = logos_sync::snapshot::serializeSnapshot(cut, logos_sync::snapshot::boundaryHlc(boundary));
     std::string sealId = scalaSha256Hex(plaintext);                   // deterministic nonce → same cut → same bytes
     std::string sealed = m_sync ? m_sync->sealBlob(calendarId, plaintext, sealId) : std::string();
-    if (sealed.empty())
+    if (sealed.empty() || sealed.size() != plaintext.size() + 28)   // nonce(12) + tag(16) + ciphertext: never upload plaintext
         return json{{"ok", false}, {"error", "seal failed (unknown calendar key? is the calendar syncing?)"}}.dump();
     std::string tmpPath = m_storageDir + "/tmp/snap-" + scalaSha256Hex(sealed);
     if (!scalaWriteFile(tmpPath, sealed))
@@ -1187,15 +1181,14 @@ std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
     auto it = m_lastSnapshot.find(calendarId);
     return it == m_lastSnapshot.end() ? std::string("{}") : it->second;
 }
-// Make the storage node announce the shrooms-mesh address so its SPR is mesh-dialable. Persists the
-// settings (future launches start that way), then restarts a running node whose config differs.
-// Off the mesh (no mesh iface) it only ensures the node is up.
+// Make the storage node announce the shrooms-mesh address so its SPR is mesh-dialable, for this run
+// only: nothing is persisted (a saved guess overrode a hand-set extip and outlived leaving the mesh).
+// Restarts a running node whose config differs. Off the mesh, or on a root, it only ensures the node is up.
 bool ScalaImpl::ensureStorageMesh() {
-    std::string extip = detectMeshExtip();                   // prefers the mesh IPv6
-    if (extip.empty()) { ensureStorage(); return false; }    // not on the mesh → best-effort default
-    bool v6 = extip.find(':') != std::string::npos;
-    setSetting("storage_extip", extip);                      // explicit extip always wins in storageConfig()
-    setSetting("storage_mesh", v6 ? "1" : "");               // listen :: only for an IPv6 extip; else 0.0.0.0
+    std::string rootMode = getSetting("storage_root", "");
+    if (rootMode == "1" || rootMode == "true") { ensureStorage(); return true; }   // a root's settings are explicit
+    if (detectShroomsMeshIPv6().empty()) { ensureStorage(); return false; }       // not on the mesh
+    m_meshSession = true;
     if (!m_storageInit) { ensureStorage(); return true; }
     if (m_storageRestarting) return false;
     if (storageConfig().dump() == m_storageRunningCfg) return true;

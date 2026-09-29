@@ -140,6 +140,7 @@ void CalendarSync::sendEvent(const std::string &calendarId, const std::string &e
     // Deterministic nonce from the event's stable id → re-seals are byte-identical
     // and the store dedups them (ADR 0011).
     std::string sealed = seal(calendarId, eventJson, sealIdForEvent(eventJson));
+    if (sealed.empty()) { fprintf(stderr, "CalendarSync: seal failed for %s, not sending\n", calendarId.c_str()); return; }
     m_tx->send(topicForCalendar(calendarId), sealed);
 }
 void CalendarSync::setStatusHandler(OnSyncStatus h) { m_onStatus = std::move(h); }
@@ -190,6 +191,7 @@ void CalendarSync::sendMessage(const std::string &calendarId, const SyncMessage 
     // Seal the message bytes. A SyncMessage is a control/sync frame with no stable
     // event id, so use a fresh random token as the sealId — these must NOT dedup.
     std::string sealed = seal(calendarId, msg.toBytes(), randomToken());
+    if (sealed.empty()) { fprintf(stderr, "CalendarSync: seal failed for %s, dropping message\n", calendarId.c_str()); return; }
 
     // Send via transport (it does double-base64 framing)
     std::string topic = topicForCalendar(calendarId);
@@ -203,10 +205,14 @@ void CalendarSync::sendMessage(const std::string &calendarId, const SyncMessage 
 
 std::string CalendarSync::seal(const std::string &calendarId, const std::string &plaintext,
                                const std::string &sealId) {
+    // Fail CLOSED: an unknown or malformed key returns "" and every caller refuses to send/upload.
+    // (This used to return the plaintext, so a calendar whose key wasn't registered yet could be
+    // published or uploaded to Storage unencrypted.)
     auto it = m_activeTopics.find(calendarId);
-    if (it == m_activeTopics.end()) return plaintext; // fallback
+    if (it == m_activeTopics.end()) return std::string();
 
     const std::string &keyHex = it->second;
+    if (keyHex.size() != 64 || keyHex.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return std::string();
     // Convert hex key to bytes
     std::vector<unsigned char> key(32);
     for (size_t i = 0; i < 32 && i * 2 < keyHex.size(); i++) {
@@ -219,24 +225,24 @@ std::string CalendarSync::seal(const std::string &calendarId, const std::string 
 
     // AES-256-GCM encrypt
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    unsigned char ciphertext[plaintext.size() + 32];
+    if (!ctx) return std::string();
+    // Heap buffer: a snapshot is the whole log, which would overflow a stack array.
+    std::vector<unsigned char> ciphertext(plaintext.size() + 32);
     int len = 0, ciphertextLen = 0;
-
-    EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, key.data(), nonce.data());
-    EVP_EncryptUpdate(ctx, ciphertext, &len, (unsigned char*)plaintext.data(), plaintext.size());
-    EVP_EncryptFinal_ex(ctx, ciphertext + len, &ciphertextLen);
-
-    // Get tag
     unsigned char tag[16];
-    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag);
+    bool ok = EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, key.data(), nonce.data()) == 1
+        && EVP_EncryptUpdate(ctx, ciphertext.data(), &len, (const unsigned char*)plaintext.data(), (int)plaintext.size()) == 1
+        && EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &ciphertextLen) == 1
+        && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) == 1;
     EVP_CIPHER_CTX_free(ctx);
+    if (!ok || (size_t)len != plaintext.size()) return std::string();
 
     // Pack: nonce(12) + tag(16) + ciphertext
     std::string result;
     result.resize(12 + 16 + len);
     memcpy(&result[0], nonce.data(), 12);
     memcpy(&result[12], tag, 16);
-    memcpy(&result[28], ciphertext, len);
+    memcpy(&result[28], ciphertext.data(), len);
 
     return result;
 }

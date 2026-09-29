@@ -240,6 +240,7 @@ private:
     bool m_storageCbReg = false;         // upload/download/stop/start callbacks registered (once)
     std::string m_storageDir;            // libstorage data-dir (persistent cache)
     std::string m_storageRunningCfg;     // config the running node was started with ("" = not started)
+    bool m_meshSession = false;         // mesh mode requested for this run by a snapshot share (not persisted)
     bool m_storageRestarting = false;    // stop() issued to re-announce; finishes in onStorageStop/onStorageStart
     bool m_storageAwaitStart = false;    // restart past destroy+init+start, waiting for the storageStart event
     long long m_storageRestartAt = 0;    // when the restart began (ms since epoch)

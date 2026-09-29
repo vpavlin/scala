@@ -73,6 +73,8 @@ export interface IngestSeams {
   open: (sealed: Uint8Array) => Uint8Array | null; // decrypt with the calendar's encryptionKey
   verify: (ev: Event) => boolean; // re-verify the signature (never trust the snapshotter)
   append: (ev: Event) => Promise<boolean>; // idempotent (dedup by id); true if new
+  appendMany?: (evs: Event[]) => Promise<number>; // preferred: one write for the whole snapshot
+  normalize?: (raw: any) => Event; // parse like the network path (engine.eventFromJson) before verifying
   observe?: (hlc: HLC) => void; // advance the clock past ingested causes (optional)
 }
 
@@ -85,11 +87,16 @@ export async function ingestSnapshot(
   const plain = seams.open(sealed);
   if (!plain) throw new Error("ingestSnapshot: cannot open snapshot (wrong key or corrupt)");
   const { events, coversUpToHlc } = parseSnapshot(plain);
-  let ingested = 0;
-  for (const e of events) {
+  const ok: Event[] = [];
+  for (const raw of events) {
+    let e: Event;
+    try { e = seams.normalize ? seams.normalize(raw) : raw; } catch { continue; } // malformed → drop
     if (!seams.verify(e)) continue; // drop forged/unsigned — the snapshotter can only omit, not inject
     seams.observe?.(e.hlc);
-    if (await seams.append(e)) ingested++;
+    ok.push(e);
   }
+  let ingested = 0;
+  if (seams.appendMany) ingested = await seams.appendMany(ok);
+  else for (const e of ok) if (await seams.append(e)) ingested++;
   return { ingested, coversUpToHlc: coversUpToHlc ?? null };
 }

@@ -93,7 +93,16 @@ async function serveLog(calId: string): Promise<void> {
 // Kick off catch-up: publish the initial reconciliation message (bounded range
 // fingerprints over what we hold). Fresh calendar → empty-set fingerprint →
 // recurses down to receive everything; slightly behind → only the changed range.
-async function sendSyncReq(calId: string): Promise<boolean> {
+// Calendars joining from a snapshot: until the snapshot lands (or its head start runs out), the
+// general catch-up rounds (startSyncing / reconcile) skip them, so the full catch-up doesn't race the
+// snapshot. joinInBackground's own request passes `force`.
+const snapshotHeadStart = new Map<string, number>();   // calId -> until (ms)
+async function sendSyncReq(calId: string, force = false): Promise<boolean> {
+  const until = snapshotHeadStart.get(calId);
+  if (!force && until !== undefined) {
+    if (Date.now() < until) return false;
+    snapshotHeadStart.delete(calId);
+  }
   const msg = buildInitial(await store.getLog(calId), deviceId);
   const e = await mkEvent(ET.SYNC_REQ, msg);
   try { await sync.sendEvent(calId, JSON.stringify(eventToJson(e))); return true; }
@@ -398,6 +407,8 @@ export async function bootstrapFromSnapshot(calId: string, pointer: snapshot.Sna
     open: (s) => cryptoOpen(reg.key, s),       // decrypt with the calendar's key (members-only)
     verify: verifyEvent,                        // re-verify every signature (never trust the snapshotter)
     append: (e) => store.appendEvent(calId, e), // idempotent (dedup by id); also invalidates the fold
+    appendMany: (es) => store.appendMany(calId, es), // one write for the whole snapshot
+    normalize: eventFromJson,                   // same parsing as the network path (drops malformed fields)
     observe: (h) => clock.receive(h),           // advance the clock past ingested causes
   });
   if (ingested) notifyChange();
@@ -488,12 +499,14 @@ async function joinInBackground(link: string, inv: NonNullable<ReturnType<typeof
 
     // ADR 0020: bootstrap from one Storage blob, then let RBSR fill the delta.
     let snapDone = false;
-    const snap = inv.snap ? runSnapshot(inv, D).finally(() => { snapDone = true; }) : null;
+    if (inv.snap) snapshotHeadStart.set(inv.calendarId, Date.now() + SNAPSHOT_HEAD_START_MS);
+    const snap = inv.snap ? runSnapshot(inv, D).finally(() => { snapDone = true; snapshotHeadStart.delete(inv.calendarId); }) : null;
     if (snap) {
       await Promise.race([snap, new Promise((r) => setTimeout(r, SNAPSHOT_HEAD_START_MS))]);
       if (!snapDone) D(`snapshot still running after ${SNAPSHOT_HEAD_START_MS / 1000}s; asking peers now`);
     }
-    D((await sendSyncReq(inv.calendarId)) ? "sync request sent" : "sync request NOT sent (send failed)");
+    snapshotHeadStart.delete(inv.calendarId);
+    D((await sendSyncReq(inv.calendarId, true)) ? "sync request sent" : "sync request NOT sent (send failed)");
     if (snap) await snap;
   } catch (e) {
     D(`join failed: ${String(e).slice(0, 120)}`);

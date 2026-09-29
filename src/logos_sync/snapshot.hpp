@@ -19,11 +19,15 @@ inline std::string cjson(const json& v) {
     if (v.is_null()) return "null";
     if (v.is_boolean()) return v.get<bool>() ? "true" : "false";
     if (v.is_string()) { return json(v.get<std::string>()).dump(); }
-    if (v.is_number_integer()) return std::to_string(v.get<long long>());
+    // Unsigned first: is_number_integer() is also true for unsigned values, and get<long long> wraps
+    // anything above 2^63 negative (the event then fails its signature check and is dropped).
     if (v.is_number_unsigned()) return std::to_string(v.get<unsigned long long>());
+    if (v.is_number_integer()) return std::to_string(v.get<long long>());
     if (v.is_number_float()) {
-        double d = v.get<double>(); long long ll = (long long)d;
-        return ((double)ll == d) ? std::to_string(ll) : json(v).dump();
+        double d = v.get<double>();
+        // Integral values that fit a long long print as integers, like JS; the cast is only defined in range.
+        if (d >= -9.2e18 && d <= 9.2e18) { long long ll = (long long)d; if ((double)ll == d) return std::to_string(ll); }
+        return json(v).dump();
     }
     if (v.is_array()) {
         std::string o = "[";

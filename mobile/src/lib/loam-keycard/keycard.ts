@@ -77,8 +77,11 @@ export function signDigestOnCard(
   return new Promise<KeycardSig>((resolve, reject) => {
     let settled = false;
     let sub: { remove: () => void } | null = null;
+    // NFC is optional hardware: on a device without it startNFC still resolves and no tap ever comes.
+    const tapTimeout = setTimeout(() => finish(() => reject(new Error("No Keycard detected within 60 s. Is NFC available and turned on?"))), 60_000);
     const finish = (fn: () => void) => {
       if (settled) return; settled = true;
+      clearTimeout(tapTimeout);
       activeAbort = null;
       try { sub && sub.remove(); } catch { /* */ }
       RNKeycard.Core.stopNFC().catch(() => { /* */ }).finally(fn);
