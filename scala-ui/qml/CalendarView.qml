@@ -1041,26 +1041,31 @@ Item {
     property string attachMsg: ""
     property string attachPollRef: ""       // ref currently being polled (upload blobId / download cid)
     property string attachPollMode: ""      // "upload" | "download"
+    property string attachDiag: ""          // core's view of a pending transfer (shown under the message)
     function humanSize(n) { n = n || 0; if (n < 1024) return n + " B"; if (n < 1048576) return (n / 1024).toFixed(1) + " KB"; return (n / 1048576).toFixed(1) + " MB" }
     function removeAttachment(i) { var a = root.evAttachments.slice(); a.splice(i, 1); root.evAttachments = a }
     function onAttachmentPicked(fileUrl) {
         var path = ("" + fileUrl).replace(/^file:\/\//, "")
         var name = path.split("/").pop()
-        root.attachBusy = true; root.attachMsg = "Sealing + uploading " + name + "…"
+        root.attachBusy = true; root.attachDiag = ""; root.attachMsg = "Sealing + uploading " + name + "…"
         var ref = core("uploadAttachment", [root.editCalId, path, name, ""])
         if (!ref) { root.attachBusy = false; root.attachMsg = "Upload failed to start"; return }
         root.attachPollRef = ref; root.attachPollMode = "upload"; attachPoll.restart()
     }
     function openAttachment(calId, cid, name) {
         if (!cid) { root.attachMsg = "Not uploaded yet"; return }
-        root.attachBusy = true; root.attachMsg = "Fetching " + (name || cid) + "…"
+        root.attachBusy = true; root.attachDiag = ""; root.attachMsg = "Fetching " + (name || cid) + "…"
         var ref = core("downloadAttachment", [calId, cid, name || ""])
         if (!ref) { root.attachBusy = false; root.attachMsg = "Download failed to start"; return }
         root.attachPollRef = ref; root.attachPollMode = "download"; attachPoll.restart()
     }
     function pollAttach() {
         var r = root.j(core("attachmentStatus", [root.attachPollRef]), {})
-        if (r.pending) return                      // still working — keep polling
+        if (r.pending) {                           // still working — keep polling
+            if (r.note) root.attachDiag = r.note     // what the core sees (helps diagnose a hang)
+            return
+        }
+        root.attachDiag = ""
         attachPoll.stop(); root.attachBusy = false
         if (!r.ok) { root.attachMsg = "Failed: " + (r.error || "unknown"); return }
         if (root.attachPollMode === "upload") {
@@ -1473,6 +1478,7 @@ Item {
                 }
             }
             LogosText { visible: root.attachMsg !== ""; text: root.attachMsg; color: root.cSub; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            LogosText { visible: root.attachBusy && root.attachDiag !== ""; text: root.attachDiag; color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             LogosButton {
                 visible: !root.eventReadOnly
                 text: root.attachBusy ? "Working…" : "＋ Attach file"

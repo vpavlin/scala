@@ -279,6 +279,8 @@ private:
     void completeUpload(const std::string& payload);
     void completeDownload(const std::string& payload);
     bool m_pollArmed = false;
+    long long m_lastStatusPoll = 0;
+    long long m_diagEvents = 0, m_diagTimerPolls = 0, m_diagManifests = -1;   // shown while a transfer is pending
     void schedulePoll();
     void pollStorageSessions();
     void finishDownload(const std::string& calId, const std::string& ref, const std::string& json);

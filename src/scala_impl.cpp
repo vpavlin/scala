@@ -1283,10 +1283,12 @@ std::string ScalaImpl::getStorageExtip() {
 // SCALA_TEST_DROP_STORAGE_EVENTS=1 simulates such a host (tests the polling path headless).
 static bool dropStorageEvents() { static const bool d = getenv("SCALA_TEST_DROP_STORAGE_EVENTS") != nullptr; return d; }
 void ScalaImpl::onStorageUploadDone(const std::string& payload) {
+    m_diagEvents++;
     if (dropStorageEvents()) return;
     onLoop([this, payload] { completeUpload(payload); });
 }
 void ScalaImpl::onStorageDownloadDone(const std::string& payload) {
+    m_diagEvents++;
     if (dropStorageEvents()) return;
     onLoop([this, payload] { completeDownload(payload); });
 }
@@ -1414,8 +1416,8 @@ void ScalaImpl::completeDownload(const std::string& payload) {
 void ScalaImpl::schedulePoll() {
     if (m_pollArmed) return;
     m_pollArmed = true;
-    if (m_resyncTimer) QTimer::singleShot(2000, m_resyncTimer, [this] { m_pollArmed = false; pollStorageSessions(); });
-    else QTimer::singleShot(2000, [this] { m_pollArmed = false; pollStorageSessions(); });
+    if (m_resyncTimer) QTimer::singleShot(2000, m_resyncTimer, [this] { m_pollArmed = false; m_diagTimerPolls++; pollStorageSessions(); });
+    else QTimer::singleShot(2000, [this] { m_pollArmed = false; m_diagTimerPolls++; pollStorageSessions(); });
 }
 
 void ScalaImpl::pollStorageSessions() {
@@ -1437,6 +1439,7 @@ void ScalaImpl::pollStorageSessions() {
                 if (!cid.empty()) sizeByCid[cid] = size;
             }
     } catch (...) {}
+    m_diagManifests = (long long)byName.size();
     const long long now = nowMs();
     auto base = [](const std::string& path) { auto i = path.find_last_of('/'); return i == std::string::npos ? path : path.substr(i + 1); };
     auto stale = [now](long long since) { return now - since > 5 * 60 * 1000; };
@@ -1483,6 +1486,22 @@ void ScalaImpl::finishDownload(const std::string& calId, const std::string& ref,
 }
 std::string ScalaImpl::attachmentStatus(const std::string& ref) {
     auto it = m_attachResults.find(ref);
-    if (it == m_attachResults.end()) return "{\"pending\":true}";
+    if (it == m_attachResults.end()) {
+        // The view polls this every 600 ms, so it also drives the completion check — no reliance on
+        // a timer firing in whatever thread the host calls us on (the timer path stays as a backup).
+        if (nowMs() - m_lastStatusPoll >= 1500) { m_lastStatusPoll = nowMs(); pollStorageSessions(); }
+        it = m_attachResults.find(ref);
+        if (it == m_attachResults.end()) {
+            // What the core sees while it waits, shown by the view — so a hang on a host we can't
+            // inspect says where it stuck (storage never started / never stored it / events lost).
+            long long since = 0; std::string where = "not a pending transfer";
+            for (const auto& [sess, up] : m_pendUp) if (up.blobId == ref) { since = up.since; where = "upload session " + sess.substr(0, 8); }
+            for (const auto& [sess, dn] : m_pendDown) if (dn.cid == ref) { since = dn.since; where = "download session " + sess.substr(0, 8); }
+            std::string note = where + (since ? ", " + std::to_string((nowMs() - since) / 1000) + " s" : std::string())
+                + "; storage " + (m_storageInit ? "on" : "off") + ", " + std::to_string(m_diagManifests) + " files held"
+                + "; events " + std::to_string(m_diagEvents) + ", timer polls " + std::to_string(m_diagTimerPolls);
+            return json{{"pending", true}, {"note", note}}.dump();
+        }
+    }
     return it->second;
 }
