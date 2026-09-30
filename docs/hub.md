@@ -37,6 +37,12 @@ The hub only does this for calendars **it is a member of**.
    logos-hub call <daemon> storage_module exists <storageCid>
    ```
 
+**If the calendar stays empty** while members are online: check the hub runs the same
+`delivery_module` as the clients. Catch-up replies are large and arrive in segments, and an older
+delivery build can fail to reassemble a newer client's segments. The hub then sees the raw
+~60 KB pieces in its log but never the events. A 0.1.3 hub never received a 0.1.4 client's
+history; upgrading the hub fixed it immediately.
+
 **To stop** carrying a calendar: `logos-hub call <daemon> scala deleteCalendar <calendar id>`. This
 only removes it from the hub; nobody else is affected. Files already cached stay in the hub's
 Storage until they expire.
