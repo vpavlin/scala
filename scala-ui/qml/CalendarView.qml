@@ -1049,14 +1049,16 @@ Item {
         var path = ("" + fileUrl).replace(/^file:\/\//, "")
         var name = path.split("/").pop()
         root.attachBusy = true; root.attachDiag = ""; root.attachMsg = "Sealing + uploading " + name + "…"
-        var ref = core("uploadAttachment", [root.editCalId, path, name, ""])
+        // Basecamp returns string results JSON-quoted; unquote like coreVersion does, or the poll
+        // asks about "\"<ref>\"" and never sees the transfer finish.
+        var ref = String(core("uploadAttachment", [root.editCalId, path, name, ""])).replace(/^"|"$/g, "")
         if (!ref) { root.attachBusy = false; root.attachMsg = "Upload failed to start"; return }
         root.attachPollRef = ref; root.attachPollMode = "upload"; attachPoll.restart()
     }
     function openAttachment(calId, cid, name) {
         if (!cid) { root.attachMsg = "Not uploaded yet"; return }
         root.attachBusy = true; root.attachDiag = ""; root.attachMsg = "Fetching " + (name || cid) + "…"
-        var ref = core("downloadAttachment", [calId, cid, name || ""])
+        var ref = String(core("downloadAttachment", [calId, cid, name || ""])).replace(/^"|"$/g, "")
         if (!ref) { root.attachBusy = false; root.attachMsg = "Download failed to start"; return }
         root.attachPollRef = ref; root.attachPollMode = "download"; attachPoll.restart()
     }

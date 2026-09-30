@@ -1485,7 +1485,12 @@ void ScalaImpl::finishDownload(const std::string& calId, const std::string& ref,
     if (!ref.empty()) m_attachResults[ref] = j;
     attachmentReady(calId, ref, j);
 }
-std::string ScalaImpl::attachmentStatus(const std::string& ref) {
+std::string ScalaImpl::attachmentStatus(const std::string& refIn) {
+    // Basecamp 0.2.x hands a string result to QML JSON-quoted, and the 0.8.33 view passed that
+    // back verbatim ("\"zDvZ…\"") — so the lookup never matched and every transfer looked
+    // pending forever even though it had finished. Accept the quoted form too.
+    std::string ref = refIn;
+    if (ref.size() >= 2 && ref.front() == '"' && ref.back() == '"') ref = ref.substr(1, ref.size() - 2);
     auto it = m_attachResults.find(ref);
     if (it == m_attachResults.end()) {
         // The view polls this every 600 ms, so it also drives the completion check — no reliance on
