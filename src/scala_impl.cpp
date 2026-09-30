@@ -1440,6 +1440,7 @@ void ScalaImpl::pollStorageSessions() {
             }
     } catch (...) {}
     m_diagManifests = (long long)byName.size();
+    for (const auto& [cid, size] : sizeByCid) if (size > 0) m_dlTotal[cid] = size;
     const long long now = nowMs();
     auto base = [](const std::string& path) { auto i = path.find_last_of('/'); return i == std::string::npos ? path : path.substr(i + 1); };
     auto stale = [now](long long since) { return now - since > 5 * 60 * 1000; };
@@ -1500,7 +1501,17 @@ std::string ScalaImpl::attachmentStatus(const std::string& ref) {
             std::string note = where + (since ? ", " + std::to_string((nowMs() - since) / 1000) + " s" : std::string())
                 + "; storage " + (m_storageInit ? "on" : "off") + ", " + std::to_string(m_diagManifests) + " files held"
                 + "; events " + std::to_string(m_diagEvents) + ", timer polls " + std::to_string(m_diagTimerPolls);
-            return json{{"pending", true}, {"note", note}}.dump();
+            json out{{"pending", true}, {"note", note}};
+            // Download progress: bytes on disk at the destination / the manifest's dataset size
+            // (known once the manifest is fetched; libstorage writes chunks as they arrive).
+            for (const auto& [sess, dn] : m_pendDown) if (dn.cid == ref) {
+                std::error_code ec;
+                long long have = afs::exists(dn.sealedPath, ec) ? (long long)afs::file_size(dn.sealedPath, ec) : 0;
+                auto t = m_dlTotal.find(dn.cid);
+                out["done"] = have;
+                if (t != m_dlTotal.end()) out["total"] = t->second;
+            }
+            return out.dump();
         }
     }
     return it->second;

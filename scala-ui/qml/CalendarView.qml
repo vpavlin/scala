@@ -1042,6 +1042,7 @@ Item {
     property string attachPollRef: ""       // ref currently being polled (upload blobId / download cid)
     property string attachPollMode: ""      // "upload" | "download"
     property string attachDiag: ""          // core's view of a pending transfer (shown under the message)
+    property real attachProgress: -1        // 0..1 of a download in flight; -1 = unknown yet
     function humanSize(n) { n = n || 0; if (n < 1024) return n + " B"; if (n < 1048576) return (n / 1024).toFixed(1) + " KB"; return (n / 1048576).toFixed(1) + " MB" }
     function removeAttachment(i) { var a = root.evAttachments.slice(); a.splice(i, 1); root.evAttachments = a }
     function onAttachmentPicked(fileUrl) {
@@ -1063,9 +1064,10 @@ Item {
         var r = root.j(core("attachmentStatus", [root.attachPollRef]), {})
         if (r.pending) {                           // still working — keep polling
             if (r.note) root.attachDiag = r.note     // what the core sees (helps diagnose a hang)
+            root.attachProgress = (r.total > 0) ? Math.min(0.99, (r.done || 0) / r.total) : -1
             return
         }
-        root.attachDiag = ""
+        root.attachDiag = ""; root.attachProgress = -1
         attachPoll.stop(); root.attachBusy = false
         if (!r.ok) { root.attachMsg = "Failed: " + (r.error || "unknown"); return }
         if (root.attachPollMode === "upload") {
@@ -1478,6 +1480,13 @@ Item {
                 }
             }
             LogosText { visible: root.attachMsg !== ""; text: root.attachMsg; color: root.cSub; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            Rectangle {
+                visible: root.attachBusy && root.attachPollMode === "download"
+                Layout.fillWidth: true; height: 4; radius: 2; color: root.cSurface2
+                Rectangle { height: parent.height; radius: 2; color: root.cBlue
+                    width: parent.width * Math.max(0.02, root.attachProgress >= 0 ? root.attachProgress : 0) }
+            }
+            LogosText { visible: root.attachBusy && root.attachPollMode === "download"; text: root.attachProgress >= 0 ? Math.round(root.attachProgress * 100) + "%" : "Finding a source…"; color: root.cSub; font.pixelSize: 11 }
             LogosText { visible: root.attachBusy && root.attachDiag !== ""; text: root.attachDiag; color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             LogosButton {
                 visible: !root.eventReadOnly

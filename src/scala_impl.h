@@ -280,6 +280,7 @@ private:
     void completeDownload(const std::string& payload);
     bool m_pollArmed = false;
     long long m_lastStatusPoll = 0;
+    std::map<std::string, long long> m_dlTotal;   // cid -> dataset size (download progress)
     long long m_diagEvents = 0, m_diagTimerPolls = 0, m_diagManifests = -1;   // shown while a transfer is pending
     void schedulePoll();
     void pollStorageSessions();
