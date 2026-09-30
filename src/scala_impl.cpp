@@ -1076,6 +1076,17 @@ json ScalaImpl::storageConfig() {
         cfg["listen-ip"] = "0.0.0.0";
     }
     if (!extip.empty()) cfg["nat"] = "extip:" + extip;
+    // A reachable root is every client's bootstrap, and libstorage treats bootstrap nodes as its NAT
+    // helpers: a client behind NAT asks them whether it is reachable (AutoNAT), and when it is not,
+    // reserves a relay slot on them and advertises that relayed address. Without these servers a
+    // NAT-ed desktop never learns its reachability, so it never advertises its uploads and nobody
+    // (not even the hub's cache-on-see) can fetch them. Relayed links are capped (128 KB / 2 min), so
+    // the relay only makes the uploader findable; blocks flow over the uploader's direct connection
+    // to the hub. Opt out with storage_nat_server=0.
+    if (isRoot && !extip.empty() && getSetting("storage_nat_server", "1") != "0") {
+        cfg["autonat-server"] = true;
+        cfg["relay-server"] = true;
+    }
     return cfg;
 }
 
