@@ -263,11 +263,11 @@ private:
     std::map<std::string, std::pair<long long, long long>> m_cacheRetry;
     bool m_cacheSwept = false;   // one pass over stored events after start: re-queue attachments we lack
     void retryCacheFetches();  // cache-on-see: fetch any attachment CID we lack → become a provider
-    struct PendingUp { std::string calId, name, mime, blobId, tmpPath; long long size = 0; };
+    struct PendingUp { std::string calId, name, mime, blobId, tmpPath; long long size = 0; long long since = 0; };
     std::map<std::string, PendingUp> m_pendUp;     // storage sessionId -> pending upload
-    struct PendingDown { std::string calId, name, cid, sealedPath, outPath; };
+    struct PendingDown { std::string calId, name, cid, sealedPath, outPath; long long since = 0; };
     std::map<std::string, PendingDown> m_pendDown; // storage sessionId -> pending download
-    struct PendingSnap { std::string calId, tmpPath; long long epoch = 0, count = 0; };
+    struct PendingSnap { std::string calId, tmpPath; long long epoch = 0, count = 0; long long since = 0; };
     std::map<std::string, PendingSnap> m_pendSnap;   // storage sessionId -> pending snapshot upload (ADR 0020)
     std::map<std::string, std::string> m_lastSnapshot; // calId -> last completed snapshot pointer JSON
     void onStorageUploadDone(const std::string& payload);
@@ -275,6 +275,12 @@ private:
     std::map<std::string, std::string> m_attachResults;   // ref -> result JSON, polled by attachmentStatus
     // store the poll result AND emit the async event (view uses the poll; the event is for others)
     void finishUpload(const std::string& calId, const std::string& ref, const std::string& json);
+    // Completion from either the storage event or pollStorageSessions() (events can be lost).
+    void completeUpload(const std::string& payload);
+    void completeDownload(const std::string& payload);
+    bool m_pollArmed = false;
+    void schedulePoll();
+    void pollStorageSessions();
     void finishDownload(const std::string& calId, const std::string& ref, const std::string& json);
     // ── catch-up (qaku SYNC_REQ + seed) ──────────────────────────────────────
     void onSyncReq(const std::string& calId, const nlohmann::json& req);  // serve ONLY the delta a peer lacks (logos_sync catch-up)

@@ -1133,7 +1133,8 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
     StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536);
     if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "upload rejected" : r.error}}; finishUpload(calendarId, blobId, e.dump()); return blobId; }
     std::string sess = resVal(r);
-    m_pendUp[sess] = PendingUp{ calendarId, name, mime, blobId, tmpPath, (long long)bytes.size() };
+    m_pendUp[sess] = PendingUp{ calendarId, name, mime, blobId, tmpPath, (long long)bytes.size(), nowMs() };
+    schedulePoll();
     return blobId;   // ref the view correlates on attachmentUploaded
 }
 
@@ -1183,7 +1184,8 @@ std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std
     if (!r.success)
         return json{{"ok", false}, {"error", r.error.empty() ? "upload rejected" : r.error}}.dump();
     std::string sess = resVal(r);
-    m_pendSnap[sess] = PendingSnap{ calendarId, tmpPath, boundary, (long long)cut.size() };
+    m_pendSnap[sess] = PendingSnap{ calendarId, tmpPath, boundary, (long long)cut.size(), nowMs() };
+    schedulePoll();
     fprintf(stderr, "Scala: snapshot cal=%s epoch=%lld count=%zu → uploading (session %s)\n",
             calendarId.c_str(), boundary, cut.size(), sess.c_str());
     return json{{"ok", true}, {"status", "uploading"}, {"epoch", boundary}, {"count", (long long)cut.size()},
@@ -1274,7 +1276,22 @@ std::string ScalaImpl::getStorageExtip() {
     return nat.rfind("extip:", 0) == 0 ? nat.substr(6) : std::string();
 }
 
+// Storage "done" events can be lost on the way to this module (seen on Basecamp 0.2.3: uploads and
+// downloads sat at "pending" forever while the transfers themselves finished). So completion has two
+// sources: the event, and pollStorageSessions() reading the same facts back with synchronous calls.
+// Both funnel into completeUpload/completeDownload on the loop thread; whichever comes first wins.
+// SCALA_TEST_DROP_STORAGE_EVENTS=1 simulates such a host (tests the polling path headless).
+static bool dropStorageEvents() { static const bool d = getenv("SCALA_TEST_DROP_STORAGE_EVENTS") != nullptr; return d; }
 void ScalaImpl::onStorageUploadDone(const std::string& payload) {
+    if (dropStorageEvents()) return;
+    onLoop([this, payload] { completeUpload(payload); });
+}
+void ScalaImpl::onStorageDownloadDone(const std::string& payload) {
+    if (dropStorageEvents()) return;
+    onLoop([this, payload] { completeDownload(payload); });
+}
+
+void ScalaImpl::completeUpload(const std::string& payload) {
     json p = json::parse(payload, nullptr, false);
     if (p.is_discarded() || !p.is_object()) return;
     std::string sess = p.value("sessionId", std::string());
@@ -1368,11 +1385,12 @@ std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const s
     StdLogosResult r = modules().storage_module.downloadToUrl(cid, sealedPath, false, 65536);
     if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "download rejected" : r.error}}; finishDownload(calendarId, cid, e.dump()); return cid; }
     std::string sess = resVal(r);
-    m_pendDown[sess] = PendingDown{ calendarId, outName, cid, sealedPath, outPath };
+    m_pendDown[sess] = PendingDown{ calendarId, outName, cid, sealedPath, outPath, nowMs() };
+    schedulePoll();
     return cid;
 }
 
-void ScalaImpl::onStorageDownloadDone(const std::string& payload) {
+void ScalaImpl::completeDownload(const std::string& payload) {
     json p = json::parse(payload, nullptr, false);
     if (p.is_discarded() || !p.is_object()) return;
     std::string sess = p.value("sessionId", std::string());
@@ -1391,6 +1409,67 @@ void ScalaImpl::onStorageDownloadDone(const std::string& payload) {
     if (!scalaWriteFile(dn.outPath, *plain)) { finishDownload(dn.calId, dn.cid, "{\"ok\":false,\"error\":\"cannot write file\"}"); return; }
     json ok{{"ok", true}, {"path", dn.outPath}, {"name", dn.name}};
     finishDownload(dn.calId, dn.cid, ok.dump());
+}
+
+void ScalaImpl::schedulePoll() {
+    if (m_pollArmed) return;
+    m_pollArmed = true;
+    if (m_resyncTimer) QTimer::singleShot(2000, m_resyncTimer, [this] { m_pollArmed = false; pollStorageSessions(); });
+    else QTimer::singleShot(2000, [this] { m_pollArmed = false; pollStorageSessions(); });
+}
+
+void ScalaImpl::pollStorageSessions() {
+    if (m_pendUp.empty() && m_pendDown.empty() && m_pendSnap.empty()) return;
+    // filename → {cid, datasetSize} of every manifest held locally. Uploads are named after their
+    // staged file (blobId / snap-<hash>), so a finished upload shows up here with its CID.
+    std::map<std::string, std::pair<std::string, long long>> byName;
+    std::map<std::string, long long> sizeByCid;
+    try {
+        StdLogosResult r = modules().storage_module.manifests();
+        json arr = r.value;
+        if (arr.is_string()) arr = json::parse(arr.get<std::string>(), nullptr, false);
+        if (r.success && arr.is_array())
+            for (const auto& m : arr) {
+                if (!m.is_object()) continue;
+                std::string cid = m.value("cid", std::string());
+                long long size = m.contains("datasetSize") && m["datasetSize"].is_number() ? m["datasetSize"].get<long long>() : -1;
+                if (m.contains("filename") && m["filename"].is_string()) byName[m["filename"].get<std::string>()] = { cid, size };
+                if (!cid.empty()) sizeByCid[cid] = size;
+            }
+    } catch (...) {}
+    const long long now = nowMs();
+    auto base = [](const std::string& path) { auto i = path.find_last_of('/'); return i == std::string::npos ? path : path.substr(i + 1); };
+    auto stale = [now](long long since) { return now - since > 5 * 60 * 1000; };
+    std::vector<std::string> done;
+    for (const auto& [sess, up] : m_pendUp) {
+        auto it = byName.find(base(up.tmpPath));
+        if (it != byName.end() && !it->second.first.empty())
+            done.push_back(json{{"sessionId", sess}, {"success", true}, {"cid", it->second.first}}.dump());
+        else if (stale(up.since))
+            done.push_back(json{{"sessionId", sess}, {"success", false}, {"error", "Storage never reported the upload finished (5 min)"}}.dump());
+    }
+    for (const auto& [sess, sn] : m_pendSnap) {
+        auto it = byName.find(base(sn.tmpPath));
+        if (it != byName.end() && !it->second.first.empty())
+            done.push_back(json{{"sessionId", sess}, {"success", true}, {"cid", it->second.first}}.dump());
+        else if (stale(sn.since))
+            done.push_back(json{{"sessionId", sess}, {"success", false}, {"error", "Storage never reported the snapshot upload finished (5 min)"}}.dump());
+    }
+    for (const auto& p : done) completeUpload(p);
+    done.clear();
+    for (const auto& [sess, dn] : m_pendDown) {
+        // Finished = the whole dataset is on disk at the destination (the sealed file's size equals
+        // the manifest's datasetSize; a partial write is smaller).
+        std::error_code ec;
+        auto it = sizeByCid.find(dn.cid);
+        long long have = afs::exists(dn.sealedPath, ec) ? (long long)afs::file_size(dn.sealedPath, ec) : -1;
+        if (it != sizeByCid.end() && it->second > 0 && have == it->second)
+            done.push_back(json{{"sessionId", sess}, {"success", true}}.dump());
+        else if (stale(dn.since))
+            done.push_back(json{{"sessionId", sess}, {"success", false}, {"error", "no provider delivered it within 5 min (is the uploader or the hub online?)"}}.dump());
+    }
+    for (const auto& p : done) completeDownload(p);
+    if (!m_pendUp.empty() || !m_pendDown.empty() || !m_pendSnap.empty()) schedulePoll();
 }
 
 // Store the outcome for the poll-based view AND emit the async event (for any subscriber).
