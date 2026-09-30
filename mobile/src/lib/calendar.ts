@@ -15,7 +15,7 @@ import * as sstat from "./syncstatus";
 import * as sync from "./scala-sync";
 import { buildInitial, respond } from "./catchup";
 import { open as cryptoOpen } from "./crypto";
-import { verifyEvent } from "./identity";
+import { verifyEvent, isSigned } from "./identity";
 import * as snapshot from "./snapshot";
 import * as storage from "./logos-storage";
 
@@ -384,6 +384,8 @@ export async function getEventHistory(
   const entries = (await store.getLog(calId))
     .filter((e) => (e.type === ET.EVENT_PUT || e.type === ET.EVENT_DEL) && (e.payload as any)?.id === eventId)
     .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
+    // Only what the fold could accept: an unsigned or forged entry isn't history (mirrors the core).
+    .filter((e) => isSigned(e) && verifyEvent(e))
     .sort((a, b) => a.hlc.wall - b.hlc.wall || (a.hlc.dev < b.hlc.dev ? -1 : a.hlc.dev > b.hlc.dev ? 1 : 0));
   return entries.map((e, i) => {
     const action = e.type === ET.EVENT_DEL ? "deleted" : i === 0 ? "created" : "edited";
@@ -397,7 +399,8 @@ export async function getEventHistory(
       }
       changed = [...set]; // e.g. ["time","location"] — empty if only non-user fields moved
     }
-    return { author: e.dev, at: e.hlc.wall, action, payload: e.payload, changed };
+    // The author the signature covers (hlc.dev), not the top-level dev a sender can set freely.
+    return { author: (e.hlc && e.hlc.dev) || e.dev, at: e.hlc.wall, action, payload: e.payload, changed };
   });
 }
 

@@ -524,9 +524,13 @@ std::string ScalaImpl::getEventHistory(const std::string& calId, const std::stri
     json prev; bool havePrev = false;
     for (const auto& e : m_store->log(calId)) {
         if (!e.payload.is_object() || e.payload.value("id", std::string()) != eventId) continue;
+        // Only what the fold could accept: an unsigned or forged entry isn't history. And the author
+        // is the one the signature covers (hlc.dev), not the top-level dev a sender can set freely.
+        if (!scala::isSigned(e) || !scala::verifyEvent(e)) continue;
+        const std::string author = !e.hlc.dev.empty() ? e.hlc.dev : e.dev;
         std::string action = e.type == scala::ET::EVENT_DEL ? "deleted"
                            : (out.empty() ? "created" : "edited");
-        json entry = json{{"author", e.dev}, {"at", e.hlc.wall}, {"action", action}, {"payload", e.payload}};
+        json entry = json{{"author", author}, {"at", e.hlc.wall}, {"action", action}, {"payload", e.payload}};
         if (action == "edited" && havePrev) {
             json changed = json::array(); std::set<std::string> seen;
             for (const auto& kv : LBL) {

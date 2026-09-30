@@ -82,6 +82,8 @@ check("evD" not in evs, "participant D blocked once calendar closed (open=false)
 check("evU" not in evs, "unsigned event dropped (signatures always required)")
 check("evT" not in evs, "tampered event dropped (signature verify fails)")
 check("evEd" not in evs, "tombstone terminal — deleted editor event not resurrected")
+check(roles.get(D) != "editor", "D signing as itself but CLAIMING dev=owner A could not grant itself editor (author = signed hlc.dev)")
+check("evS" not in evs, "D signing as itself but CLAIMING dev=editor B could not add to the closed calendar")
 
 print("\nROLES FOLD OK — authorization correct AND identical across desktop/mobile"
       if ok else "\nROLES FOLD TEST FAILED")

@@ -27,10 +27,13 @@ for (const e of src.log) {
   if (!idOf[author]) throw new Error("no test key for author " + author);
   const unsigned = e._unsigned === true;
   const tamper = e._tamper === true;
+  const spoof = e._spoofDev;
   delete e._unsigned;
   delete e._tamper;
+  delete e._spoofDev;
   signEvent(idOf[author], e); // sets e.dev/e.hlc.dev=address, e.pub, e.sig
   if (unsigned) { delete e.sig; delete e.pub; }          // → isSigned()==false → fold drops it
+  if (spoof) e.dev = addr(spoof);                       // claim another author; hlc.dev (signed) still = the signer
   if (tamper) { e.payload = { ...e.payload, title: (e.payload.title || "") + " (tampered)" }; } // sig no longer matches → verify fails → dropped
 }
 writeFileSync(outPath, JSON.stringify(src, null, 2) + "\n");
