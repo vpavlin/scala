@@ -2,7 +2,7 @@
 // Month grid + day detail + event editor; calendars live in a left drawer.
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
-  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator, ToastAndroid, Animated,
+  View, Text, TextInput, Pressable, Switch, ScrollView, StyleSheet, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator, ToastAndroid, Animated, Linking,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -736,17 +736,31 @@ export default function App() {
       })
       .onFinalize(() => { setDragEv(null); setDropDate(null); lastDrop.current = ""; });
   // ADR 0017: fetch a sealed attachment from Logos Storage, decrypt it with the calendar key, save.
+  // One fetch per attachment at a time: a slow first fetch plus impatient taps used to queue ten
+  // downloads that all landed (and alerted) together.
+  const fetchingCids = useRef(new Set<string>());
   const openAttachment = async (att: Attachment) => {
+    if (att.storageCid && fetchingCids.current.has(att.storageCid)) {
+      ToastAndroid.show("Still fetching this file…", ToastAndroid.SHORT);
+      return;
+    }
     const cal = cals.find((c) => c.id === modal.calId);
     if (!cal?.encryptionKey) { Alert.alert("Attachment", "This calendar has no key — can't decrypt."); return; }
     if (!att.storageCid) { Alert.alert("Attachment", "Not uploaded yet (no CID)."); return; }
     if (!codexStorage.available()) { Alert.alert("Attachment", "Storage module not in this build."); return; }
-    setAttachFetching(att.name || att.storageCid.slice(0, 12)); // non-blocking "fetching…" overlay
+    const cid = att.storageCid;
+    fetchingCids.current.add(cid);
+    setAttachFetching(att.name || cid.slice(0, 12)); // non-blocking "fetching…" overlay
     try {
       await codexStorage.init({ "bootstrap-node": [codexBoot.trim()] });   // ride our own Loam Storage network
       const dir = await codexStorage.filesDir();
       const sealedPath = `${dir}/attach-dl/${att.storageCid}.sealed`;
-      await codexStorage.downloadToFile(att.storageCid, sealedPath, { local: false });
+      // The native download has no deadline of its own; without one a stalled fetch looked like
+      // "nothing happens". (The native op may still finish later; the file then just isn't opened.)
+      await Promise.race([
+        codexStorage.downloadToFile(att.storageCid, sealedPath, { local: false }),
+        new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error("no provider answered within 2 minutes — is the uploader or the hub online?"), { code: "timeout" })), 120000)),
+      ]);
       const sealed = toByteArray(await codexStorage.readFileB64(sealedPath));
       const plain = openSealed(cal.encryptionKey, sealed);
       if (!plain) { Alert.alert("Attachment ❌", "Decrypt failed (wrong calendar key?)."); return; }
@@ -756,6 +770,7 @@ export default function App() {
     } catch (e: any) {
       Alert.alert("Attachment ❌", `[${e?.code ?? "?"}] ${e?.message ?? e}`);
     } finally {
+      fetchingCids.current.delete(cid);
       setAttachFetching(null);
     }
   };
@@ -799,6 +814,29 @@ export default function App() {
     setInvite(""); startSyncing(undefined, setStatus).catch(() => {});   // fire-and-forget (offline-safe): the join is already persisted
     Alert.alert("Joined", `Syncing "${cal.name}"`);
   };
+  // A scala://join link opened from outside (camera app, browser, chat) — Android starts or resumes
+  // Scala with it; before this the app registered the scheme but ignored the link.
+  const handledLinks = useRef(new Set<string>());
+  useEffect(() => {
+    const onUrl = async (url: string | null) => {
+      if (!url || !url.startsWith("scala://join") || handledLinks.current.has(url)) return;
+      handledLinks.current.add(url);
+      const cal = await joinFromInvite(url.trim(), joinIdentity || undefined);
+      if (!cal) { Alert.alert("Not a Scala invite", "That link isn't a valid scala://join link."); return; }
+      startSyncing(undefined, setStatus).catch(() => {});
+      Alert.alert("Joined", `Syncing "${cal.name}"`);
+    };
+    Linking.getInitialURL().then(onUrl).catch(() => {});
+    const sub = Linking.addEventListener("url", (e) => { void onUrl(e.url); });
+    return () => sub.remove();
+  }, [joinIdentity]);
+  // Warm Storage up as soon as an event with attachments is opened, so the first tap doesn't also
+  // pay for starting the node and finding the hub.
+  const openedAttachments = modal.open && ((modal.editing as any)?.attachments || []).some((a: Attachment) => !!a.storageCid);
+  useEffect(() => {
+    if (openedAttachments && codexStorage.available())
+      codexStorage.init({ "bootstrap-node": [codexBoot.trim()] }).catch(() => {});
+  }, [openedAttachments, codexBoot]);
   const toggleShared = async (v: boolean) => { setShared(v); await setSharedNode(v); Alert.alert(v ? "Shared node ON" : "Shared node OFF", "Restart Scala to apply."); };
   const shiftMonth = (delta: number) => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
 
@@ -1369,6 +1407,7 @@ export default function App() {
           schema={cals.find((c) => c.id === modal.calId)?.schema || []}
           loadHistory={modal.editing ? () => getEventHistory(modal.calId, modal.editing!.id) : undefined}
           onOpenAttachment={openAttachment}
+          fetchingName={attachFetching}
           rsvps={((events.find((e) => e.id === (modal.editing as any)?.id) || modal.editing) as any)?.rsvps}
           myAddr={addrFor(cals.find((c) => c.id === modal.calId))}
           onRsvp={modal.editing ? onRsvpEvent : undefined}

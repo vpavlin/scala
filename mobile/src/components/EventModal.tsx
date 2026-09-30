@@ -43,7 +43,7 @@ export interface HistoryEntry { author: string; at: number; action: string; payl
 
 export function EventModal({
   visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onDuplicate, onClose,
-  schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment,
+  schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment, fetchingName,
   rsvps, myAddr, onRsvp,
 }: {
   visible: boolean;
@@ -61,6 +61,7 @@ export function EventModal({
   canEdit?: boolean;             // false = viewer on a role-managed calendar → read-only
   readonlyReason?: string;       // specific "why you can't edit" copy (owner/identity mismatch, closed, viewer)
   onOpenAttachment?: (att: Attachment) => void; // fetch+decrypt+open a Logos Storage attachment
+  fetchingName?: string | null;   // name of the attachment being fetched (shown on its row)
   rsvps?: Record<string, string>;   // ADR 0021: folded attendance (author addr → status)
   myAddr?: string;                  // my address on this calendar (to show/set my own RSVP)
   onRsvp?: (status: string) => void; // set my attendance ("going"|"maybe"|"no"|"" to retract)
@@ -286,7 +287,7 @@ export function EventModal({
                       📎 {a.name || "file"}
                       {a.size ? `  (${a.size < 1024 ? a.size + " B" : a.size < 1048576 ? (a.size / 1024).toFixed(1) + " KB" : (a.size / 1048576).toFixed(1) + " MB"})` : ""}
                     </Text>
-                    <Text style={{ color: C.sub, fontSize: 12 }}>{a.storageCid ? "Download ⬇" : "…"}</Text>
+                    <Text style={{ color: C.sub, fontSize: 12 }}>{!a.storageCid ? "…" : fetchingName && fetchingName === (a.name || a.storageCid.slice(0, 12)) ? "Fetching…" : "Download ⬇"}</Text>
                   </Pressable>
                 ))}
               </>
