@@ -143,7 +143,7 @@ const events = JSON.parse(core("listAllEvents"))     // already folded + calenda
 
 To ship the view itself, see [`docs/design-guidelines.md`](design-guidelines.md) (tokens, parity) and
 `scala-ui/` for the reference view. To run headless (a hub/bot), the same methods are reachable via
-`logos-hub call <daemon> scala <method>` — see the `logos-hub` skill.
+`logos-hub call <daemon> scala <method>` — see the `logos-hub` skill. Running an always-on hub, and adding calendars to it: [`hub.md`](hub.md).
 
 ### 2.4 What you build vs. what you inherit
 
