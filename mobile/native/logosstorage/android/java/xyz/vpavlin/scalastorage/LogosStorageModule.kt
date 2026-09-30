@@ -141,6 +141,14 @@ class LogosStorageModule(reactContext: ReactApplicationContext) : ReactContextBa
     }.start()
   }
 
+  // Size of a file in bytes (-1 if missing): the JS side polls a download's destination to show progress
+  // (libstorage writes each chunk to the file as it arrives).
+  @ReactMethod
+  fun fileSize(path: String, promise: Promise) {
+    try { val f = java.io.File(path); promise.resolve(if (f.exists()) f.length().toDouble() else -1.0) }
+    catch (t: Throwable) { promise.resolve(-1.0) }
+  }
+
   // App-internal writable dir — the base for libstorage's data-dir (no expo-file-system dep needed).
   @ReactMethod
   fun filesDir(promise: Promise) {

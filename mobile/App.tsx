@@ -140,7 +140,8 @@ export default function App() {
   const [cals, setCals] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set()); // event ids saved locally, not yet synced
-  const [attachFetching, setAttachFetching] = useState<string | null>(null); // an attachment being fetched → non-blocking overlay
+  const [attachFetching, setAttachFetching] = useState<string | null>(null);
+  const [attachProgress, setAttachProgress] = useState<number>(-1);   // 0..1 of the fetch in flight, -1 = no bytes yet // an attachment being fetched → non-blocking overlay
   // Per-device: calendars hidden from the combined views (local convenience, never synced).
   const [hiddenCals, setHiddenCals] = useState<Set<string>>(new Set());
   const HIDDEN_KEY = "scala.hiddenCals";
@@ -749,12 +750,21 @@ export default function App() {
     if (!att.storageCid) { Alert.alert("Attachment", "Not uploaded yet (no CID)."); return; }
     if (!codexStorage.available()) { Alert.alert("Attachment", "Storage module not in this build."); return; }
     const cid = att.storageCid;
+    let progressTimer: ReturnType<typeof setInterval> | null = null;
     fetchingCids.current.add(cid);
     setAttachFetching(att.name || cid.slice(0, 12)); // non-blocking "fetching…" overlay
     try {
       await codexStorage.init({ "bootstrap-node": [codexBoot.trim()] });   // ride our own Loam Storage network
       const dir = await codexStorage.filesDir();
       const sealedPath = `${dir}/attach-dl/${att.storageCid}.sealed`;
+      // Progress = bytes written to the destination / expected sealed size (plaintext + 28 B:
+      // 12 B nonce + 16 B tag). Chunks are written as they arrive; nothing until a source is found.
+      const expected = (att.size || 0) + 28;
+      setAttachProgress(-1);
+      progressTimer = setInterval(async () => {
+        const n = await codexStorage.fileSize(sealedPath);
+        if (n > 0 && att.size) setAttachProgress(Math.min(0.99, n / expected));
+      }, 700);
       // The native download has no deadline of its own; without one a stalled fetch looked like
       // "nothing happens". (The native op may still finish later; the file then just isn't opened.)
       await Promise.race([
@@ -770,8 +780,10 @@ export default function App() {
     } catch (e: any) {
       Alert.alert("Attachment ❌", `[${e?.code ?? "?"}] ${e?.message ?? e}`);
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       fetchingCids.current.delete(cid);
       setAttachFetching(null);
+      setAttachProgress(-1);
     }
   };
 
@@ -1408,6 +1420,7 @@ export default function App() {
           loadHistory={modal.editing ? () => getEventHistory(modal.calId, modal.editing!.id) : undefined}
           onOpenAttachment={openAttachment}
           fetchingName={attachFetching}
+          fetchingProgress={attachProgress}
           rsvps={((events.find((e) => e.id === (modal.editing as any)?.id) || modal.editing) as any)?.rsvps}
           myAddr={addrFor(cals.find((c) => c.id === modal.calId))}
           onRsvp={modal.editing ? onRsvpEvent : undefined}

@@ -106,6 +106,11 @@ export async function connect(peerId: string, addrs: string[]): Promise<void> {
   await LS.connect(need(), peerId, addrs);
 }
 
+/** Size of a file in bytes, or -1 if it doesn't exist (download progress = destination file size). */
+export async function fileSize(path: string): Promise<number> {
+  try { return Number(await LS.fileSize(path)); } catch { return -1; }
+}
+
 /** True if the CID's blocks are already held locally. */
 export async function exists(cid: string): Promise<boolean> {
   return (await LS.exists(need(), cid)) === "true";

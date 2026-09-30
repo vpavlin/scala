@@ -43,7 +43,7 @@ export interface HistoryEntry { author: string; at: number; action: string; payl
 
 export function EventModal({
   visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onDuplicate, onClose,
-  schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment, fetchingName,
+  schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment, fetchingName, fetchingProgress = -1,
   rsvps, myAddr, onRsvp,
 }: {
   visible: boolean;
@@ -62,6 +62,7 @@ export function EventModal({
   readonlyReason?: string;       // specific "why you can't edit" copy (owner/identity mismatch, closed, viewer)
   onOpenAttachment?: (att: Attachment) => void; // fetch+decrypt+open a Logos Storage attachment
   fetchingName?: string | null;   // name of the attachment being fetched (shown on its row)
+  fetchingProgress?: number;      // 0..1 for that fetch, -1 while still looking for a source
   rsvps?: Record<string, string>;   // ADR 0021: folded attendance (author addr → status)
   myAddr?: string;                  // my address on this calendar (to show/set my own RSVP)
   onRsvp?: (status: string) => void; // set my attendance ("going"|"maybe"|"no"|"" to retract)
@@ -277,7 +278,7 @@ export function EventModal({
             {attachments.length > 0 && (
               <>
                 <Text style={s.label}>Attachments</Text>
-                {attachments.map((a, i) => (
+                {attachments.map((a, i) => (<React.Fragment key={"f" + (a.storageCid || a.blobId || String(i))}>
                   <Pressable
                     key={a.storageCid || a.blobId || String(i)}
                     onPress={() => onOpenAttachment && onOpenAttachment(a)}
@@ -287,9 +288,14 @@ export function EventModal({
                       📎 {a.name || "file"}
                       {a.size ? `  (${a.size < 1024 ? a.size + " B" : a.size < 1048576 ? (a.size / 1024).toFixed(1) + " KB" : (a.size / 1048576).toFixed(1) + " MB"})` : ""}
                     </Text>
-                    <Text style={{ color: C.sub, fontSize: 12 }}>{!a.storageCid ? "…" : fetchingName && fetchingName === (a.name || a.storageCid.slice(0, 12)) ? "Fetching…" : "Download ⬇"}</Text>
+                    <Text style={{ color: C.sub, fontSize: 12 }}>{!a.storageCid ? "…" : fetchingName && fetchingName === (a.name || a.storageCid.slice(0, 12)) ? (fetchingProgress >= 0 ? `${Math.round(fetchingProgress * 100)}%` : "Finding a source…") : "Download ⬇"}</Text>
                   </Pressable>
-                ))}
+                  {fetchingName && a.storageCid && fetchingName === (a.name || a.storageCid.slice(0, 12)) && (
+                    <View style={{ height: 3, backgroundColor: C.border, borderRadius: 2, overflow: "hidden", marginTop: -1 }}>
+                      <View style={{ height: 3, width: `${Math.max(3, Math.round((fetchingProgress >= 0 ? fetchingProgress : 0) * 100))}%`, backgroundColor: C.primary }} />
+                    </View>
+                  )}
+                </React.Fragment>))}
               </>
             )}
 
