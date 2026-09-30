@@ -1127,6 +1127,7 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
     std::string sealed = m_sync ? m_sync->sealBlob(calendarId, bytes, sealId) : std::string();
     if (sealed.empty()) { finishUpload(calendarId, "", "{\"ok\":false,\"error\":\"seal failed (unknown calendar key?)\"}"); return ""; }
     std::string blobId = scalaSha256Hex(sealed);
+    m_attachResults.erase(blobId);   // same file again → same ref; don't serve the previous outcome
     std::string tmpPath = m_storageDir + "/tmp/" + blobId;
     if (!scalaWriteFile(tmpPath, sealed)) { finishUpload(calendarId, blobId, "{\"ok\":false,\"error\":\"cannot stage blob\"}"); return blobId; }
     StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536);
@@ -1361,6 +1362,9 @@ std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const s
     std::string sealedPath = m_storageDir + "/dl/" + cid + ".sealed";
     std::string outName = name.empty() ? cid : name;
     std::string outPath = attachmentsDir() + "/" + outName;
+    // The ref is the CID, so a retry must drop the previous outcome — else the view's poll sees the
+    // old failure at once and never learns the retry succeeded.
+    m_attachResults.erase(cid);
     StdLogosResult r = modules().storage_module.downloadToUrl(cid, sealedPath, false, 65536);
     if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "download rejected" : r.error}}; finishDownload(calendarId, cid, e.dump()); return cid; }
     std::string sess = resVal(r);
