@@ -16,7 +16,7 @@ font sizes only, and **no silent actions** (show success/failure; guard async ag
 
 - **Desktop view:** `scala-ui/qml-harness/render.sh` renders `CalendarView.qml` offscreen → `shots/*.png`;
   read them. `Unable to assign [undefined] to QColor` = a stray/undefined token. ⚠️ It pins DS 1.0.0 +
-  Controls Basic, **not** Basecamp 0.2.0's bundle, so it is a runtime/binding/**structural** smoke test
+  Controls Basic, **not** Basecamp 0.2.x's bundle, so it is a runtime/binding/**structural** smoke test
   only — trust it for "renders / no errors / right pieces present", **NOT** for widths, wrapping or
   overflow (that mismatch misled the event-editor popup fix). DS-specific layout → verify on the real host.
 - **Mobile:** `cd mobile && npx tsc --noEmit -p tsconfig.json` clean for the files you touched. To

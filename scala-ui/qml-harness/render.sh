@@ -4,7 +4,7 @@
 # WITHOUT the Basecamp host.
 #
 # ⚠️  NOT a DS-layout oracle. This harness pins design-system 1.0.0 + Controls style Basic,
-#     but the user runs Basecamp 0.2.0, which bundles a DIFFERENT design-system build (and a
+#     but the user runs Basecamp 0.2.x (0.2.3 as of 2026-09-30), which bundles a DIFFERENT design-system build (and a
 #     different Controls style). Component metrics — TextField default widths, Popup sizing,
 #     implicit sizes — therefore DIFFER from production. A layout that looks correct here can
 #     still overflow in real Basecamp (this is exactly what misled the 0.9.x event-editor
@@ -30,5 +30,5 @@ export QML2_IMPORT_PATH="$IMPORTS" QML_IMPORT_PATH="$IMPORTS"
 export LD_LIBRARY_PATH="$QB/lib:$QDECL/lib"
 ./harness "$HERE/../qml/CalendarView.qml" "$HERE/shots"
 echo "→ shots/ : $(ls shots/*.png | wc -l) screenshots"
-echo "⚠️  DS 1.0.0 + Controls Basic — NOT Basecamp 0.2.0's bundle. Trust these for"
+echo "⚠️  DS 1.0.0 + Controls Basic — NOT Basecamp 0.2.x's bundle. Trust these for"
 echo "    'renders / no errors / structure', NOT for widths/overflow. DS layout → verify on host."
