@@ -416,6 +416,7 @@ void ScalaImpl::onContextReady() {
         QObject::connect(m_resyncTimer, &QTimer::timeout, m_resyncTimer, [this]{
             if (m_sync)   // no ready() gate (see the ladder above): a stale ready() must not stop the 30s re-serve
                 for (const auto& c : m_store->calendars()) sendSyncReq(c.id);
+            retryCacheFetches();
         });
         m_resyncTimer->start(30000);
     }
@@ -1319,8 +1320,38 @@ void ScalaImpl::cacheAttachments(const scala::Event& e) {
         try {
             StdLogosResult ex = modules().storage_module.exists(cid);
             bool have = ex.success && ((ex.value.is_boolean() && ex.value.get<bool>()) || (ex.value.is_string() && ex.value.get<std::string>() == "true"));
-            if (!have) modules().storage_module.fetch(cid);   // async prefetch → we become a provider
+            if (!have) {
+                modules().storage_module.fetch(cid);   // async prefetch → we become a provider
+                if (!m_cacheRetry.count(cid) && m_cacheRetry.size() < 500)
+                    m_cacheRetry[cid] = { nowMs(), nowMs() };
+            }
         } catch (...) { /* best-effort caching */ }
+    }
+}
+
+// Runs on the 30 s resync tick. fetch() has no completion event, so success is observed as exists().
+void ScalaImpl::retryCacheFetches() {
+    if (!m_storageInit || m_storageRestarting) return;
+    if (!m_cacheSwept) {                       // after a restart: re-check attachments of stored events
+        m_cacheSwept = true;
+        for (const auto& c : m_store->calendars())
+            for (const auto& e : m_store->log(c.id)) cacheAttachments(e);
+    }
+    const long long now = nowMs();
+    for (auto it = m_cacheRetry.begin(); it != m_cacheRetry.end();) {
+        const std::string cid = it->first;
+        if (now - it->second.first > 30 * 60 * 1000) { it = m_cacheRetry.erase(it); continue; }
+        bool have = false;
+        try {
+            StdLogosResult ex = modules().storage_module.exists(cid);
+            have = ex.success && ((ex.value.is_boolean() && ex.value.get<bool>()) || (ex.value.is_string() && ex.value.get<std::string>() == "true"));
+        } catch (...) {}
+        if (have) { it = m_cacheRetry.erase(it); continue; }
+        if (now - it->second.second >= 60000) {
+            it->second.second = now;
+            try { modules().storage_module.fetch(cid); } catch (...) {}
+        }
+        ++it;
     }
 }
 

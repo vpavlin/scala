@@ -256,7 +256,13 @@ private:
     void onLoop(std::function<void()> fn); // run fn on the module's event loop, after the current callback
     void onStorageStop(const std::string& payload);
     void onStorageStart(const std::string& payload);
-    void cacheAttachments(const scala::Event& e);  // cache-on-see: fetch any attachment CID we lack → become a provider
+    void cacheAttachments(const scala::Event& e);
+    // Cache-on-see retries. An uploader behind NAT only becomes findable after its AutoNAT rounds
+    // (~2-4 min after its Storage starts), so the first fetch often finds no provider. Retry each
+    // missing CID every minute for 30 min. cid -> {first seen ms, last try ms}.
+    std::map<std::string, std::pair<long long, long long>> m_cacheRetry;
+    bool m_cacheSwept = false;   // one pass over stored events after start: re-queue attachments we lack
+    void retryCacheFetches();  // cache-on-see: fetch any attachment CID we lack → become a provider
     struct PendingUp { std::string calId, name, mime, blobId, tmpPath; long long size = 0; };
     std::map<std::string, PendingUp> m_pendUp;     // storage sessionId -> pending upload
     struct PendingDown { std::string calId, name, cid, sealedPath, outPath; };
