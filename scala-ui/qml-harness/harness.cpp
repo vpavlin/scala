@@ -15,6 +15,7 @@
 #include <QImage>
 #include <QDateTime>
 #include <QDebug>
+#include <QJSValue>
 
 static QString CAL_MS, EV_START, EV_END;
 
@@ -27,6 +28,19 @@ public:
     // an inline class body, so keep the class declaration clean.
     Q_INVOKABLE QString callModule(const QString &mod, const QString &method, const QVariant &args);
 };
+// The current Basecamp bridge: adds callModuleAsync (result delivered on a later event-loop turn,
+// like the real host). SCALA_HARNESS_SYNC_ONLY=1 uses the plain MockLogos (old-host fallback path).
+class MockLogosAsync : public MockLogos {
+    Q_OBJECT
+public:
+    explicit MockLogosAsync(QObject *p = nullptr) : MockLogos(p) {}
+    Q_INVOKABLE void callModuleAsync(const QString &mod, const QString &method, const QVariant &args, const QJSValue &cb, int timeoutMs);
+};
+void MockLogosAsync::callModuleAsync(const QString &mod, const QString &method, const QVariant &args, const QJSValue &cb, int) {
+    const QString r = callModule(mod, method, args);
+    QJSValue f = cb;
+    QTimer::singleShot(0, this, [f, r]() mutable { if (f.isCallable()) f.call(QJSValueList{ QJSValue(r) }); });
+}
 
 QString MockLogos::callModule(const QString &mod, const QString &method, const QVariant &args) {
     Q_UNUSED(mod);
@@ -39,7 +53,7 @@ QString MockLogos::callModule(const QString &mod, const QString &method, const Q
     }
     if (method == "listCalendars")
         return QString(R"([{"id":"c1","name":"Team","color":"#89b4fa","encryptionKey":"k","creatorId":"0xowner","owner":"0xowner","roles":{},"rolesConfigured":false,"open":true,"schema":[]}])");
-    if (method == "listEvents")
+    if (method == "listEvents" || method == "listAllEvents")
         return QString(R"([{"id":"e1","calendarId":"c1","title":"Their event","startTime":%1,"endTime":%2,"creatorId":"0xowner"}])")
             .arg(EV_START).arg(EV_END);
     if (method == "createCalendar") return "\"cNEW\"";
@@ -89,7 +103,8 @@ int main(int argc, char **argv) {
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     EV_START = QString::number(now + 3600000); EV_END = QString::number(now + 7200000);
 
-    auto *logos = new MockLogos(&app);
+    MockLogos *logos = qEnvironmentVariableIsSet("SCALA_HARNESS_SYNC_ONLY") ? new MockLogos(&app) : new MockLogosAsync(&app);
+    fprintf(stderr, "[harness] bridge: %s\n", qEnvironmentVariableIsSet("SCALA_HARNESS_SYNC_ONLY") ? "sync-only callModule (old host)" : "callModuleAsync");
     QQuickView view;
     view.rootContext()->setContextProperty("logos", logos);
     view.setResizeMode(QQuickView::SizeRootObjectToView);
@@ -122,7 +137,7 @@ int main(int argc, char **argv) {
     QTimer::singleShot(4500, [&] { runJs(&view, "refreshIdentities(); identitiesPopup.open()"); });
     QTimer::singleShot(4900, [&] { grab(&view, out + "/05-identities.png"); });
     // Keycard overlay: trigger enrol → keycardState() reports pending → the 700ms poll opens it.
-    QTimer::singleShot(5100, [&] { runJs(&view, "core('enrollKeycard', ['My Keycard','scala']); identitiesPopup.close()"); });
+    QTimer::singleShot(5100, [&] { runJs(&view, "coreAsync('enrollKeycard', ['My Keycard','scala']); identitiesPopup.close()"); });
     QTimer::singleShot(6100, [&] { grab(&view, out + "/06-keycard-overlay.png"); });
     QTimer::singleShot(6500, [&] { app.quit(); });
     return app.exec();

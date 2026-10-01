@@ -25,11 +25,37 @@ Item {
 
     // ── core bridge ──────────────────────────────────────────────────────────
     property bool ready: false
-    function core(method, args) {
-        if (typeof logos === "undefined" || !logos.callModule) return ""
-        var r = logos.callModule("scala", method, args || [])
-        return (r === undefined || r === null) ? "" : (typeof r === "string" ? r : r)
+    // RULE (vpavlin): no blocking cross-module calls in a view. Every call goes through callVia:
+    // logos.callModuleAsync when the host has it, else the old blocking callModule DEFERRED to the
+    // next event-loop turn (never inside the caller's handler). Callbacks get the raw result.
+    readonly property int callTimeoutMs: 20000
+    function hasBridge() {
+        return typeof logos !== "undefined" && logos !== null
+            && (typeof logos.callModuleAsync === "function" || typeof logos.callModule === "function")
     }
+    function _deliver(cb, raw) {
+        if (!cb) return
+        try { cb(raw === undefined || raw === null ? "" : raw) }
+        catch (e) { console.warn("scala view: callback error: " + e) }
+    }
+    function callVia(module, method, args, cb) {
+        var a = args || []
+        if (typeof logos === "undefined" || logos === null) { Qt.callLater(function () { root._deliver(cb, "") }); return }
+        if (typeof logos.callModuleAsync === "function") {
+            try { logos.callModuleAsync(module, method, a, function (res) { root._deliver(cb, res) }, root.callTimeoutMs) }
+            catch (e) { console.warn("scala view: callModuleAsync threw: " + e); Qt.callLater(function () { root._deliver(cb, "") }) }
+            return
+        }
+        Qt.callLater(function () {
+            var raw = ""
+            try { raw = (typeof logos.callModule === "function") ? logos.callModule(module, method, a) : "" } catch (e) { raw = "" }
+            root._deliver(cb, raw)
+        })
+    }
+    function coreAsync(method, args, cb) { root.callVia("scala", method, args, cb) }
+    function loamAsync(method, args, cb) { root.callVia("loam_core", method, args, cb) }
+    // Basecamp hands string results to QML JSON-quoted; strip one layer of quotes.
+    function unq(raw) { return String(raw === undefined || raw === null ? "" : raw).replace(/^"|"$/g, "") }
     // Core/view version guard: core + view are SEPARATE Basecamp packages, so a stale core can run
     // under a fresh view — silently signing with the wrong key while the view shows loam identities.
     // Detect it (old cores lack coreVersion() → "" → stale) and warn loudly instead of failing quietly.
@@ -42,8 +68,10 @@ Item {
         return false
     }
     function checkCoreVersion() {
-        root.coreVer = String(root.core("coreVersion", [])).replace(/^"|"$/g, "")
-        root.coreOutOfDate = (root.coreVer === "" || root.verLt(root.coreVer, root.minCore))
+        root.coreAsync("coreVersion", [], function (r) {
+            root.coreVer = root.unq(r)
+            root.coreOutOfDate = (root.coreVer === "" || root.verLt(root.coreVer, root.minCore))
+        })
     }
     function j(raw, fallback) {
         var v = raw
@@ -54,11 +82,7 @@ Item {
         }
         return (v === undefined || v === null) ? fallback : v
     }
-    // Identity SERVICE lives in loam_core (loam ADR 0004) — the panel talks to it directly.
-    function loamCore(method, args) {
-        if (typeof logos === "undefined" || !logos.callModule) return ""
-        try { var r = logos.callModule("loam_core", method, args || []); return (r === undefined || r === null) ? "" : r } catch (e) { return "" }
-    }
+    // Identity SERVICE lives in loam_core (loam ADR 0004) — the panel talks to it directly (loamAsync).
 
     // ── identities (loam_core service; UI is ours) ─────────────────────────────
     property var identities: []            // [{id,kind,label,address,pubHex}]
@@ -74,17 +98,26 @@ Item {
     // → "Object destroyed while a QML signal handler is in progress" → Aborted. Reads stay sync; only
     // the assign is deferred, so any caller (delegate or not) is crash-safe.
     function refreshIdentities() {
-        var ids = root.j(loamCore("listIdentities", []), [])
-        var def = root.j(loamCore("getDefaultIdentityId", []), "device")
-        Qt.callLater(function () { root.identities = ids; root.defaultIdentityId = def })
+        root.loamAsync("listIdentities", [], function (r1) {
+            var ids = root.j(r1, [])
+            root.loamAsync("getDefaultIdentityId", [], function (r2) {
+                var def = root.j(r2, "device")
+                Qt.callLater(function () { root.identities = ids; root.defaultIdentityId = def })
+            })
+        })
     }
     function identityLabel(id) {
         for (var i = 0; i < identities.length; i++) if (identities[i].id === id) return identities[i].label
         return id
     }
-    function calendarIdentityId(calId) {
-        var m = root.j(loamCore("identityForContainer", [calId]), null)
-        return m && m.id ? m.id : root.defaultIdentityId
+    // Which identity signs my events on calId → root.calSetIdentity (async; the settings popup shows
+    // the default until the answer arrives, and ignores it if another calendar was opened meanwhile).
+    function loadCalendarIdentity(calId) {
+        root.calSetIdentity = root.defaultIdentityId
+        root.loamAsync("identityForContainer", [calId], function (r) {
+            var m = root.j(r, null)
+            if (root.setCalId === calId) root.calSetIdentity = (m && m.id) ? m.id : root.defaultIdentityId
+        })
     }
     // Identity meta (from the loaded list) whose address signs THIS calendar for me. calAddr[calId]
     // is the bound authoring address; falls back to the default identity when the calendar is unbound.
@@ -111,9 +144,13 @@ Item {
     // overlay while pending, an error on failure, and refresh on success.
     property var kc: ({ active: false })
     property string kcLastRef: ""
+    property bool kcPollBusy: false
     function pollKeycard() {
-        if (!root.ready) return
-        var s = root.j(root.core("keycardState", []), { active: false })
+        if (!root.ready || root.kcPollBusy) return
+        root.kcPollBusy = true
+        root.coreAsync("keycardState", [], function (r) { root.kcPollBusy = false; root.applyKeycardState(root.j(r, { active: false })) })
+    }
+    function applyKeycardState(s) {
         var prevPhase = root.kc.phase, prevRef = root.kc.ref
         root.kc = s
         // Reopen while pending — BUT not for a ref the user already cancelled (Cancel sets kcLastRef),
@@ -165,23 +202,25 @@ Item {
     readonly property color cMauve:   "#cba6f7"
 
     Component.onCompleted: Qt.callLater(function () {
-        root.ready = (typeof logos !== "undefined" && !!logos.callModule)
-        if (root.ready) { root.checkCoreVersion(); root.myIdentity = String(root.j(root.core("getIdentity", []), "")); refresh() }
+        root.ready = root.hasBridge()
+        if (root.ready) {
+            root.checkCoreVersion()
+            root.coreAsync("getIdentity", [], function (r) { root.myIdentity = String(root.j(r, "")) })
+            refresh()
+        }
     })
 
     // Poll like kym's view does: listCalendars() self-drives the delivery bootstrap
     // in the core, so this keeps the node coming up + refreshes data. Also refreshes
     // the diagnostics while the Debug panel is open.
-    // Slowed from 3s → 6s: refresh() makes several BLOCKING logos.callModule calls on the UI thread,
-    // so a fast poll froze the view whenever scala/loam_core was busy (and a click during the freeze
-    // piled another blocking call on). 6s halves that exposure; applies are also deferred (see refresh).
+    // Every call is async now (callVia); refresh() coalesces, so a slow core can't pile polls up.
     Timer {
         interval: 6000; running: true; repeat: true
         onTriggered: {
             if (!root.ready) return
             root.refresh()
             root.computeSoon()
-            if (diagPopup.visible) root.diag = root.j(root.core("diagnostics", []), null)
+            if (diagPopup.visible) root.loadDiag()
         }
     }
 
@@ -193,19 +232,32 @@ Item {
     }
 
     // ── data ─────────────────────────────────────────────────────────────────
+    // One refresh in flight at a time; a request meanwhile runs once more after it (coalesced).
+    property bool refreshBusy: false
+    property bool refreshAgain: false
+    property double refreshStartedAt: 0
     function refresh() {
         if (!root.ready) return
+        if (root.refreshBusy && Date.now() - root.refreshStartedAt < 45000) { root.refreshAgain = true; return }
+        root.refreshBusy = true; root.refreshStartedAt = Date.now()
         refreshIdentities()
-        // RULE: no per-item blocking IPC in QML. The core aggregates everything the view needs into
-        // two calls — listCalendars carries each calendar's authoring address (loam binding), and
-        // listAllEvents returns every event tagged with calendarId — instead of 2·N blocking calls.
-        var cals = j(core("listCalendars", []), [])
-        var ca = {}
-        for (var ci = 0; ci < cals.length; ci++) ca[cals[ci].id] = cals[ci].authorAddr || ""
-        var evs = j(core("listAllEvents", []), [])
-        // Deferred apply (same reason as refreshIdentities): reassigning these models rebuilds the
-        // calendar/event Repeaters; deferring keeps that off any in-flight signal handler's stack.
-        Qt.callLater(function () { root.calendars = cals; root.calAddr = ca; root.events = evs })
+        // The core aggregates everything the view needs into two calls — listCalendars carries each
+        // calendar's authoring address (loam binding), listAllEvents every event tagged with calendarId.
+        root.coreAsync("listCalendars", [], function (r1) {
+            var cals = root.j(r1, [])
+            var ca = {}
+            for (var ci = 0; ci < cals.length; ci++) ca[cals[ci].id] = cals[ci].authorAddr || ""
+            root.coreAsync("listAllEvents", [], function (r2) {
+                var evs = root.j(r2, [])
+                // Deferred apply: reassigning these models rebuilds the calendar/event Repeaters;
+                // deferring keeps that off any in-flight signal handler's stack.
+                Qt.callLater(function () {
+                    root.calendars = cals; root.calAddr = ca; root.events = evs
+                    root.refreshBusy = false
+                    if (root.refreshAgain) { root.refreshAgain = false; root.refresh() }
+                })
+            })
+        })
     }
     // Deterministic color derived from the calendar id — SAME on desktop + mobile,
     // so a calendar looks consistent across devices regardless of a stored color.
@@ -1051,19 +1103,33 @@ Item {
         root.attachBusy = true; root.attachDiag = ""; root.attachMsg = "Sealing + uploading " + name + "…"
         // Basecamp returns string results JSON-quoted; unquote like coreVersion does, or the poll
         // asks about "\"<ref>\"" and never sees the transfer finish.
-        var ref = String(core("uploadAttachment", [root.editCalId, path, name, ""])).replace(/^"|"$/g, "")
-        if (!ref) { root.attachBusy = false; root.attachMsg = "Upload failed to start"; return }
-        root.attachPollRef = ref; root.attachPollMode = "upload"; attachPoll.restart()
+        root.coreAsync("uploadAttachment", [root.editCalId, path, name, ""], function (r) {
+            var ref = root.unq(r)
+            if (!ref) { root.attachBusy = false; root.attachMsg = "Upload failed to start"; return }
+            root.attachPollRef = ref; root.attachPollMode = "upload"; attachPoll.restart()
+        })
     }
     function openAttachment(calId, cid, name) {
         if (!cid) { root.attachMsg = "Not uploaded yet"; return }
         root.attachBusy = true; root.attachDiag = ""; root.attachMsg = "Fetching " + (name || cid) + "…"
-        var ref = String(core("downloadAttachment", [calId, cid, name || ""])).replace(/^"|"$/g, "")
-        if (!ref) { root.attachBusy = false; root.attachMsg = "Download failed to start"; return }
-        root.attachPollRef = ref; root.attachPollMode = "download"; attachPoll.restart()
+        root.coreAsync("downloadAttachment", [calId, cid, name || ""], function (r) {
+            var ref = root.unq(r)
+            if (!ref) { root.attachBusy = false; root.attachMsg = "Download failed to start"; return }
+            root.attachPollRef = ref; root.attachPollMode = "download"; attachPoll.restart()
+        })
     }
+    property bool attachPollBusy: false
     function pollAttach() {
-        var r = root.j(core("attachmentStatus", [root.attachPollRef]), {})
+        if (root.attachPollBusy || !root.attachPollRef) return
+        root.attachPollBusy = true
+        var ref = root.attachPollRef
+        root.coreAsync("attachmentStatus", [ref], function (raw) {
+            root.attachPollBusy = false
+            if (ref !== root.attachPollRef) return       // a newer transfer replaced this one
+            root.applyAttachStatus(root.j(raw, {}))
+        })
+    }
+    function applyAttachStatus(r) {
         if (r.pending) {                           // still working — keep polling
             if (r.note) root.attachDiag = r.note     // what the core sees (helps diagnose a hang)
             root.attachProgress = (r.total > 0) ? Math.min(0.99, (r.done || 0) / r.total) : -1
@@ -1176,7 +1242,11 @@ Item {
         root.evAttachments = (ev.attachments && ev.attachments.length) ? ev.attachments.slice() : []
         root.attachBusy = false; root.attachMsg = ""
         root.evMyRsvp = (ev.rsvps && ev.rsvps[root.addrFor(root.calById(ev.calendarId))]) || ""
-        evHistory = root.j(core("getEventHistory", [ev.calendarId, ev.id]), [])
+        root.evHistory = []
+        var histId = ev.id
+        root.coreAsync("getEventHistory", [ev.calendarId, ev.id], function (r) {
+            if (root.editingEvent && root.editingEvent.id === histId) root.evHistory = root.j(r, [])
+        })
         eventPopup.open()
     }
     // ADR 0021: set my attendance (self-scoped); optimistic + refresh. "" retracts.
@@ -1184,8 +1254,7 @@ Item {
         if (!root.editingEvent) return
         var next = (root.evMyRsvp === status) ? "" : status
         root.evMyRsvp = next
-        core("setRsvp", [root.editCalId, root.editingEvent.id, next])
-        refresh()
+        root.coreAsync("setRsvp", [root.editCalId, root.editingEvent.id, next], function () { root.refresh() })
     }
     // Merge my optimistic RSVP over the folded map, count a status.
     function rsvpCount(status) {
@@ -1222,7 +1291,7 @@ Item {
             up.recur = recur    // null clears a previous recurrence
             if (hasSchema) up.fields = collectFieldVals(editCalId)
             up.attachments = root.evAttachments
-            core("updateEvent", [JSON.stringify(up)])
+            root.coreAsync("updateEvent", [JSON.stringify(up)], function () { root.refresh() })
         } else {
             var nv = {
                 title: evTitle.text.trim(), startTime: s.getTime(), endTime: e.getTime(),
@@ -1232,7 +1301,7 @@ Item {
             if (recur) nv.recur = recur
             if (hasSchema) nv.fields = collectFieldVals(editCalId)
             if (root.evAttachments.length) nv.attachments = root.evAttachments
-            core("createEvent", [editCalId, JSON.stringify(nv)])
+            root.coreAsync("createEvent", [editCalId, JSON.stringify(nv)], function () { root.refresh() })
             root.lastCalId = editCalId       // preselect this calendar next time
 
         }
@@ -1252,7 +1321,7 @@ Item {
         if (src.recur) nv.recur = src.recur
         if (src.fields) nv.fields = src.fields
         if (src.attachments && src.attachments.length) nv.attachments = src.attachments
-        core("createEvent", [root.editCalId, JSON.stringify(nv)])
+        root.coreAsync("createEvent", [root.editCalId, JSON.stringify(nv)], function () { root.refresh() })
         root.lastCalId = root.editCalId
         eventPopup.close(); refresh()
         root.notify("Event duplicated")
@@ -1270,12 +1339,12 @@ Item {
         var up = JSON.parse(JSON.stringify(ev))
         delete up.seriesId; delete up.occ
         up.startTime = ns.getTime(); up.endTime = ns.getTime() + dur
-        core("updateEvent", [JSON.stringify(up)])
-        refresh(); root.notify((ev.recur ? "Moved series to " : "Moved to ") + Qt.formatDate(ns, "MMM d"))
+        root.coreAsync("updateEvent", [JSON.stringify(up)], function () { root.refresh() })
+        root.notify((ev.recur ? "Moved series to " : "Moved to ") + Qt.formatDate(ns, "MMM d"))
     }
     function deleteEvent() { if (editingEvent) deleteEventPopup.open() }   // confirm first (destructive)
     function doDeleteEvent() {
-        if (editingEvent) core("deleteEvent", [editingEvent.id])
+        if (editingEvent) root.coreAsync("deleteEvent", [editingEvent.id], function () { root.refresh() })
         deleteEventPopup.close(); eventPopup.close(); refresh()
     }
 
@@ -1327,17 +1396,21 @@ Item {
     // ── iCalendar (.ics) import/export (operates on root.setCalId) ─────────────
     function onIcsExportPicked(fileUrl) {
         var path = ("" + fileUrl).replace(/^file:\/\//, "")
-        var r = root.j(root.core("exportCalendarIcsFile", [root.setCalId, path]), null)
-        if (r && r.ok) root.notify("Exported " + (r.events || 0) + " event(s) → " + r.path, false)
-        else root.notify("Export failed: " + ((r && r.error) || "unknown"), true)
+        root.coreAsync("exportCalendarIcsFile", [root.setCalId, path], function (raw) {
+            var r = root.j(raw, null)
+            if (r && r.ok) root.notify("Exported " + (r.events || 0) + " event(s) → " + r.path, false)
+            else root.notify("Export failed: " + ((r && r.error) || "unknown"), true)
+        })
     }
     function onIcsImportPicked(fileUrl) {
         var path = ("" + fileUrl).replace(/^file:\/\//, "")
-        var r = root.j(root.core("importIcsFile", [root.setCalId, path]), null)
-        if (r && !r.error && typeof r.imported === "number") {
-            root.notify("Imported " + r.imported + " event(s)" + (r.skipped ? (", skipped " + r.skipped) : ""), false)
-            root.refresh()
-        } else root.notify("Import failed: " + ((r && r.error) || "unknown"), true)
+        root.coreAsync("importIcsFile", [root.setCalId, path], function (raw) {
+            var r = root.j(raw, null)
+            if (r && !r.error && typeof r.imported === "number") {
+                root.notify("Imported " + r.imported + " event(s)" + (r.skipped ? (", skipped " + r.skipped) : ""), false)
+                root.refresh()
+            } else root.notify("Import failed: " + ((r && r.error) || "unknown"), true)
+        })
     }
     FileDialog {
         id: icsSaveDialog
@@ -1808,7 +1881,7 @@ Item {
                     Layout.fillWidth: true; spacing: Theme.spacing.small
                     MouseArea {
                         Layout.fillWidth: true; implicitHeight: idCol.implicitHeight; cursorShape: Qt.PointingHandCursor
-                        onClicked: { root.loamCore("setDefaultIdentityId", [modelData.id]); root.refreshIdentities() }
+                        onClicked: { root.loamAsync("setDefaultIdentityId", [modelData.id], function () { root.refreshIdentities() }) }
                         ColumnLayout {
                             id: idCol; width: parent.width; spacing: 0
                             LogosText { textFormat: Text.PlainText;
@@ -1840,7 +1913,7 @@ Item {
                 LogosTextField { id: newIdField; Layout.fillWidth: true; placeholderText: "new software identity name"; text: root.newIdentityLabel; onTextChanged: root.newIdentityLabel = text }
                 LogosButton {
                     text: "+ Add"
-                    onClicked: { root.loamCore("addSoftIdentity", [newIdField.text.trim() || "Identity"]); newIdField.text = ""; root.refreshIdentities() }
+                    onClicked: { root.loamAsync("addSoftIdentity", [newIdField.text.trim() || "Identity"], function () { root.refreshIdentities() }); newIdField.text = "" }
                 }
             }
             // Enrol a physical Keycard as a loam identity (loam owns all keycard logic; scala just
@@ -1850,7 +1923,7 @@ Item {
                 LogosTextField { id: kcLabelField; Layout.fillWidth: true; placeholderText: "Keycard identity name" }
                 LogosButton {
                     text: "💳 Enroll Keycard"
-                    onClicked: { root.core("enrollKeycard", [kcLabelField.text.trim() || "My Keycard", "scala"]); kcLabelField.text = ""; identitiesPopup.close() }
+                    onClicked: { root.coreAsync("enrollKeycard", [kcLabelField.text.trim() || "My Keycard", "scala"]); kcLabelField.text = ""; identitiesPopup.close() }
                 }
             }
             RowLayout {
@@ -1879,7 +1952,7 @@ Item {
                     text: "Save"
                     onClicked: {
                         var nm = renameField.text.trim()
-                        if (nm.length && root.renameTargetId) { root.loamCore("renameSoftIdentity", [root.renameTargetId, nm]); root.refreshIdentities() }
+                        if (nm.length && root.renameTargetId) root.loamAsync("renameSoftIdentity", [root.renameTargetId, nm], function () { root.refreshIdentities() })
                         idRenamePopup.close()
                     }
                 }
@@ -1913,8 +1986,8 @@ Item {
                 LogosButton {
                     text: idRemovePopup.owned > 0 ? "Remove anyway" : "Remove"
                     onClicked: {
-                        root.loamCore(root.idRemoveKind === "keycard" ? "removeKeycardIdentity" : "removeSoftIdentity", [root.idRemoveId])
-                        root.refreshIdentities()
+                        root.loamAsync(root.idRemoveKind === "keycard" ? "removeKeycardIdentity" : "removeSoftIdentity", [root.idRemoveId],
+                                       function () { root.refreshIdentities(); root.refresh() })
                         idRemovePopup.close()
                     }
                 }
@@ -1967,8 +2040,8 @@ Item {
             // Bind the RESOLVED owner — the explicit pick, or (nothing picked) createDefaultOwner
             // (the global default, but never silently a keycard). WYSIWYG: the highlighted chip owns +
             // signs the calendar; a keycard only owns it if the user explicitly taps it.
-            var id = String(root.j(root.core("createCalendar", [newCalName.text.trim(), "", (root.newCalIdentity || root.createDefaultOwner)]), ""))
-            if (id === "") { newCalPopup.close(); root.refresh(); root.notify("Couldn't create the calendar.", true); return }
+            if (root.creatingCal) return
+            var calName = newCalName.text.trim(), calOwner = (root.newCalIdentity || root.createDefaultOwner)
             var sch = []
             for (var i = 0; i < newCalSchemaModel.count; i++) {
                 var it = newCalSchemaModel.get(i)
@@ -1988,8 +2061,15 @@ Item {
             var tm = root.calTierMeta(root.newCalTier)
             meta.open = tm.open
             meta.collab = tm.collab
-            if (Object.keys(meta).length > 0) root.core("updateCalendarMeta", [id, JSON.stringify(meta)])
-            newCalPopup.close(); root.refresh()
+            root.creatingCal = true
+            root.coreAsync("createCalendar", [calName, "", calOwner], function (r) {
+                root.creatingCal = false
+                var id = String(root.j(r, ""))
+                newCalPopup.close()
+                if (id === "") { root.refresh(); root.notify("Couldn't create the calendar.", true); return }
+                if (Object.keys(meta).length > 0) root.coreAsync("updateCalendarMeta", [id, JSON.stringify(meta)], function () { root.refresh() })
+                else root.refresh()
+            })
         }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
@@ -2143,10 +2223,11 @@ Item {
     property string calSetIdentity: ""      // the identity currently signing setCalId (for the rebind chips)
     property string setNewType: "text"      // staged field type in the add-row
     property string setNewRole: "editor"    // staged role in the add-member row
+    property bool creatingCal: false         // a createCalendar call is in flight (no double create)
 
     function openCalSettings(cal) {
         setCalId = cal.id
-        root.calSetIdentity = root.calendarIdentityId(cal.id)   // which identity signs my events here (rebindable)
+        root.loadCalendarIdentity(cal.id)   // which identity signs my events here (rebindable)
         setName.text = cal.name || ""
         setDesc.text = cal.description || ""
         setSchemaModel.clear()
@@ -2190,20 +2271,25 @@ Item {
         var wantKeys = []
         for (var k = 0; k < sch.length; k++) wantKeys.push(sch[k].key)
         wantKeys.sort()
-        core("updateCalendarMeta", [setCalId, JSON.stringify({ name: setName.text.trim(), description: setDesc.text.trim(), schema: sch })])
-        refresh()
-        // VERIFY the core actually persisted it. An out-of-date core silently no-ops
-        // updateCalendarMeta (added in scala 0.7.0), so a save would appear to succeed but
-        // vanish — surface that instead of failing quietly.
-        var now = root.calById(setCalId)
-        var gotKeys = []
-        if (now && now.schema) for (var g = 0; g < now.schema.length; g++) gotKeys.push(now.schema[g].key)
-        gotKeys.sort()
-        if (JSON.stringify(gotKeys) !== JSON.stringify(wantKeys)) {
-            root.setSaveError = "Couldn't save — your Scala core module looks out of date. Update 'scala' to 0.8.0 in the package manager (custom fields need core 0.7.0+), then try again."
-            return // keep the popup open so the message is seen
-        }
-        calSettingsPopup.close()
+        var savedId = setCalId
+        root.coreAsync("updateCalendarMeta", [savedId, JSON.stringify({ name: setName.text.trim(), description: setDesc.text.trim(), schema: sch })], function () {
+            // VERIFY the core actually persisted it, against a FRESH listCalendars. An out-of-date core
+            // silently no-ops updateCalendarMeta (added in scala 0.7.0), so a save would appear to
+            // succeed but vanish — surface that instead of failing quietly.
+            root.coreAsync("listCalendars", [], function (raw) {
+                var cals = root.j(raw, []), now = null
+                for (var c = 0; c < cals.length; c++) if (cals[c].id === savedId) now = cals[c]
+                var gotKeys = []
+                if (now && now.schema) for (var g = 0; g < now.schema.length; g++) gotKeys.push(now.schema[g].key)
+                gotKeys.sort()
+                root.refresh()
+                if (JSON.stringify(gotKeys) !== JSON.stringify(wantKeys)) {
+                    root.setSaveError = "Couldn't save — your Scala core module looks out of date. Update 'scala' to 0.8.0 in the package manager (custom fields need core 0.7.0+), then try again."
+                    return // keep the popup open so the message is seen
+                }
+                calSettingsPopup.close()
+            })
+        })
     }
     // Members = owner (not removable) + each roles entry.
     function membersFor(calId) {
@@ -2222,10 +2308,10 @@ Item {
     }
     function addMember() {
         var id = setNewMember.text.trim(); if (id === "") return
-        core("setMemberRole", [setCalId, id, root.setNewRole])
-        setNewMember.text = ""; refresh()
+        root.coreAsync("setMemberRole", [setCalId, id, root.setNewRole], function () { root.refresh() })
+        setNewMember.text = ""
     }
-    function removeMember(id) { core("setMemberRole", [setCalId, id, "remove"]); refresh() }
+    function removeMember(id) { root.coreAsync("setMemberRole", [setCalId, id, "remove"], function () { root.refresh() }) }
 
     Popup {
         id: calSettingsPopup
@@ -2273,7 +2359,7 @@ Item {
                                 LogosText { textFormat: Text.PlainText; id: setIdChipT; anchors.centerIn: parent
                                     text: (modelData.kind === "keycard" ? "🔑 " : "") + modelData.label; font.pixelSize: 12; color: root.cText }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    onClicked: { root.loamCore("bindContainer", [root.setCalId, modelData.id]); root.calSetIdentity = modelData.id; root.refresh() } }
+                                    onClicked: { root.calSetIdentity = modelData.id; root.loamAsync("bindContainer", [root.setCalId, modelData.id], function () { root.refresh() }) } }
                             }
                         }
                     }
@@ -2366,7 +2452,7 @@ Item {
                                         LogosText { textFormat: Text.PlainText; text: modelData.desc; color: root.cFaint; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                                     }
                                 }
-                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.core("updateCalendarMeta", [root.setCalId, JSON.stringify(root.calTierMeta(modelData.tier))]); root.refresh() } }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.coreAsync("updateCalendarMeta", [root.setCalId, JSON.stringify(root.calTierMeta(modelData.tier))], function () { root.refresh() }) } }
                             }
                         }
                     }
@@ -2481,7 +2567,13 @@ Item {
                 LogosButton { text: "Cancel"; onClicked: joinPopup.close() }
                 LogosButton {
                     text: "Join"; enabled: joinLink.text.trim().length > 0
-                    onClicked: { var ok = root.j(root.core("handleShareLink", [joinLink.text.trim(), (root.joinIdentity || root.defaultIdentityId)]), false); joinPopup.close(); root.refresh(); root.notify(ok ? "Calendar joined." : "Couldn't join — check the link.", !ok) }
+                    onClicked: {
+                        root.coreAsync("handleShareLink", [joinLink.text.trim(), (root.joinIdentity || root.defaultIdentityId)], function (r) {
+                            var ok = root.j(r, false) === true
+                            root.refresh(); root.notify(ok ? "Calendar joined." : "Couldn't join — check the link.", !ok)
+                        })
+                        joinPopup.close()
+                    }
                 }
             }
         }
@@ -2493,53 +2585,77 @@ Item {
     property int snapPolls: 0
     function b64url(s) { return Qt.btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") }
     function setShareQr(link) {
-        shareLink.text = (typeof link === "string" ? link : "")
+        var text = (typeof link === "string" ? link : "")
+        shareLink.text = text
         root.qrData = null
-        var m = root.j(core("qrMatrix", [shareLink.text]), null)
-        if (m && m.ok && m.n && m.cells && m.cells.length >= m.n * m.n) root.qrData = { n: m.n, cells: m.cells }
         qrCanvas.requestPaint()
+        if (text === "") return
+        root.coreAsync("qrMatrix", [text], function (r) {
+            if (shareLink.text !== text) return          // a newer link replaced this one
+            var m = root.j(r, null)
+            if (m && m.ok && m.n && m.cells && m.cells.length >= m.n * m.n) root.qrData = { n: m.n, cells: m.cells }
+            qrCanvas.requestPaint()
+        })
     }
     function openShare(cal) {
         root.shareCal = cal
         shareTitle.text = cal.name || "calendar"
         shareStatus.text = ""
-        var link = root.j(core("generateShareLink", [cal.id]), "")
-        root.setShareQr(link)
+        root.setShareQr("")
         sharePopup.open()
+        root.coreAsync("generateShareLink", [cal.id], function (r) {
+            if (root.shareCal && root.shareCal.id === cal.id) root.setShareQr(root.j(r, ""))
+        })
     }
     // ADR 0020: write a snapshot of this calendar, then rebuild the invite with &snap=<pointer>&stor=<codex spr>
     // so a joining phone bootstraps from Storage instead of a full-log sync. The CID arrives async → poll.
     function shareWithSnapshot() {
         if (!root.shareCal) return
-        var res = root.j(core("snapshotCalendar", [root.shareCal.id, "1000"]), null)  // small epoch → just-seeded events are in a completed cut
-        if (!res || res.ok === false) {
-            shareStatus.text = "Snapshot failed: " + ((res && res.error) ? res.error : "no response from the core")
-            return
-        }
-        shareStatus.text = res.status === "restarting storage"
-            ? "Restarting storage to announce the mesh address…"
-            : "Creating snapshot…"
-        root.snapPolls = 0
-        snapPollTimer.start()
+        shareStatus.text = "Creating snapshot…"
+        root.coreAsync("snapshotCalendar", [root.shareCal.id, "1000"], function (raw) {  // small epoch → just-seeded events are in a completed cut
+            var res = root.j(raw, null)
+            if (!res || res.ok === false) {
+                shareStatus.text = "Snapshot failed: " + ((res && res.error) ? res.error : "no response from the core")
+                return
+            }
+            shareStatus.text = res.status === "restarting storage"
+                ? "Restarting storage to announce the mesh address…"
+                : "Creating snapshot…"
+            root.snapPolls = 0
+            snapPollTimer.start()
+        })
     }
     Timer {
         id: snapPollTimer; interval: 1200; repeat: true
+        property bool busy: false
         onTriggered: {
+            if (busy || !root.shareCal) return
+            busy = true
             root.snapPolls++
-            var p = root.j(core("getSnapshotPointer", [root.shareCal ? root.shareCal.id : ""]), null)
-            if (p && p.cid) {
-                stop()
-                var spr = root.j(core("getStorageSpr", []), "")
-                var ext = root.j(core("getStorageExtip", []), "")  // what the running node announces
-                var base = root.j(core("generateShareLink", [root.shareCal.id]), "")
-                var link = base + "&snap=" + root.b64url(JSON.stringify(p)) + (spr ? "&stor=" + root.b64url(spr) : "")
-                shareStatus.text = "Snapshot ready — " + (p.count || 0) + " events · "
-                    + (ext ? "reachable at " + ext : "⚠ this device announces no address; a phone may not reach it")
-                    + (spr ? "" : " · no SPR")
-                root.setShareQr(link)
-            } else if (root.snapPolls > 75) {  // ~90 s: covers a storage restart before the upload
-                stop(); shareStatus.text = "Snapshot timed out — is Logos Storage running?"
-            }
+            var calId = root.shareCal.id
+            root.coreAsync("getSnapshotPointer", [calId], function (raw) {
+                snapPollTimer.busy = false
+                var p = root.j(raw, null)
+                if (p && p.cid) {
+                    snapPollTimer.stop()
+                    root.coreAsync("getStorageSpr", [], function (r1) {
+                        var spr = root.j(r1, "")
+                        root.coreAsync("getStorageExtip", [], function (r2) {  // what the running node announces
+                            var ext = root.j(r2, "")
+                            root.coreAsync("generateShareLink", [calId], function (r3) {
+                                var base = root.j(r3, "")
+                                var link = base + "&snap=" + root.b64url(JSON.stringify(p)) + (spr ? "&stor=" + root.b64url(spr) : "")
+                                shareStatus.text = "Snapshot ready — " + (p.count || 0) + " events · "
+                                    + (ext ? "reachable at " + ext : "⚠ this device announces no address; a phone may not reach it")
+                                    + (spr ? "" : " · no SPR")
+                                if (root.shareCal && root.shareCal.id === calId) root.setShareQr(link)
+                            })
+                        })
+                    })
+                } else if (root.snapPolls > 75) {  // ~90 s: covers a storage restart before the upload
+                    snapPollTimer.stop(); shareStatus.text = "Snapshot timed out — is Logos Storage running?"
+                }
+            })
         }
     }
     Popup {
@@ -2588,11 +2704,10 @@ Item {
     function deleteCalendar() {
         if (!pendingDeleteCal) return
         var id = pendingDeleteCal.id
-        core("deleteCalendar", [id])
+        root.coreAsync("deleteCalendar", [id], function () { root.refresh() })
         if (filterCalId === id) filterCalId = ""
         pendingDeleteCal = null
         deletePopup.close()
-        refresh()
     }
     Popup {
         id: deletePopup
@@ -2640,13 +2755,14 @@ Item {
 
     // ── diagnostics popup (connection + events) ──────────────────────────────
     property var diag: null
-    function openDiag() { root.diag = root.j(core("diagnostics", []), null); diagPopup.open() }
+    function loadDiag() { root.coreAsync("diagnostics", [], function (r) { root.diag = root.j(r, null) }) }
+    function openDiag() { root.loadDiag(); diagPopup.open() }
     Popup {
         id: diagPopup
         anchors.centerIn: Overlay.overlay
         width: 460; height: 460; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
-        onOpened: root.diag = root.j(root.core("diagnostics", []), null)
+        onOpened: root.loadDiag()
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
             LogosText { textFormat: Text.PlainText; text: "Diagnostics"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
@@ -2656,7 +2772,7 @@ Item {
                 Rectangle { width: 10; height: 10; radius: 5; color: (root.diag && root.diag.nodeReady) ? root.cGreen : root.cYellow; Layout.alignment: Qt.AlignVCenter }
                 LogosText { textFormat: Text.PlainText; text: (root.diag && root.diag.nodeReady) ? "Delivery node connected" : "Node not ready"; color: root.cText; font.pixelSize: 14 }
                 Item { Layout.fillWidth: true }
-                LogosButton { text: "Refresh"; onClicked: root.diag = root.j(root.core("diagnostics", []), null) }
+                LogosButton { text: "Refresh"; onClicked: root.loadDiag() }
             }
             LogosText { textFormat: Text.PlainText;
                 text: root.diag ? ("delivery: " + (root.diag.deliveryStatus || "(none)") + "   ·   context ready: " + (root.diag.ctxReady ? "yes" : "NO")) : "—"
