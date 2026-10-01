@@ -9,11 +9,11 @@
       },
       "locked": {
         "dir": "ble_mesh",
-        "lastModified": 1786809912,
-        "narHash": "sha256-8AHbWbeu9YzARhucHelBfaXjF8mwhOplRgBY8nYPo7k=",
+        "lastModified": 1787655595,
+        "narHash": "sha256-iT8dPJ4HuDeYos5lMaV1t6RXXrNjm/PEwhGI52TDehw=",
         "owner": "vpavlin",
         "repo": "loam-basecamp",
-        "rev": "19002e5a56f67c512984e49e90ec2bb7b5bc26c8",
+        "rev": "34393160eed88037d45ffb721cf2311717bd1c62",
         "type": "github"
       },
       "original": {
@@ -290,16 +290,16 @@
         "nix-bundle-lgx": "nix-bundle-lgx"
       },
       "locked": {
-        "lastModified": 1785498464,
-        "narHash": "sha256-6shBduxH/12ph+Y2R1Kwq65rjK6QfZCwp5vBU5h0i5Y=",
-        "owner": "logos-co",
+        "lastModified": 1790842688,
+        "narHash": "sha256-k3XLOnjZIoNySMJV/VSt/OGLitpkhCv2mVE2LKqjaaw=",
+        "owner": "vpavlin",
         "repo": "logos-delivery-module",
-        "rev": "3258cdb0132e37228aa2519e0c01c0e7429a20dd",
+        "rev": "7d93aeb9382ffdf2025e3d7835427420fc23cbb2",
         "type": "github"
       },
       "original": {
-        "owner": "logos-co",
-        "ref": "v0.2.0",
+        "owner": "vpavlin",
+        "ref": "loam-0.1.4",
         "repo": "logos-delivery-module",
         "type": "github"
       }
@@ -360,11 +360,11 @@
       },
       "locked": {
         "dir": "core",
-        "lastModified": 1787079460,
-        "narHash": "sha256-ckGjMdSFo8NSyGjLbUkJim2rDgkAGzy7jyQ2PI0ZiiA=",
+        "lastModified": 1790842826,
+        "narHash": "sha256-RkaDt8CxJVewI5bRtvizcjHHSJrsYrIJVUAiPLOFt/Q=",
         "owner": "vpavlin",
         "repo": "loam-basecamp",
-        "rev": "24758d7acf5e8e3bfa77f935754d4e0129e5c017",
+        "rev": "fc8ec6d52c9562ee197158d31b54597d2e6bccc8",
         "type": "github"
       },
       "original": {
@@ -3941,11 +3941,11 @@
         "zerokit": "zerokit"
       },
       "locked": {
-        "lastModified": 1785443689,
-        "narHash": "sha256-MHPA2HSHjK6xeo+a1GrDQK80IBMmBShv7W10jZmeykI=",
+        "lastModified": 1784801161,
+        "narHash": "sha256-9CX+nd5MQXu0xQy+HjC8CvrLG2K7RklU0dqbHIeusGU=",
         "ref": "refs/heads/master",
-        "rev": "f8b036594ea2a36b529e10b584b7d2851a3ac5c8",
-        "revCount": 2425,
+        "rev": "8ad99f10f41e813253ba1146efc83ca4cfdb3510",
+        "revCount": 2411,
         "submodules": true,
         "type": "git",
         "url": "https://github.com/logos-messaging/logos-delivery"
