@@ -2,7 +2,7 @@
   "name": "scala_ui",
   "display_name": "Scala",
   "icon": "icon.png",
-  "version": "0.8.35",
+  "version": "0.8.36",
   "type": "ui_qml",
   "interface": "universal",
   "category": "general",
