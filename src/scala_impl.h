@@ -254,6 +254,10 @@ private:
     bool ensureStorageMesh();
     void restartStorage();               // stop → (storageStop) destroy+init+start → (storageStart) flush queue
     void onLoop(std::function<void()> fn); // run fn on the module's event loop, after the current callback
+    void startModules();                 // deferred startup calls to other modules (see onContextReady)
+    static constexpr int kStartDelayMs = 1000;
+    static constexpr int kStorageCallTimeoutMs = 60000;
+    bool m_storageHostOwned = false;    // the host (Basecamp 0.3 / logosctl) initialized Storage; adopt it, never reconfigure   // > storage 3.0's 30 s manifest wait
     void onStorageStop(const std::string& payload);
     void onStorageStart(const std::string& payload);
     void cacheAttachments(const scala::Event& e);

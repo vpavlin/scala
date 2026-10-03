@@ -394,7 +394,11 @@ void ScalaImpl::onContextReady() {
     for (const auto& c : m_store->calendars())
         if (!c.key.empty()) m_sync->startSync(c.id, c.key);
 
-    m_sync->bootstrap();
+    // Calls to other modules are DEFERRED until this module has finished loading: the Logos 0.3.x
+    // runtime rejects calls a module makes from inside onContextReady ("auth token not recognized"
+    // — its token isn't registered yet; seen for official modules too), and the retry happens in
+    // the same instant, so loam_core never started and storage never came up. See startModules().
+    QTimer::singleShot(kStartDelayMs, [this] { startModules(); });
 
     // Catch-up retry: start() finishes BEFORE the gossip mesh has peers (~10s to
     // form) and before the async subscribe/channel-join land, so a single SYNC_REQ
@@ -421,6 +425,11 @@ void ScalaImpl::onContextReady() {
         m_resyncTimer->start(30000);
     }
 
+
+}
+
+// Everything that calls another module at startup (see onContextReady).
+void ScalaImpl::startModules() {
     // Keycard authoring (scala ADR 0016): loam_core signs a keycard-owned write asynchronously (card
     // tap in keycard-ui) and delivers the result here, matched by ref. For a parked EVENT we attach
     // {sig,pub} and publish; an ENROL ref (no parked event) just surfaces its status to the view.
@@ -446,7 +455,7 @@ void ScalaImpl::onContextReady() {
         publishAndApply(pk.calId, pk.event);          // now it's a fully-signed event
         emitKcStatus(pk.calId, ref, "event", "done", "");
     });
-
+    m_sync->bootstrap();
     ensureStorage();   // bring up the Logos Storage node (attachments cache/provider) — ADR 0017
 }
 
@@ -1046,7 +1055,10 @@ json ScalaImpl::storageConfig() {
     // sets storage_root=1, which is checked FIRST below so it stays a no-bootstrap root.
     static const char* kDefaultHubSpr =
         "spr:CiUIAhIhAs8AX5JLuRffkJiqakPZmpE_WeRw_xFzpYfWF13jGgupEgIDARo7CicAJQgCEiECzwBfkku5F9-QmKpqQ9makT9Z5HD_EXOlh9YXXeMaC6kQiOWy1QYaCgoIBICMN4AGIAcqRzBFAiEApW6gyJWos3KuqcV6DfAYwnwddjGni2ryZqjI7ud6MtMCICqFNyyEC3YgjiYHN0Wr3XZRn0ESD8v00Sv6cWynXTvK";
-    std::string boot = getSetting("storage_bootstrap", kDefaultHubSpr);
+    // port/0.3 (host-owned Storage, option 1): default to the PUBLIC logos.test Storage network.
+    // Our hub's private DHT is now opt-in: set storage_bootstrap to kDefaultHubSpr (or another SPR).
+    (void)kDefaultHubSpr;
+    std::string boot = getSetting("storage_bootstrap", "");
     std::string rootMode = getSetting("storage_root", "");
     bool isRoot = (rootMode == "1" || rootMode == "true");
     if (isRoot) cfg["no-bootstrap-node"] = true;                        // hub: the private-DHT root (needs extip) — FIRST
@@ -1117,8 +1129,21 @@ void ScalaImpl::ensureStorage() {
     m_storageRunningCfg = cfg.dump();
     fprintf(stderr, "[scala] storage start: listen %s, announce %s\n",
             cfg.value("listen-ip", std::string()).c_str(), cfg.value("nat", std::string("nothing")).c_str());
-    try { modules().storage_module.init(cfg.dump()); modules().storage_module.start(); }
-    catch (...) { /* best-effort; upload/fetch will retry the calls */ }
+    // Logos 0.3.x hosts (Basecamp 0.3, logosctl) bundle storage_module and initialize it themselves
+    // on the public logos.test Storage network right after loading it; a second init() is refused
+    // ("context already initialized") and our config would be silently ignored. So: if init() says
+    // no, the node is the HOST's — adopt it as-is and never stop/restart/reconfigure it (other
+    // modules rely on it). Only on a host that leaves Storage alone do we configure it ourselves.
+    bool inited = false;
+    try { inited = modules().storage_module.init(cfg.dump()); } catch (...) { inited = false; }
+    if (!inited) {
+        m_storageHostOwned = true;
+        m_storageRunningCfg = "{}";
+        fprintf(stderr, "[scala] storage: using the host's Storage node as-is (host-owned)\n");
+        try { modules().storage_module.start(); } catch (...) { /* already started by the host: fine */ }
+        return;
+    }
+    try { modules().storage_module.start(); } catch (...) { /* best-effort; upload/fetch retry */ }
 }
 
 std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std::string& filePath,
@@ -1206,6 +1231,7 @@ std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
 // only: nothing is persisted (a saved guess overrode a hand-set extip and outlived leaving the mesh).
 // Restarts a running node whose config differs. Off the mesh, or on a root, it only ensures the node is up.
 bool ScalaImpl::ensureStorageMesh() {
+    if (m_storageHostOwned) { ensureStorage(); return false; }   // never reconfigure the host's node
     std::string rootMode = getSetting("storage_root", "");
     if (rootMode == "1" || rootMode == "true") { ensureStorage(); return true; }   // a root's settings are explicit
     if (detectShroomsMeshIPv6().empty()) { ensureStorage(); return false; }       // not on the mesh
@@ -1275,6 +1301,7 @@ std::string ScalaImpl::getStorageSpr() {
 }
 
 std::string ScalaImpl::getStorageExtip() {
+    if (m_storageHostOwned) return std::string();               // the host's node: not ours to announce
     if (m_storageRestarting) return std::string();             // stopped, or not serving the new config yet
     json c = json::parse(m_storageRunningCfg, nullptr, false);
     if (c.is_discarded() || !c.is_object()) return std::string();
@@ -1350,7 +1377,7 @@ void ScalaImpl::cacheAttachments(const scala::Event& e) {
                 // storage_module >= 3.0 fetch() waits up to 30 s for the manifest — longer than the
                 // 20 s IPC timeout — so it must never be a synchronous call. isPrivate=false,
                 // advertise=true: we become a provider for it.
-                modules().storage_module.fetchAsync(cid, false, true, [](StdLogosResult) {});
+                modules().storage_module.fetchAsyncResult(cid, false, true, [](logos::AsyncResult<StdLogosResult>) {}, kStorageCallTimeoutMs);
                 if (!m_cacheRetry.count(cid) && m_cacheRetry.size() < 500)
                     m_cacheRetry[cid] = { nowMs(), nowMs() };
             }
@@ -1378,7 +1405,7 @@ void ScalaImpl::retryCacheFetches() {
         if (have) { it = m_cacheRetry.erase(it); continue; }
         if (now - it->second.second >= 60000) {
             it->second.second = now;
-            try { modules().storage_module.fetchAsync(cid, false, true, [](StdLogosResult) {}); } catch (...) {}
+            try { modules().storage_module.fetchAsyncResult(cid, false, true, [](logos::AsyncResult<StdLogosResult>) {}, kStorageCallTimeoutMs); } catch (...) {}
         }
         ++it;
     }
@@ -1396,8 +1423,12 @@ std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const s
     // Async: storage_module >= 3.0 waits up to 30 s for the manifest before replying, longer than the
     // 20 s IPC timeout. The view correlates on the CID (attachmentStatus), so nothing waits for this.
     // local=false, chunk 64 KiB, isPrivate=false, advertise=true.
-    modules().storage_module.downloadToUrlAsync(cid, sealedPath, false, 65536, false, true,
-        [this, calendarId, outName, cid, sealedPath, outPath](StdLogosResult r) {
+    // The *AsyncResult variant carries an explicit timeout: an async call still times out at the
+    // runtime's default, which 3.0's up-to-30 s manifest wait exceeds.
+    modules().storage_module.downloadToUrlAsyncResult(cid, sealedPath, false, 65536, false, true,
+        [this, calendarId, outName, cid, sealedPath, outPath](logos::AsyncResult<StdLogosResult> ar) {
+            StdLogosResult r = ar.value;
+            if (!ar.ok()) { r.success = false; r.error = "storage did not answer: " + ar.error.code; }
             onLoop([this, r, calendarId, outName, cid, sealedPath, outPath] {
                 if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "download rejected" : r.error}};
                                   finishDownload(calendarId, cid, e.dump()); return; }
@@ -1405,7 +1436,7 @@ std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const s
                 m_pendDown[sess] = PendingDown{ calendarId, outName, cid, sealedPath, outPath, nowMs() };
                 schedulePoll();
             });
-        });
+        }, kStorageCallTimeoutMs);
     return cid;
 }
 
