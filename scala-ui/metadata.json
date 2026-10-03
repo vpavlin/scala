@@ -2,14 +2,14 @@
   "name": "scala_ui",
   "display_name": "Scala",
   "icon": "icon.png",
-  "version": "0.8.37",
+  "version": "0.9.0",
   "type": "ui_qml",
-  "interface": "universal",
   "category": "general",
   "description": "Scala Calendar UI - pure-QML view over the scala calendar core module",
   "view": "qml/CalendarView.qml",
   "dependencies": [
-    "scala"
+    "scala",
+    "loam_core"
   ],
   "nix": {
     "packages": {
