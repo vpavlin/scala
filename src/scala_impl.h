@@ -50,7 +50,7 @@ public:
 
     // ── Calendar CRUD ────────────────────────────────────────────────────────
     /// Create a new calendar. Returns the calendar ID.
-    std::string createCalendar(const std::string& name, const std::string& color, const std::string& identityId = "");
+    std::string createCalendar(const std::string& name, const std::string& color, const std::string& identityId);
 
     /// List all calendars. Returns JSON array string.
     std::string listCalendars();
@@ -138,7 +138,7 @@ public:
     std::string parseShareLink(const std::string& link);
 
     /// Handle a scala:// share link (join the calendar).
-    bool handleShareLink(const std::string& link, const std::string& identityId = "");
+    bool handleShareLink(const std::string& link, const std::string& identityId);
 
     // ── Search API ───────────────────────────────────────────────────────────
     /// Search events across all calendars by title/description/location. Returns JSON array string.

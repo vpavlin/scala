@@ -1134,7 +1134,7 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
     m_attachResults.erase(blobId);   // same file again → same ref; don't serve the previous outcome
     std::string tmpPath = m_storageDir + "/tmp/" + blobId;
     if (!scalaWriteFile(tmpPath, sealed)) { finishUpload(calendarId, blobId, "{\"ok\":false,\"error\":\"cannot stage blob\"}"); return blobId; }
-    StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536);
+    StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536, true);   // advertise: we serve it
     if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "upload rejected" : r.error}}; finishUpload(calendarId, blobId, e.dump()); return blobId; }
     std::string sess = resVal(r);
     m_pendUp[sess] = PendingUp{ calendarId, name, mime, blobId, tmpPath, (long long)bytes.size(), nowMs() };
@@ -1152,6 +1152,8 @@ std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std
     // not inside a storage event callback, so calling the module is safe).
     if (m_storageRestarting && nowMs() - m_storageRestartAt > 60000) {
         fprintf(stderr, "[scala] storage restart stuck for 60 s; rebuilding the node\n");
+        // storage_module >= 3.0 refuses destroy() unless the node is stopped: stop it first.
+        try { modules().storage_module.stop(); } catch (...) {}
         try { modules().storage_module.destroy(); } catch (...) {}
         m_storageInit = false; m_storageRestarting = false; m_storageAwaitStart = false;
         ensureStorage();
@@ -1184,7 +1186,7 @@ std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std
     std::string tmpPath = m_storageDir + "/tmp/snap-" + scalaSha256Hex(sealed);
     if (!scalaWriteFile(tmpPath, sealed))
         return json{{"ok", false}, {"error", "cannot stage snapshot"}}.dump();
-    StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536);
+    StdLogosResult r = modules().storage_module.uploadUrl(tmpPath, 65536, true);   // advertise: we serve it
     if (!r.success)
         return json{{"ok", false}, {"error", r.error.empty() ? "upload rejected" : r.error}}.dump();
     std::string sess = resVal(r);
@@ -1345,7 +1347,10 @@ void ScalaImpl::cacheAttachments(const scala::Event& e) {
             StdLogosResult ex = modules().storage_module.exists(cid);
             bool have = ex.success && ((ex.value.is_boolean() && ex.value.get<bool>()) || (ex.value.is_string() && ex.value.get<std::string>() == "true"));
             if (!have) {
-                modules().storage_module.fetch(cid);   // async prefetch → we become a provider
+                // storage_module >= 3.0 fetch() waits up to 30 s for the manifest — longer than the
+                // 20 s IPC timeout — so it must never be a synchronous call. isPrivate=false,
+                // advertise=true: we become a provider for it.
+                modules().storage_module.fetchAsync(cid, false, true, [](StdLogosResult) {});
                 if (!m_cacheRetry.count(cid) && m_cacheRetry.size() < 500)
                     m_cacheRetry[cid] = { nowMs(), nowMs() };
             }
@@ -1373,7 +1378,7 @@ void ScalaImpl::retryCacheFetches() {
         if (have) { it = m_cacheRetry.erase(it); continue; }
         if (now - it->second.second >= 60000) {
             it->second.second = now;
-            try { modules().storage_module.fetch(cid); } catch (...) {}
+            try { modules().storage_module.fetchAsync(cid, false, true, [](StdLogosResult) {}); } catch (...) {}
         }
         ++it;
     }
@@ -1388,11 +1393,19 @@ std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const s
     // The ref is the CID, so a retry must drop the previous outcome — else the view's poll sees the
     // old failure at once and never learns the retry succeeded.
     m_attachResults.erase(cid);
-    StdLogosResult r = modules().storage_module.downloadToUrl(cid, sealedPath, false, 65536);
-    if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "download rejected" : r.error}}; finishDownload(calendarId, cid, e.dump()); return cid; }
-    std::string sess = resVal(r);
-    m_pendDown[sess] = PendingDown{ calendarId, outName, cid, sealedPath, outPath, nowMs() };
-    schedulePoll();
+    // Async: storage_module >= 3.0 waits up to 30 s for the manifest before replying, longer than the
+    // 20 s IPC timeout. The view correlates on the CID (attachmentStatus), so nothing waits for this.
+    // local=false, chunk 64 KiB, isPrivate=false, advertise=true.
+    modules().storage_module.downloadToUrlAsync(cid, sealedPath, false, 65536, false, true,
+        [this, calendarId, outName, cid, sealedPath, outPath](StdLogosResult r) {
+            onLoop([this, r, calendarId, outName, cid, sealedPath, outPath] {
+                if (!r.success) { json e{{"ok", false}, {"error", r.error.empty() ? "download rejected" : r.error}};
+                                  finishDownload(calendarId, cid, e.dump()); return; }
+                std::string sess = resVal(r);
+                m_pendDown[sess] = PendingDown{ calendarId, outName, cid, sealedPath, outPath, nowMs() };
+                schedulePoll();
+            });
+        });
     return cid;
 }
 
