@@ -1049,21 +1049,14 @@ json ScalaImpl::storageConfig() {
     cfg["data-dir"] = m_storageDir + "/node";
     // a listen port for the node's libp2p endpoint (needed to start); overridable to avoid conflicts.
     try { cfg["listen-port"] = std::stoi(getSetting("storage_listen_port", "8199")); } catch (...) { cfg["listen-port"] = 8199; }
-    // Default clients to OUR always-on VPS hub's private DHT (a public Storage provider on
-    // 128.140.55.128:8199), so shared-calendar attachments resolve with no per-user config —
-    // same SPR baked into mobile. Overridable via the storage_bootstrap setting. The hub itself
-    // sets storage_root=1, which is checked FIRST below so it stays a no-bootstrap root.
-    static const char* kDefaultHubSpr =
-        "spr:CiUIAhIhAs8AX5JLuRffkJiqakPZmpE_WeRw_xFzpYfWF13jGgupEgIDARo7CicAJQgCEiECzwBfkku5F9-QmKpqQ9makT9Z5HD_EXOlh9YXXeMaC6kQiOWy1QYaCgoIBICMN4AGIAcqRzBFAiEApW6gyJWos3KuqcV6DfAYwnwddjGni2ryZqjI7ud6MtMCICqFNyyEC3YgjiYHN0Wr3XZRn0ESD8v00Sv6cWynXTvK";
-    // port/0.3 (host-owned Storage, option 1): default to the PUBLIC logos.test Storage network.
-    // Our hub's private DHT is now opt-in: set storage_bootstrap to kDefaultHubSpr (or another SPR).
-    (void)kDefaultHubSpr;
+    // Default: the public logos.test Storage network. There is no built-in hub: someone who runs
+    // their own always-on hub sets storage_bootstrap to its SPR.
     std::string boot = getSetting("storage_bootstrap", "");
     std::string rootMode = getSetting("storage_root", "");
     bool isRoot = (rootMode == "1" || rootMode == "true");
     if (isRoot) cfg["no-bootstrap-node"] = true;                        // hub: the private-DHT root (needs extip) — FIRST
-    else if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot }); // client: ride the hub's DHT (default = the hub)
-    else cfg["network"] = "logos.test";                                 // (only if the default is explicitly cleared)
+    else if (!boot.empty()) cfg["bootstrap-node"] = json::array({ boot }); // client: ride the user's own hub
+    else cfg["network"] = "logos.test";                                 // default: the public network
     std::string extip = getSetting("storage_extip", "");
     // Shrooms mesh mode is OPT-IN (setting `storage_mesh=1`), NOT auto — and only sound for a client
     // that shares the HUB's mesh SEGMENT. Auto-enabling it regressed the common case: a node listening

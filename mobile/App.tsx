@@ -136,6 +136,10 @@ function sameDay(a: Date, b: Date) {
 function atHour(d: Date, h: number) { const x = new Date(d); x.setHours(h, 0, 0, 0); return x; }
 function msg(e: unknown) { return e instanceof Error ? e.message : String(e); }
 
+const STORAGE_HUB_KEY = "scala-storage-hub";
+// Storage config: the public logos.test network unless the user configured their own hub.
+function storageCfg(hub: string) { const h = hub.trim(); return h ? { "bootstrap-node": [h] } : {}; }
+
 export default function App() {
   const [cals, setCals] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
@@ -184,14 +188,18 @@ export default function App() {
   const [newCalSchema, setNewCalSchema] = useState<FieldDef[]>([]); // custom fields, set at create
   const [newCalTier, setNewCalTier] = useState<AccessTier>("closed"); // access tier (ADR 0019) — default Closed
   const [joinIdentity, setJoinIdentity] = useState("");       // identity to author my events on a joined calendar
-  // DEV: editable Codex fetch target. Default = the always-on scala VPS hub (public Storage provider
-  // 128.140.55.128:8199, systemd scala-hub.service) so attachments resolve out-of-the-box; still
-  // editable in the debug modal for a LAN/mesh/other bootstrap without a rebuild.
-  const [codexAddr, setCodexAddr] = useState("/ip4/128.140.55.128/tcp/8199/p2p/16Uiu2HAm9MihmCFk6rY2YdkNa78LU5xrdj4wBn5jUUea5ABqCVa8");
+  // DEV: editable Codex fetch target for the debug test (no built-in default: there is no public hub).
+  const [codexAddr, setCodexAddr] = useState("");
   const [codexCid, setCodexCid] = useState("zDvZRwzm27RpKjiufRiwVrR8rgHm9ekioBPhcF6CPTRi1TKsZaKc");
-  // Bootstrap off our OWN Loam Storage network (the VPS hub's private DHT root) instead of the public
-  // logos.test net (kad-incompatible with our build). The hub advertises its public IP so any phone reaches it.
-  const [codexBoot, setCodexBoot] = useState("spr:CiUIAhIhAs8AX5JLuRffkJiqakPZmpE_WeRw_xFzpYfWF13jGgupEgIDARo7CicAJQgCEiECzwBfkku5F9-QmKpqQ9makT9Z5HD_EXOlh9YXXeMaC6kQiOWy1QYaCgoIBICMN4AGIAcqRzBFAiEApW6gyJWos3KuqcV6DfAYwnwddjGni2ryZqjI7ud6MtMCICqFNyyEC3YgjiYHN0Wr3XZRn0ESD8v00Sv6cWynXTvK");
+  // Optional Storage hub (a bootstrap SPR) for people who run their own always-on hub. Empty = the
+  // public logos.test Storage network. Persisted so a configured hub survives restarts; nothing is
+  // built in (there is no public hub).
+  const [codexBoot, setCodexBootState] = useState("");
+  useEffect(() => { AsyncStorage.getItem(STORAGE_HUB_KEY).then((v) => { if (v) setCodexBootState(v); }).catch(() => {}); }, []);
+  const setCodexBoot = useCallback((v: string) => {
+    setCodexBootState(v);
+    (v.trim() ? AsyncStorage.setItem(STORAGE_HUB_KEY, v.trim()) : AsyncStorage.removeItem(STORAGE_HUB_KEY)).catch(() => {});
+  }, []);
   const [codexDbg, setCodexDbg] = useState(false);       // Codex debug modal open
   const [codexLog, setCodexLog] = useState<string[]>([]); // live step-by-step log
   const [codexBusy, setCodexBusy] = useState(false);
@@ -754,7 +762,7 @@ export default function App() {
     fetchingCids.current.add(cid);
     setAttachFetching(att.name || cid.slice(0, 12)); // non-blocking "fetching…" overlay
     try {
-      await codexStorage.init({ "bootstrap-node": [codexBoot.trim()] });   // ride our own Loam Storage network
+      await codexStorage.init(storageCfg(codexBoot));   // public network, or the user's own hub if set
       const dir = await codexStorage.filesDir();
       const sealedPath = `${dir}/attach-dl/${att.storageCid}.sealed`;
       // Progress = bytes written to the destination / expected sealed size (plaintext + 28 B:
@@ -847,7 +855,7 @@ export default function App() {
   const openedAttachments = modal.open && ((modal.editing as any)?.attachments || []).some((a: Attachment) => !!a.storageCid);
   useEffect(() => {
     if (openedAttachments && codexStorage.available())
-      codexStorage.init({ "bootstrap-node": [codexBoot.trim()] }).catch(() => {});
+      codexStorage.init(storageCfg(codexBoot)).catch(() => {});
   }, [openedAttachments, codexBoot]);
   const toggleShared = async (v: boolean) => { setShared(v); await setSharedNode(v); Alert.alert(v ? "Shared node ON" : "Shared node OFF", "Restart Scala to apply."); };
   const shiftMonth = (delta: number) => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
@@ -1370,7 +1378,7 @@ export default function App() {
             <View style={{ paddingHorizontal: 14, gap: 6 }}>
               <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Bootstrap SPR (our Loam Storage node — empty = public logos.test)</Text>
               <TextInput style={[s.searchIn, { minHeight: 38 }]} value={codexBoot} onChangeText={setCodexBoot}
-                placeholder="spr:… (our bootstrap node)" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} multiline />
+                placeholder="spr:… (optional: your own hub; empty = public network)" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} multiline />
               <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Peer multiaddr (optional direct dial; peerId from /p2p/)</Text>
               <TextInput style={[s.searchIn, { minHeight: 38 }]} value={codexAddr} onChangeText={setCodexAddr}
                 placeholder="/ip4/<host>/tcp/8070/p2p/<peerId>" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} multiline />

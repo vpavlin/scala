@@ -67,10 +67,14 @@ by hand while the hub is stopped, because the `logos-hub` CLI turns `1` into a n
 | `storage_dir` | an absolute path | Keeps the node's key, and so its address, stable across restarts |
 | `storage_nat_server` | `"0"` to disable | On by default for a root: lets clients behind NAT check reachability and relay through it, so their uploads can be found and cached |
 
-Clients find the hub through the bootstrap record (SPR) built into Scala (`kDefaultHubSpr` in
-`src/scala_impl.cpp`, and the defaults in `mobile/App.tsx`). To point clients at a different hub,
-set `storage_bootstrap` to its SPR, which you get with
-`logos-hub call <daemon> storage_module debug` (`value.spr`).
+Scala has **no built-in hub**: by default every client joins the public `logos.test` Storage network.
+If you run your own hub, point your clients at it by setting `storage_bootstrap` to the hub's
+bootstrap record (SPR) on the desktop, or entering it as the Storage hub in the phone's storage
+settings. Get the SPR with `logos-hub call <daemon> storage_module debug` (`value.spr`).
+
+Known limitation: two devices that are both behind NAT can't fetch each other's attachments
+without a reachable node in between. A hub that has joined the calendar caches attachments as it
+sees them, which is what makes them available while the uploader is offline.
 
 ### Storage patch the hub needs
 

@@ -65,8 +65,8 @@ async function initNow(cfg: StorageConfig): Promise<string> {
   await LS.setup();
   const dataDir = cfg["data-dir"] ?? `${await LS.filesDir()}/codex`;
   const base: Record<string, unknown> = { "log-level": "WARN" };
-  // Ride our OWN Loam Storage network when a bootstrap node is given (the public logos.test
-  // bootstrap nodes are kad-incompatible with our build); else fall back to logos.test.
+  // Default: the public logos.test Storage network (its bootstrap records are built into libstorage).
+  // A bootstrap SPR (the user's own hub, or a snapshot hub named in an invite) is used instead when given.
   if (nodes.length === 0) base.network = "logos.test";
   const { "bootstrap-node": _given, ...rest } = cfg;
   const json = JSON.stringify({ ...base, ...rest, ...(nodes.length ? { "bootstrap-node": nodes } : {}), "data-dir": dataDir });
