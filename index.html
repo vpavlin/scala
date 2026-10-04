@@ -1,10 +1,30 @@
-<title>Scala</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scala — end-to-end encrypted shared calendar for Android and desktop</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Scala — Secure CALendar. A shared calendar rebuilt on Logos: offline-first, convergent, signed by your own key. Con un tocco di Nonno. Play the convergence demo.">
-<link rel="icon" href="assets/scala.png">
+<meta name="description" content="Scala is an end-to-end encrypted shared calendar for Android and Basecamp (desktop). Devices sync directly over Logos, with no server and no account. Offline-first, signed, with RSVP, .ics import/export and encrypted attachments.">
+<link rel="canonical" href="https://scala.vpavlin.xyz/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Scala">
+<meta property="og:title" content="Scala — end-to-end encrypted shared calendar">
+<meta property="og:description" content="A shared calendar for Android and Basecamp that syncs directly between devices, with no server. Offline-first and end-to-end encrypted.">
+<meta property="og:url" content="https://scala.vpavlin.xyz/">
+<meta property="og:image" content="https://scala.vpavlin.xyz/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#1E1E2E">
+<link rel="icon" type="image/png" href="assets/scala.png">
+<link rel="apple-touch-icon" href="assets/scala.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..900;1,9..144,500..800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  /* Screens gallery: a figure whose PNG is missing removes itself; hide the section if none are left. */
+  function scalaGallery(){var s=document.getElementById('screens');if(s&&!s.querySelector('.gallery figure'))s.style.display='none';}
+</script>
 <style>
   /* ===== Catppuccin tokens (light = Latte, dark = Mocha) ===== */
   :root{
@@ -153,7 +173,7 @@
   .ev .em{font-size:15px}.ev .ti{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ev .hr{font-size:11.5px;color:var(--ink-faint);font-variant-numeric:tabular-nums;font-weight:600}
   .ev.pending{border-style:dashed;border-color:var(--peach);background:transparent}
-  .ev.pending .hr::after{content:" · non sync";color:var(--peach)}
+  .ev.pending .hr::after{content:" · not synced";color:var(--peach)}
   .ev.mine{box-shadow:inset 4px 0 0 var(--who)}
   @keyframes slot{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:none}}
   .dev-actions{margin-top:14px}
@@ -236,8 +256,63 @@
   #climb circle{transform-box:fill-box;transform-origin:center;animation:pop .5s cubic-bezier(.2,.8,.2,1) both}
   #climb .d0{animation-delay:.15s}#climb .d1{animation-delay:.32s}#climb .d2{animation-delay:.49s}#climb .d3{animation-delay:.66s}
   @keyframes pop{from{transform:scale(.2);opacity:0}to{transform:scale(1);opacity:1}}
-</style>
 
+  /* ===== 2026-10 refresh additions ===== */
+  h2.section-head{font-size:clamp(30px,4.4vw,46px);font-weight:900;letter-spacing:-.02em;margin-top:10px}
+  .lede-sub{font-size:15px;color:var(--ink-faint);margin-top:12px;font-weight:600;font-style:italic}
+  .lede-sub i{color:var(--peach)}
+
+  /* screens gallery */
+  .gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:34px;align-items:start}
+  .gallery figure{margin:0;display:flex;flex-direction:column;gap:10px}
+  .gallery figure.wide{grid-column:1/-1}
+  .gallery img{width:100%;height:auto;display:block;border:2px solid var(--ink);border-radius:18px;box-shadow:var(--hard);background:var(--surface-2)}
+  .gallery figcaption{font-size:13px;color:var(--ink-soft);font-weight:600}
+  @media(max-width:820px){.gallery{grid-template-columns:repeat(2,1fr)}}
+
+  /* privacy model */
+  .facts{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-top:34px}
+  @media(max-width:760px){.facts{grid-template-columns:1fr}}
+  .fact{padding:22px 24px;background:var(--surface);border:2px solid var(--ink);border-radius:18px;box-shadow:var(--hard)}
+  .fact h3{font-size:18px;font-weight:800;letter-spacing:-.01em}
+  .fact p{margin:8px 0 0;font-size:14.5px;color:var(--ink-soft);line-height:1.55}
+  .fact p b{color:var(--ink)}
+  .fact code,.pcard code.inl,.status-list code{font-family:ui-monospace,"JetBrains Mono",Menlo,monospace;font-size:.88em;background:var(--surface-2);padding:1px 6px;border-radius:6px;border:1px solid var(--line)}
+  .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--ink);border:2px solid var(--ink);border-radius:18px;overflow:hidden;box-shadow:var(--hard);margin-top:34px}
+  @media(max-width:760px){.modes{grid-template-columns:1fr}}
+  .mode{background:var(--surface);padding:22px 24px}
+  .mode .tag{display:inline-block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:800;color:#11111B;background:var(--cc);border:2px solid var(--ink);border-radius:8px;padding:2px 8px}
+  .mode h3{font-size:19px;font-weight:900;margin-top:10px}
+  .mode p{margin:6px 0 0;font-size:14.5px;color:var(--ink-soft)}
+  .modes-note{font-size:13.5px;color:var(--ink-faint);margin-top:14px;max-width:70ch}
+
+  /* install */
+  .qr-row{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:6px 0 14px}
+  .qr{width:156px;height:156px;flex:none;border:2px solid var(--ink);border-radius:14px;background:#fff;padding:6px;box-shadow:var(--hard)}
+  .qr img{width:100%;height:100%;display:block}
+  .steps{margin:0;padding-left:20px;color:var(--ink-soft);font-size:14.5px}
+  .steps li+li{margin-top:6px}
+  .steps b{color:var(--ink)}
+  .pcard .btn{height:44px;font-size:14.5px;margin:4px 0 14px}
+  .fpurl{white-space:normal;word-break:break-all}
+
+  /* status */
+  .status-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:34px}
+  @media(max-width:760px){.status-grid{grid-template-columns:1fr}}
+  .status-list{margin:0;padding:22px 24px 22px 44px;background:var(--surface);border:2px solid var(--ink);border-radius:18px;box-shadow:var(--hard);font-size:14.5px;color:var(--ink-soft)}
+  .status-list li+li{margin-top:8px}
+  .status-list b{color:var(--ink)}
+  .status-list .h{list-style:none;margin-left:-20px;font-weight:900;font-size:17px;color:var(--ink);margin-bottom:10px;font-family:"Fraunces",Georgia,serif}
+  .verline{margin-top:18px;font-size:13.5px;color:var(--ink-faint);font-weight:600}
+  .verline b{color:var(--ink)}
+
+  /* footer family */
+  .family{max-width:1080px;margin:18px auto 0;padding:0 24px;font-size:13.5px;color:var(--ink-faint)}
+  .family a{color:var(--ink-soft);font-weight:700}
+  .prose a,.fact a,.pcard a:not(.btn),.status-list a,.section-head a{color:var(--accent-ink);font-weight:600;text-underline-offset:3px}
+</style>
+</head>
+<body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
   <symbol id="scala-mark" viewBox="0 0 1024 1024">
     <rect width="1024" height="1024" rx="232" fill="#11111b"/>
@@ -261,38 +336,41 @@
       <span class="name disp">Scala</span>
     </a>
     <nav class="navlinks">
-      <a href="#try">Provalo</a>
+      <a href="#try">Try it</a>
       <a href="#features">Features</a>
-      <a href="#identity">Identity</a>
-      <a href="#get">Get it</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#status">Status</a>
+      <a href="#get">Install</a>
       <a class="ghub" href="https://github.com/vpavlin/scala">GitHub&nbsp;↗</a>
     </nav>
   </div>
 </header>
 <div class="marquee" aria-hidden="true">
   <div class="track">
-    <span>🤌 Allora</span><span>· Subito</span><span>· Zero cloud</span><span>· Mamma mia</span><span>· 100% offline</span><span>· Basta server</span><span>· Che bello</span><span>· Andiamo</span><span>· Nonno-approved</span><span>· Perfetto</span>
-    <span>🤌 Allora</span><span>· Subito</span><span>· Zero cloud</span><span>· Mamma mia</span><span>· 100% offline</span><span>· Basta server</span><span>· Che bello</span><span>· Andiamo</span><span>· Nonno-approved</span><span>· Perfetto</span>
+    <span>🤌 Allora</span><span>· Subito</span><span>· Zero cloud</span><span>· Mamma mia</span><span>· Offline-first</span><span>· Basta server</span><span>· Che bello</span><span>· Andiamo</span><span>· Nonno-approved</span><span>· Perfetto</span>
+    <span>🤌 Allora</span><span>· Subito</span><span>· Zero cloud</span><span>· Mamma mia</span><span>· Offline-first</span><span>· Basta server</span><span>· Che bello</span><span>· Andiamo</span><span>· Nonno-approved</span><span>· Perfetto</span>
   </div>
 </div>
 
 <a id="top"></a>
+<main>
 <div class="hero">
   <div class="wrap hero-grid">
     <div>
-      <p class="eyebrow rise">Secure CALendar · nessun server maltrattato</p>
-      <h1 class="disp rise d1">Un calendario<br>che <em>mantiene</em><br>la <span class="hl">parola.</span></h1>
-      <p class="lede rise d2">A shared calendar rebuilt on Logos. Your devices hold the same events and agree <b>without a server in the middle</b> — each calendar signed by a key you choose, down to a tap of your Keycard. <b>Il cloud? Non ci serve.</b></p>
+      <p class="eyebrow rise">Secure CALendar · Android + desktop</p>
+      <h1 class="disp rise d1">A shared calendar that <em>keeps</em> its <span class="hl">word.</span></h1>
+      <p class="lede rise d2">Scala is an <b>end-to-end encrypted</b> shared calendar for <b>Android</b> and <b>Basecamp</b> (desktop). Your devices sync directly with each other over Logos, with <b>no server</b> and no account.</p>
+      <p class="lede-sub rise d2">«Un calendario che mantiene la parola.» — <i>Nonno</i></p>
       <div class="cta-row rise d2">
-        <a class="btn primary" href="#try">Provalo — play with it ↓</a>
-        <a class="btn ghost" href="#get">Get the app</a>
+        <a class="btn primary" href="#get">Install Scala</a>
+        <a class="btn ghost" href="#try">Try the demo ↓</a>
       </div>
       <br>
-      <a class="rooted rise d2" href="https://vpavlin.github.io/loam/"><span class="dot"></span>Cresce nel Loam — the local-first substrate</a>
+      <a class="rooted rise d2" href="https://vpavlin.github.io/loam/"><span class="dot"></span>Built on Loam, the local-first layer for Logos apps</a>
     </div>
     <div class="hero-art-wrap rise d3">
-      <span class="sticker s1">100% offline 🔌</span>
-      <span class="sticker s2">zero cloud ☁️✗</span>
+      <span class="sticker s1">offline-first 🔌</span>
+      <span class="sticker s2">end-to-end encrypted 🔒</span>
       <span class="sticker s3">Nonno-approved 🤌</span>
       <svg class="hero-art" viewBox="0 0 1024 1024" role="img" aria-label="The Scala mark: a calendar whose days climb upward, the next one lit green.">
         <use href="#scala-mark"/>
@@ -302,48 +380,63 @@
   <div class="wrap"><svg class="stairs" viewBox="0 0 1000 34" preserveAspectRatio="none" aria-hidden="true"><path d="M0 32 H160 V24 H320 V16 H480 V24 H640 V12 H800 V20 H1000"/></svg></div>
 </div>
 
+<!-- ============ SCREENS (figures hide themselves until the PNGs exist) ============ -->
+<section id="screens" style="padding-top:clamp(28px,4vw,44px)">
+  <div class="wrap">
+    <p class="eyebrow">Screens</p>
+    <h2 class="section-head disp">What it looks like</h2>
+    <div class="gallery">
+      <figure><img src="assets/screens/month.png" alt="Scala on Android: the month view with events from several calendars" loading="lazy" onerror="this.parentNode.remove();scalaGallery()"><figcaption>Month view, several calendars</figcaption></figure>
+      <figure><img src="assets/screens/event.png" alt="Scala on Android: an event with an attachment and RSVP" loading="lazy" onerror="this.parentNode.remove();scalaGallery()"><figcaption>An event with RSVP and an attachment</figcaption></figure>
+      <figure><img src="assets/screens/share.png" alt="Scala on Android: the invite QR code for a calendar" loading="lazy" onerror="this.parentNode.remove();scalaGallery()"><figcaption>Invite by link or QR code</figcaption></figure>
+      <figure><img src="assets/screens/agenda.png" alt="Scala on Android: agenda and search" loading="lazy" onerror="this.parentNode.remove();scalaGallery()"><figcaption>Agenda and search</figcaption></figure>
+      <figure class="wide"><img src="assets/screens/desktop.png" alt="Scala in Basecamp on the desktop: the month view" loading="lazy" onerror="this.parentNode.remove();scalaGallery()"><figcaption>Scala in Basecamp (desktop)</figcaption></figure>
+    </div>
+  </div>
+</section>
+
 <!-- ============ THE PLAYGROUND ============ -->
 <section id="try" style="padding-top:clamp(28px,4vw,44px)">
   <div class="wrap">
     <div class="play-head">
-      <p class="eyebrow">Non ci credi?</p>
-      <h2 class="disp">Break the internet. Watch it heal.</h2>
+      <p class="eyebrow">Try it</p>
+      <h2 class="disp">Go offline, add events, reconnect.</h2>
       <p class="sub">«Rompi pure la rete. Io non ho paura.» — Nonno</p>
-      <p>Two people, one calendar. Add events on both while they're <b>offline</b> — then flip the network on and watch them agree. Same events, same order, nothing lost. <b>Non serve il cloud.</b></p>
+      <p>Two people, one calendar. Add events on both while they're <b>offline</b>, then switch the network on and watch them agree: same events, same order, nothing lost. This is a simulation in your browser; the real app does the same with signed, encrypted events.</p>
     </div>
 
     <div class="play" id="play">
       <div class="netbar">
         <div class="status" aria-live="polite">
           <span class="led"></span>
-          <span class="txt-off">Offline — al buio</span>
-          <span class="txt-on">Online — meshed &amp; synced</span>
+          <span class="txt-off">Offline</span>
+          <span class="txt-on">Online, in sync</span>
         </div>
         <button class="toggle" id="netToggle" role="switch" aria-checked="false" aria-label="Toggle the network"></button>
         <span class="mood" id="mood" title="Nonno's mood">🤌</span>
         <div class="spring">
-          <span class="stat">non sync <b id="statPending">0</b></span>
+          <span class="stat">not synced <b id="statPending">0</b></span>
           <span class="stat kept">writes lost <b>0</b></span>
-          <span class="converged">✓ convergiuto</span>
+          <span class="converged">✓ allineati</span>
         </div>
       </div>
 
       <div class="devs">
         <div class="dev a">
-          <div class="dev-top"><span class="who">A</span><span class="nm">Il telefono di Ada</span><span class="off" id="offA">locale</span></div>
+          <div class="dev-top"><span class="who">A</span><span class="nm">Ada's phone</span><span class="off" id="offA">local</span></div>
           <ul class="log" id="logA"></ul>
-          <div class="dev-actions"><button class="mini" data-dev="a">＋ Aggiungi — add event</button></div>
+          <div class="dev-actions"><button class="mini" data-dev="a">＋ Add event</button></div>
         </div>
         <div class="dev b">
-          <div class="dev-top"><span class="who">B</span><span class="nm">Il laptop di Bo</span><span class="off" id="offB">locale</span></div>
+          <div class="dev-top"><span class="who">B</span><span class="nm">Bo's laptop</span><span class="off" id="offB">local</span></div>
           <ul class="log" id="logB"></ul>
-          <div class="dev-actions"><button class="mini" data-dev="b">＋ Aggiungi — add event</button></div>
+          <div class="dev-actions"><button class="mini" data-dev="b">＋ Add event</button></div>
         </div>
       </div>
 
       <div class="play-foot">
         <span id="hint">«Allora. Add a few on each side while offline, then flip the switch.» — Nonno ☝️</span>
-        <button class="reset" id="reset">ricomincia (reset)</button>
+        <button class="reset" id="reset">reset</button>
       </div>
     </div>
   </div>
@@ -351,14 +444,14 @@
 
 <section id="what" style="padding-top:clamp(20px,3vw,36px)">
   <div class="wrap two">
-    <p class="statement">A calendar the cloud can’t hold <em>ostaggio</em>.</p>
+    <p class="statement">A calendar the cloud can’t hold <em>hostage</em>.</p>
     <div class="prose">
-      <p>What you just watched is the whole idea. Every change is a <b>sealed event with a hybrid-logical-clock stamp</b>; any device can carry it, in any order, and fold it into the same state. Offline isn’t a degraded mode — it’s the default, and the network is just a faster courier.</p>
-      <p>Desktop (as a Basecamp module) and Android run the <b>identical fold</b>, so they agree byte-for-byte. Two people editing the same day with no signal both keep their change. The log converges; nobody arbitrates.</p>
+      <p>What you just watched is the whole idea. A calendar is an <b>append-only log of signed, encrypted events</b>, each stamped with a hybrid logical clock. Any device can carry them, in any order, and fold them into the same state. Scala is <b>offline-first</b>: everything works on your device, and the network only carries changes between devices.</p>
+      <p>The desktop module and the Android app run the <b>same fold</b> (C++ and TypeScript, checked against shared test vectors), so they agree exactly. Two people editing the same day with no signal both keep their change. A device that was away catches up by asking peers only for what it is missing.</p>
       <div class="nonno">
         <span class="face" aria-hidden="true">🤌</span>
         <div>
-          <q>You lose the wifi and the whole calendar, <i>puf</i>, it disappears? Che disastro! In my day the appointment, it <i>stayed put</i>. Scala — finalmente — it stays put.</q>
+          <q>You lose the wifi and the whole calendar, <i>puf</i>, it disappears? Che disastro! In my day the appointment, it <i>stayed put</i>. Scala, finalmente, it stays put.</q>
           <span class="sig">— Nonno, unpaid technical advisor</span>
         </div>
       </div>
@@ -368,49 +461,80 @@
 
 <section id="features">
   <div class="wrap">
-    <p class="eyebrow">Cosa fa · what it does</p>
-    <h2 class="section-head disp">A real calendar — that just happens to be <em style="color:var(--peach);font-style:italic">unstoppabile</em>.</h2>
+    <p class="eyebrow">Features</p>
+    <h2 class="section-head disp">What Scala does</h2>
+    <p class="section-head" style="margin-top:14px;color:var(--ink-soft)">Everything below ships today on both Android and Basecamp unless marked otherwise.</p>
     <div class="cards">
       <div class="card">
-        <div class="ic" style="--cc:var(--green)"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5M20 12a8 8 0 0 1-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></div>
-        <h3>Converges, always</h3>
-        <p>An event-log CRDT with HLC ordering. Edit on a plane, sync on landing — no conflicts to resolve, no write ever lost.</p>
-        <span class="kick">— proprio come sopra ☝️</span>
-      </div>
-      <div class="card">
         <div class="ic" style="--cc:var(--blue)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></div>
-        <h3>Actually a calendar</h3>
-        <p>Times, all-day spans, locations, links, reminders, recurrence. Custom fields per calendar for when a title isn’t enough.</p>
+        <h3>A real calendar</h3>
+        <p>Timed and all-day events, locations, links, notes, reminders and <b>recurring events</b>. Enter times in local time or UTC.</p>
         <span class="kick">— mica un giocattolo</span>
       </div>
       <div class="card">
+        <div class="ic" style="--cc:var(--sky)"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+        <h3>Month, agenda and search</h3>
+        <p>A month grid, an agenda list and search across all your calendars, with a sync-status chip on each calendar.</p>
+        <span class="kick">— trovato subito</span>
+      </div>
+      <div class="card">
+        <div class="ic" style="--cc:var(--green)"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <h3>RSVP</h3>
+        <p>Going, maybe or no on any event, with a summary such as “3 going · 1 maybe”. Any member can answer for themselves, even on a closed calendar.</p>
+        <span class="kick">— vieni a cena?</span>
+      </div>
+      <div class="card">
+        <div class="ic" style="--cc:var(--yellow)"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 18v-6M9 15l3 3 3-3"/></svg></div>
+        <h3>.ics import and export</h3>
+        <p>Bring events in from Google, Apple, Thunderbird or a conference invite, including recurrence. Export a whole calendar to a <code>.ics</code> file.</p>
+        <span class="kick">— porte aperte</span>
+      </div>
+      <div class="card">
         <div class="ic" style="--cc:var(--peach)"><svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></div>
-        <h3>Attachments, sealed</h3>
-        <p>Attach files to any event — sealed with the calendar’s key and stored on Logos Storage, content-addressed. An always-on hub caches them, so anyone who joins can fetch long after your laptop is closed. <b>Il cloud? Non ci serve.</b></p>
+        <h3>Encrypted attachments</h3>
+        <p>Attach files to an event. They are encrypted with the calendar’s key and stored in Logos Storage by content address. Members who fetch a file can serve it to others.</p>
         <span class="kick">— gli allegati, al sicuro</span>
       </div>
       <div class="card">
         <div class="ic" style="--cc:var(--pink)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg></div>
-        <h3>Shared, with roles</h3>
-        <p>Invite by link or QR code. Owners and editors write, viewers read, an Open toggle lets anyone add — enforced by the fold, not a gatekeeper.</p>
+        <h3>Invite by link or QR</h3>
+        <p>Share a calendar with a link or QR code. An invite can also point to an encrypted <b>snapshot</b> of the calendar in Logos Storage, so a new member loads the history in one fetch and then syncs the rest.</p>
         <span class="kick">— la famiglia, insieme</span>
       </div>
       <div class="card">
+        <div class="ic" style="--cc:var(--lav)"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h3>Three calendar modes</h3>
+        <p><b>Closed</b> (the default), <b>Open</b> or <b>Collaborative</b>, plus editors and read-only viewers. The rules are enforced by every device, not by a gatekeeper. <a href="#privacy">See below</a>.</p>
+        <span class="kick">— chi decide?</span>
+      </div>
+      <div class="card">
+        <div class="ic" style="--cc:var(--mauve)"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></div>
+        <h3>Edit history</h3>
+        <p>See what changed on each edit and who made it. Only entries with a valid signature from their author are shown.</p>
+        <span class="kick">— chi ha cambiato cosa</span>
+      </div>
+      <div class="card">
+        <div class="ic" style="--cc:var(--red)"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="16" r="3"/></svg></div>
+        <h3>Custom fields</h3>
+        <p>Give a calendar its own fields when a title isn’t enough. A plain calendar stays plain; the fields only appear where you add them.</p>
+        <span class="kick">— su misura</span>
+      </div>
+      <div class="card">
         <div class="ic" style="--cc:var(--yellow)"><svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 8 8 10 4.6-2 8-5 8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
-        <h3>Signed by your key</h3>
-        <p>Each calendar is authored by an identity you pick — every write is signed, and the fold drops anything unsigned or from a key the calendar won’t accept. No server to trust.</p>
+        <h3>Every change is signed</h3>
+        <p>Each event is signed by the identity that wrote it. Devices drop anything unsigned, forged, or from someone the calendar doesn’t allow to write.</p>
         <span class="kick">— niente scherzi</span>
       </div>
       <div class="card">
-        <div class="ic" style="--cc:var(--mauve)"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="8" cy="12" r="2.2"/><path d="M12 12h6M15 15h3"/></svg></div>
-        <h3>Keycard-secured</h3>
-        <p>Bind a calendar to your Status Keycard — every edit is a tap on the card. The private key never leaves the hardware.</p>
-        <span class="kick">— difficile fregare un chip</span>
+        <div class="ic" style="--cc:var(--green)"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5M20 12a8 8 0 0 1-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></div>
+        <h3>Offline-first sync</h3>
+        <p>Changes save on your device instantly and sync when a peer is reachable. Edit on a plane, sync on landing; no conflicts to resolve.</p>
+        <span class="kick">— proprio come sopra ☝️</span>
       </div>
       <div class="card">
         <div class="ic" style="--cc:var(--sky)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="15" width="7" height="5" rx="1.5"/><rect x="14" y="13" width="7" height="7" rx="1.5"/></svg></div>
-        <h3>Desktop &amp; Android</h3>
-        <p>A Basecamp module and a native Android app, both full peers that hold their own history and heal the moment they meet.</p>
+        <h3>Android and desktop</h3>
+        <p>A native Android app and a Basecamp module. Both are full peers that keep their own copy of every calendar.</p>
         <span class="kick">— si ritrovano sempre</span>
       </div>
     </div>
@@ -419,62 +543,147 @@
 
 <section id="identity" style="background:var(--surface-2);border-top:2px solid var(--ink);border-bottom:2px solid var(--ink)">
   <div class="wrap">
-    <p class="eyebrow">La tua chiave, il tuo calendario</p>
-    <h2 class="section-head disp">One rung up from “which account.”</h2>
-    <p class="section-head" style="margin-top:14px;color:var(--ink-soft)">Google Calendar lets you pick which account an event lands in. Scala moves that choice up a rung — a <b style="color:var(--ink)">calendar</b> is bound to an <b style="color:var(--ink)">identity</b>, and every event it holds is authored by that identity’s key. Mix hardware and software; keep <i class="it">lavoro</i> and <i class="it">famiglia</i> on keys that never link back to each other.</p>
+    <p class="eyebrow">Identities</p>
+    <h2 class="section-head disp">Pick which identity writes to each calendar</h2>
+    <p class="section-head" style="margin-top:14px;color:var(--ink-soft)">Google Calendar lets you pick which account an event lands in. Scala goes one step further: each <b style="color:var(--ink)">calendar</b> is bound to an <b style="color:var(--ink)">identity</b>, and every event in it is signed by that identity’s key. Keep <i class="it">lavoro</i> and <i class="it">famiglia</i> on keys that can’t be linked to each other.</p>
     <div class="spot">
       <div class="spot-in">
         <div class="spot-copy">
-          <h3 class="disp">Three kinds of key.</h3>
-          <p>Bind any calendar to any of them — or mint a fresh one so its events can’t be tied to your others. Every write is signed; the fold quietly drops anything unsigned or from a key the calendar won’t accept.</p>
+          <h3 class="disp">Three kinds of identity</h3>
+          <p>Keys are held by Loam’s identity service, not by Scala itself. Choose “author as …” when you create or join a calendar, or create a fresh identity so its events can’t be tied to your others.</p>
         </div>
         <div class="idlist">
-          <div class="id"><div class="k">📱</div><div><div class="t">Device</div><div class="d">The built-in software key. Always there, zero setup — perfect for personal calendars.</div></div><span class="tag">default</span></div>
-          <div class="id"><div class="k">🔑</div><div><div class="t">Named software keys</div><div class="d">Extra keys you spin up to compartmentalise — a separate identity per context, no hardware needed.</div></div></div>
-          <div class="id"><div class="k">💳</div><div><div class="t">Status Keycard</div><div class="d">A hardware identity. Every write is a tap-to-sign; the key stays on the chip, PIN-gated.</div></div><span class="tag">hardware</span></div>
+          <div class="id"><div class="k">📱</div><div><div class="t">Device key</div><div class="d">The built-in software key. Always there, no setup.</div></div><span class="tag">default</span></div>
+          <div class="id"><div class="k">🔑</div><div><div class="t">Named software keys</div><div class="d">Extra keys you create to keep contexts apart. No hardware needed.</div></div></div>
+          <div class="id"><div class="k">💳</div><div><div class="t">Status Keycard</div><div class="d">A hardware identity: you tap the card to sign, and the key stays on the chip. Keycard support is experimental and not yet verified end to end.</div></div><span class="tag" style="color:var(--peach)">experimental</span></div>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<section id="get">
+<section id="privacy">
   <div class="wrap">
-    <p class="eyebrow">Andiamo · get it</p>
-    <h2 class="section-head disp">Install on desktop or Android.</h2>
-    <p class="section-head" style="margin-top:14px;color:var(--ink-soft)">Open and self-hosted. Both the Android app and the desktop Basecamp module install from the public apps.vpavlin.xyz repos.</p>
+    <p class="eyebrow">How it works</p>
+    <h2 class="section-head disp">Privacy: who can see what</h2>
+    <p class="section-head" style="margin-top:14px;color:var(--ink-soft)">Scala is designed so that the network never sees your calendar in the clear. Here is exactly what is encrypted, who holds the keys, and what the infrastructure can still observe.</p>
+    <div class="facts">
+      <div class="fact">
+        <h3>Each calendar has its own key</h3>
+        <p>When you create a calendar, your device generates a random 256-bit key. Every event, attachment and snapshot is encrypted with it (<b>AES-256-GCM</b>) before it leaves the device.</p>
+      </div>
+      <div class="fact">
+        <h3>The key is in the invite link</h3>
+        <p>The invite link and QR code carry the calendar key. <b>Anyone with the link can read the calendar</b>, and can write as far as the calendar’s mode allows. Share it like a house key. There is no key rotation yet, so someone you remove can still read.</p>
+      </div>
+      <div class="fact">
+        <h3>What the network sees</h3>
+        <p>Logos relay and store nodes only carry encrypted messages. They can see a message topic derived from the calendar ID, message sizes and timing, and peers see your node’s network address. Store nodes keep encrypted messages for a limited time so returning devices can catch up.</p>
+      </div>
+      <div class="fact">
+        <h3>Signatures, not servers</h3>
+        <p>Every event is signed. Each device checks signatures and permissions itself, so nobody can write as you, and nobody in the middle decides who is allowed to edit.</p>
+      </div>
+      <div class="fact">
+        <h3>A hub is optional, and yours</h3>
+        <p>There is no Scala server. If you want calendars and attachments to stay available while all your devices are off, you can <b>run your own hub</b>: a headless Scala on an always-on machine. It joins calendars like any member, so <b>it holds their keys and can read them</b>. Only add calendars to a hub you run or trust. See <a href="https://github.com/vpavlin/scala/blob/main/docs/hub.md">docs/hub.md</a>.</p>
+      </div>
+      <div class="fact">
+        <h3>Loam on Android</h3>
+        <p>On Android we recommend installing <a href="https://vpavlin.github.io/loam/">Loam</a>: one shared Logos node for all your apps, plus Bluetooth sync between nearby phones (experimental, Android only). Without Loam, Scala runs its own node.</p>
+      </div>
+    </div>
+
+    <div class="modes">
+      <div class="mode"><span class="tag" style="--cc:var(--blue)">default</span><h3>Closed</h3><p>Only the owner and editors add or change events. Everyone else with the link can read and RSVP.</p></div>
+      <div class="mode"><span class="tag" style="--cc:var(--green)">Open</span><h3>Open</h3><p>Any member can add events, and edit or delete the ones they wrote. The owner and editors can change anything.</p></div>
+      <div class="mode"><span class="tag" style="--cc:var(--mauve)">Collaborative</span><h3>Collaborative</h3><p>Any member except read-only viewers can edit or delete any event. Good for a team calendar where everyone keeps it tidy.</p></div>
+    </div>
+    <p class="modes-note">Viewers are always read-only. The app explains why you can or can’t edit a given event. Every write still has to be signed, so “any member” means anyone who holds the link and signs as themselves.</p>
+  </div>
+</section>
+
+<section id="get" style="background:var(--surface-2);border-top:2px solid var(--ink);border-bottom:2px solid var(--ink)">
+  <div class="wrap">
+    <p class="eyebrow">Andiamo</p>
+    <h2 class="section-head disp">Install</h2>
+    <p class="section-head" style="margin-top:14px;color:var(--ink-soft)">Install it on Android, on the desktop, or both. Devices that share a calendar sync with each other.</p>
     <div class="plat">
       <div class="pcard">
-        <span class="badge" style="--cc:var(--green)">Android</span>
-        <h3>F-Droid repo</h3>
-        <p>Add the apps.vpavlin.xyz F-Droid repo — the fingerprint pins it as its own source — then install Scala and let it update in place.</p>
-        <code class="fpurl mono">https://apps.vpavlin.xyz/fdroid/repo<span class="k">?fingerprint=</span>2373710A76ACB09F287F053E99E533F9D3685529C44E9027CDBC79B1DC0C9105</code>
+        <span class="badge" style="--cc:var(--green)">Android · arm64</span>
+        <h3>F-Droid</h3>
+        <div class="qr-row">
+          <a class="qr" href="https://apps.vpavlin.xyz/fdroid/repo?fingerprint=2373710A76ACB09F287F053E99E533F9D3685529C44E9027CDBC79B1DC0C9105" aria-label="Add the F-Droid repository"><img src="assets/fdroid-qr.svg" alt="QR code for the F-Droid repository link" width="140" height="140"></a>
+          <ol class="steps">
+            <li>Scan the QR code or tap <b>Add repository</b> on your phone. F-Droid opens and adds the repo.</li>
+            <li>Install <b>Scala</b>.</li>
+            <li>Recommended: also install <b>Loam</b> from the same repo.</li>
+          </ol>
+        </div>
+        <a class="btn primary" href="https://apps.vpavlin.xyz/fdroid/repo?fingerprint=2373710A76ACB09F287F053E99E533F9D3685529C44E9027CDBC79B1DC0C9105">Add repository</a>
+        <p style="margin:0 0 6px">Repository and fingerprint:</p>
+        <code class="fpurl mono">https://apps.vpavlin.xyz/fdroid/repo</code>
+        <code class="fpurl mono" style="margin-top:8px">2373710A76ACB09F287F053E99E533F9D3685529C44E9027CDBC79B1DC0C9105</code>
+        <p class="note">64-bit ARM phones only. Loam is recommended: one shared node for all apps, plus Bluetooth. Without it, Scala runs its own node.</p>
       </div>
       <div class="pcard">
-        <span class="badge" style="--cc:var(--sky)">Desktop</span>
-        <h3>Basecamp module</h3>
-        <p>In Basecamp, add the apps.vpavlin.xyz repo, then install <span class="mono">scala</span> and its view. Same fold as the phone — they converge.</p>
-        <code class="fpurl mono">https://apps.vpavlin.xyz/basecamp/logos-repo.json</code>
-        <p class="note">Both repos are public at apps.vpavlin.xyz — paste the URL above into Basecamp's package manager.</p>
+        <span class="badge" style="--cc:var(--sky)">Desktop · Basecamp 0.2.x</span>
+        <h3>Basecamp</h3>
+        <ol class="steps">
+          <li>In Basecamp, open the package manager and add this URL under <b>package repositories</b>:</li>
+        </ol>
+        <code class="fpurl mono" style="margin:10px 0">https://apps.vpavlin.xyz/logos-repo.json</code>
+        <ol class="steps" start="2">
+          <li>Install <b>Scala</b> (package <code class="inl">scala_ui</code>). It pulls in the <code class="inl">scala</code> core, <code class="inl">loam_core</code> and <code class="inl">storage_module</code> automatically.</li>
+        </ol>
+        <p class="note">Supported: Basecamp 0.2.x. Basecamp 0.3 support is coming.</p>
       </div>
     </div>
   </div>
 </section>
+
+<section id="status">
+  <div class="wrap">
+    <p class="eyebrow">Status</p>
+    <h2 class="section-head disp">Status and limitations</h2>
+    <p class="section-head" style="margin-top:14px;color:var(--ink-soft)">Scala works end to end between Android and Basecamp and has been verified on real devices. It is still young software; here is what to expect.</p>
+    <div class="status-grid">
+      <ul class="status-list">
+        <li class="h">Limitations</li>
+        <li><b>Keycard support is experimental.</b> It has not been verified end to end, especially on the desktop.</li>
+        <li><b>Bluetooth</b> (via Loam) is experimental and Android only.</li>
+        <li><b>Basecamp 0.2.x only</b> for now. Android builds are arm64 only.</li>
+        <li><b>No key rotation.</b> Anyone who ever had the invite link can still read the calendar.</li>
+        <li><b>Large attachments</b> between two devices that are both behind NAT may fail without a hub; a hub you run keeps them fetchable.</li>
+        <li>Some features change how events are processed (for example Collaborative mode), so everyone sharing a calendar should run a recent version.</li>
+      </ul>
+      <ul class="status-list">
+        <li class="h">Coming next</li>
+        <li>Basecamp 0.3 support.</li>
+        <li>Verified Keycard signing on the desktop, with the same card as on the phone.</li>
+        <li>Desktop system notifications for reminders.</li>
+        <li>A desktop search box and UTC toggle, and richer custom-field display.</li>
+      </ul>
+    </div>
+    <p class="verline">Latest public builds: Android <b>0.9.114</b> · Basecamp <b>scala_ui 0.8.37</b> + <b>scala 0.9.42</b>. Both repos always serve the latest version.</p>
+  </div>
+</section>
+</main>
 
 <footer>
   <div class="wrap foot">
     <div style="display:flex;align-items:center;gap:10px">
       <svg width="24" height="24" viewBox="0 0 1024 1024" aria-hidden="true"><use href="#scala-mark"/></svg>
       <span class="disp" style="font-size:18px;font-weight:800;color:var(--ink-soft)">Scala</span>
-      <span>— secure, shared, offline-first calendar.</span>
+      <span>— an end-to-end encrypted, offline-first shared calendar. MIT License.</span>
     </div>
-    <div style="display:flex;gap:22px">
-      <a href="https://github.com/vpavlin/scala">GitHub</a>
-      <a href="https://vpavlin.github.io/loam/">Loam</a>
-      <a href="#try">Provalo</a>
-      <a href="#get">Get it</a>
+    <div style="display:flex;gap:22px;flex-wrap:wrap">
+      <a href="https://github.com/vpavlin/scala">Source on GitHub</a>
+      <a href="https://github.com/vpavlin/scala/tree/main/docs/adr">Design decisions</a>
+      <a href="#get">Install</a>
     </div>
   </div>
+  <p class="family">Part of a family of local-first apps on Logos → <a href="https://apps.vpavlin.xyz/">apps.vpavlin.xyz</a> · <a href="https://vpavlin.github.io/loam/">Loam</a> · <a href="https://vpavlin.github.io/qaku-logos/">QAKU</a> · <a href="https://vpavlin.github.io/perun/">Perun</a> · <a href="https://vpavlin.github.io/kith/">Kith</a></p>
   <p class="egg"><b>scala</b> — Italian for <i>staircase</i>. Also: Secure CALendar. Mostly: your days, one step up. Nonno approva. 🪜🤌</p>
 </footer>
 
@@ -556,3 +765,5 @@
   render();
 })();
 </script>
+</body>
+</html>
