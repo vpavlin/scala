@@ -182,7 +182,13 @@ Java_xyz_vpavlin_scalastorage_LogosStorageModule_##NAME(JNIEnv *env, jobject thi
     return js;                                                                                   \
 }
 DEFINE_CID_CALL(storageExists, storage_exists)
-DEFINE_CID_CALL(storageFetch,  storage_fetch)
+// libstorage >= 0.5: fetch takes (isPrivate, advertise). Direct transport (no mix), and a phone
+// does NOT advertise what it fetched: it is fetch-only and usually behind NAT, so a provider record
+// pointing at it would only send other peers to an address they can't dial.
+static int storage_fetch_direct(void *ctx, const char *cid, StorageCallback cb, void *ud) {
+    return storage_fetch(ctx, cid, false, false, cb, ud);
+}
+DEFINE_CID_CALL(storageFetch,  storage_fetch_direct)
 
 JNIEXPORT jstring JNICALL
 Java_xyz_vpavlin_scalastorage_LogosStorageModule_storageDownloadInit(JNIEnv *env, jobject thiz,
@@ -190,8 +196,9 @@ Java_xyz_vpavlin_scalastorage_LogosStorageModule_storageDownloadInit(JNIEnv *env
     (void)thiz;
     const char *cid = (*env)->GetStringUTFChars(env, cidStr, NULL);
     Resp *r = resp_alloc();
+    // libstorage >= 0.5: + isPrivate (mix transport) and advertise — both off (see storage_fetch_direct).
     int accepted = storage_download_init((void *)(intptr_t)ctx, cid, (size_t)chunkSize,
-                                         local ? true : false, (StorageCallback)storage_cb, r);
+                                         local ? true : false, false, false, (StorageCallback)storage_cb, r);
     (*env)->ReleaseStringUTFChars(env, cidStr, cid);
     if (accepted == RET_OK) resp_wait(r);
     else { r->ret = RET_ERR; if (!r->msg) r->msg = strdup("call not accepted"); }
@@ -208,8 +215,10 @@ Java_xyz_vpavlin_scalastorage_LogosStorageModule_storageDownloadStream(JNIEnv *e
     const char *cid = (*env)->GetStringUTFChars(env, cidStr, NULL);
     const char *path = (*env)->GetStringUTFChars(env, filePathStr, NULL);
     Resp *r = resp_alloc();
+    // libstorage >= 0.5: `local` moved to download_init (the session); the stream no longer takes it.
+    (void)local;
     int accepted = storage_download_stream((void *)(intptr_t)ctx, cid, (size_t)chunkSize,
-                                           local ? true : false, path, (StorageCallback)storage_cb, r);
+                                           path, (StorageCallback)storage_cb, r);
     (*env)->ReleaseStringUTFChars(env, cidStr, cid);
     (*env)->ReleaseStringUTFChars(env, filePathStr, path);
     if (accepted == RET_OK) resp_wait(r);

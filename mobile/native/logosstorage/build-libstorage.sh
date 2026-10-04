@@ -18,7 +18,7 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_URL=${REPO_URL:-https://github.com/vpavlin/nim-codex.git}
-REF=${REF:-6af20491addbf8edaec68a1d51db5c6abe94c0c9}   # android-fetch-client: libStorageAndroid task
+REF=${REF:-889ed1a6ef5249d6a99ba50ec1cc6269230ccb74}   # android-fetch-client-v0.5.3: libStorageAndroid task on upstream v0.5.3
 SRC=${SRC:-$HOME/.cache/scala-libstorage/logos-storage-nim}
 NDK=${ANDROID_NDK_HOME:-$HOME/Android/Sdk/ndk/27.1.12297006}
 JOBS=${JOBS:-2}
