@@ -190,4 +190,4 @@ The v0.1 Qt-plugin code is archived in `legacy/`. Key changes from v0.1:
 
 ## License
 
-MIT — see LICENSE file
+Dual-licensed under MIT or Apache-2.0, at your option (as the Logos stack) — see [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
