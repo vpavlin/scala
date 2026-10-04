@@ -2,7 +2,7 @@
   "name": "scala_ui",
   "display_name": "Scala",
   "icon": "icon.png",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "type": "ui_qml",
   "category": "general",
   "description": "Scala Calendar UI - pure-QML view over the scala calendar core module",
@@ -23,5 +23,149 @@
       "extra_include_dirs": [],
       "extra_link_libraries": []
     }
-  }
+  },
+  "provides": [
+    {
+      "intent": "scala.calendars.list",
+      "readOnly": true,
+      "description": "List the calendars, with how many events each has and whether you can add to it."
+    },
+    {
+      "intent": "scala.events.list",
+      "readOnly": true,
+      "description": "List the events in a time range (repeating events are expanded), and show that day in Scala.",
+      "params": [
+        {
+          "name": "from",
+          "type": "string",
+          "required": false,
+          "description": "Start of the range: 2026-10-05 for a day, 2026-10-05T15:00 for a time (local time). Default: today."
+        },
+        {
+          "name": "to",
+          "type": "string",
+          "required": false,
+          "description": "End of the range, same format; a bare date includes that whole day. Default: the end of the start day."
+        },
+        {
+          "name": "calendar",
+          "type": "string",
+          "required": false,
+          "description": "Only this calendar (its name). Default: all."
+        }
+      ]
+    },
+    {
+      "intent": "scala.events.search",
+      "readOnly": true,
+      "description": "Find events whose title, location or notes contain the words.",
+      "params": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "Words to look for."
+        }
+      ]
+    },
+    {
+      "intent": "scala.event.create",
+      "description": "Add an event to a calendar.",
+      "params": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "description": "What the event is."
+        },
+        {
+          "name": "start",
+          "type": "string",
+          "required": true,
+          "description": "When it starts: 2026-10-05 for a day, 2026-10-05T15:00 for a time (local time). A bare date makes an all-day event."
+        },
+        {
+          "name": "end",
+          "type": "string",
+          "required": false,
+          "description": "When it ends, same format. Default: one hour after the start."
+        },
+        {
+          "name": "calendar",
+          "type": "string",
+          "required": false,
+          "description": "Which calendar (its name). Default: the last one used, or the only one."
+        },
+        {
+          "name": "location",
+          "type": "string",
+          "required": false,
+          "description": "Where."
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false,
+          "description": "Notes."
+        }
+      ]
+    },
+    {
+      "intent": "scala.calendar.create",
+      "description": "Create a new calendar.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The calendar's name."
+        }
+      ]
+    },
+    {
+      "intent": "scala.calendar.join",
+      "description": "Join a calendar someone shared, from their scala://join invite link.",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true,
+          "description": "The scala://join?… invite link."
+        }
+      ]
+    },
+    {
+      "intent": "scala.calendar.share",
+      "handoff": true,
+      "description": "Open the share dialog of a calendar in Scala (invite link and QR code). The link itself stays in Scala.",
+      "params": [
+        {
+          "name": "calendar",
+          "type": "string",
+          "required": false,
+          "description": "Which calendar (its name). Default: the last one used, or the only one."
+        }
+      ]
+    },
+    {
+      "intent": "scala.calendar.show",
+      "handoff": true,
+      "readOnly": true,
+      "description": "Show a day, week or month in Scala.",
+      "params": [
+        {
+          "name": "date",
+          "type": "string",
+          "required": false,
+          "description": "Which day: 2026-10-05. Default: today."
+        },
+        {
+          "name": "view",
+          "type": "string",
+          "required": false,
+          "description": "day, week or month. Default: as it is."
+        }
+      ]
+    }
+  ]
 }
