@@ -480,6 +480,199 @@ Item {
         return d
     }
 
+    // ── app-to-app intents (docs/adr/0023-app-intents.md) ─────────────────────
+    // Other apps ask Scala to do things through Basecamp's intent broker: `provides` in
+    // metadata.json declares what, Basecamp asks the user and brings this view forward, and the
+    // request arrives here. Every request is answered exactly once through logos.respond.
+    // Only names, titles and times cross: never a calendar key or a share link (share opens the
+    // share dialog here instead). A request the user can fix (no such calendar, a bad date) is
+    // answered bad_request and explained in a toast here, where the user is looking.
+    Connections {
+        target: (typeof logos !== "undefined") ? logos : null
+        ignoreUnknownSignals: true
+        function onIntentRequested(requestId, intent, params, requesterName) {
+            root.handleIntent(requestId, intent, params || ({}), requesterName || "")
+        }
+    }
+    function intentReply(requestId, ok, data, error) {
+        try { logos.respond(requestId, ok, data || ({}), ok ? "" : (error || "failed")) }
+        catch (e) { console.warn("scala view: respond threw: " + e) }
+    }
+    // A request the user can fix: say why here, answer bad_request.
+    function intentRefuse(requestId, why) {
+        root.notify(why, true)
+        root.intentReply(requestId, false, ({}), "bad_request")
+    }
+    // "2026-10-05", "2026-10-05T15:00", "2026-10-05 15:00[:00]" → {date, allDay}, local time; null if not a date.
+    function intentDate(s) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2})(?::\d{2})?)?$/.exec(String(s || "").trim())
+        if (!m) return null
+        var d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]), m[4] ? parseInt(m[4]) : 0, m[5] ? parseInt(m[5]) : 0, 0, 0)
+        if (isNaN(d.getTime()) || d.getMonth() !== parseInt(m[2]) - 1) return null
+        return { date: d, allDay: !m[4] }
+    }
+    function intentWhen(ms) { var d = new Date(ms); return fmtDateInput(d) + " " + fmtTimeInput(d) }
+    // An event as other apps see it: no ids, keys, authors or attachments.
+    function intentEvent(ev, cals) {
+        var name = ""
+        for (var i = 0; i < cals.length; i++) if (cals[i].id === ev.calendarId) name = cals[i].name
+        var o = { title: ev.title || "", start: ev.allDay ? fmtDateInput(new Date(ev.startTime)) : intentWhen(ev.startTime), calendar: name }
+        if (!ev.allDay) o.end = intentWhen(ev.endTime || ev.startTime)
+        if (ev.allDay) o.allDay = true
+        if (ev.location) o.location = ev.location
+        return o
+    }
+    // A calendar by spoken name: exact (any case), else the only one containing it.
+    // Empty: the last one used, else the only one. Returns {cal} or {error}.
+    function intentCalendar(cals, name, writable) {
+        var pool = []
+        for (var i = 0; i < cals.length; i++) if (!writable || root.canAddTo(cals[i])) pool.push(cals[i])
+        var q = String(name || "").trim().toLowerCase()
+        if (q === "") {
+            for (var k = 0; k < pool.length; k++) if (pool[k].id === root.lastCalId) return { cal: pool[k] }
+            if (pool.length === 1) return { cal: pool[0] }
+            if (pool.length === 0) return { error: writable ? "There is no calendar you can add to. Create one first." : "There are no calendars yet." }
+            return { error: "Which calendar? " + pool.map(function (c) { return c.name }).join(", ") }
+        }
+        var exact = [], part = []
+        for (var n = 0; n < pool.length; n++) {
+            var cn = String(pool[n].name || "").toLowerCase()
+            if (cn === q) exact.push(pool[n]); else if (cn.indexOf(q) >= 0) part.push(pool[n])
+        }
+        var hit = exact.length ? exact : part
+        if (hit.length === 1) return { cal: hit[0] }
+        if (hit.length > 1) return { error: "Several calendars match \"" + name + "\": " + hit.map(function (c) { return c.name }).join(", ") }
+        return { error: "No calendar called \"" + name + "\"" + (pool.length ? ". There is " + pool.map(function (c) { return c.name }).join(", ") : "") + "." }
+    }
+    // Fresh calendars + events from the core: a request can arrive before the first refresh.
+    function intentData(cb) {
+        root.coreAsync("listCalendars", [], function (r1) {
+            var cals = root.j(r1, [])
+            root.coreAsync("listAllEvents", [], function (r2) { cb(cals, root.j(r2, [])) })
+        })
+    }
+    function handleIntent(requestId, intent, p, requesterName) {
+        if (!root.ready) { root.intentReply(requestId, false, ({}), "failed"); return }
+        if (intent === "scala.calendars.list") {
+            root.intentData(function (cals, evs) {
+                var out = []
+                for (var i = 0; i < cals.length; i++) {
+                    var n = 0
+                    for (var k = 0; k < evs.length; k++) if (evs[k].calendarId === cals[i].id) n++
+                    out.push({ name: cals[i].name, events: n, canAdd: root.canAddTo(cals[i]) })
+                }
+                root.intentReply(requestId, true, { calendars: out }, "")
+            })
+        } else if (intent === "scala.events.list") {
+            var today = new Date(); today.setHours(0, 0, 0, 0)
+            var from = p.from ? root.intentDate(p.from) : { date: today, allDay: true }
+            if (!from) { root.intentRefuse(requestId, "Not a date: \"" + p.from + "\" (use 2026-10-05 or 2026-10-05T15:00)."); return }
+            var to = p.to ? root.intentDate(p.to) : null
+            if (p.to && !to) { root.intentRefuse(requestId, "Not a date: \"" + p.to + "\"."); return }
+            var ws = from.date.getTime()
+            // A bare end date includes that whole day; no end: the rest of the start day.
+            var we = to ? (to.allDay ? to.date.getTime() + 24 * 3600000 - 1 : to.date.getTime())
+                        : new Date(from.date.getFullYear(), from.date.getMonth(), from.date.getDate() + 1).getTime() - 1
+            if (we < ws) { root.intentRefuse(requestId, "The end is before the start."); return }
+            root.intentData(function (cals, evs) {
+                var src = evs
+                if (p.calendar) {
+                    var c = root.intentCalendar(cals, p.calendar, false)
+                    if (c.error) { root.intentRefuse(requestId, c.error); return }
+                    src = evs.filter(function (e) { return e.calendarId === c.cal.id })
+                }
+                var occ = root.expandEvents(src, ws, we)
+                var out = []
+                for (var i = 0; i < occ.length && out.length < 50; i++) out.push(root.intentEvent(occ[i], cals))
+                root.selectedDay = from.date; root.viewMonth = from.date
+                root.intentReply(requestId, true, { events: out, from: root.intentWhen(ws), to: root.intentWhen(we), more: occ.length > out.length }, "")
+            })
+        } else if (intent === "scala.events.search") {
+            var q = String(p.query || "").trim().toLowerCase()
+            if (q === "") { root.intentRefuse(requestId, "Search for what?"); return }
+            root.intentData(function (cals, evs) {
+                var hits = []
+                for (var i = 0; i < evs.length; i++) {
+                    var ev = evs[i]
+                    var hay = ((ev.title || "") + " " + (ev.location || "") + " " + (ev.description || "")).toLowerCase()
+                    if (hay.indexOf(q) >= 0) hits.push(ev)
+                }
+                hits.sort(function (a, b) { return a.startTime - b.startTime })
+                var out = []
+                for (var k = 0; k < hits.length && out.length < 50; k++) out.push(root.intentEvent(hits[k], cals))
+                root.searchQuery = p.query
+                root.intentReply(requestId, true, { events: out, more: hits.length > out.length }, "")
+            })
+        } else if (intent === "scala.event.create") {
+            var title = String(p.title || "").trim()
+            if (title === "") { root.intentRefuse(requestId, "The event needs a title."); return }
+            var s = root.intentDate(p.start)
+            if (!s) { root.intentRefuse(requestId, "Not a start time: \"" + p.start + "\" (use 2026-10-05T15:00, or 2026-10-05 for all day)."); return }
+            var e = p.end ? root.intentDate(p.end) : null
+            if (p.end && !e) { root.intentRefuse(requestId, "Not an end time: \"" + p.end + "\"."); return }
+            var allDay = s.allDay && (!e || e.allDay)
+            var st = allDay ? new Date(s.date.getFullYear(), s.date.getMonth(), s.date.getDate(), 0, 0, 0, 0) : s.date
+            var en = allDay ? new Date(st.getFullYear(), st.getMonth(), st.getDate(), 23, 59, 0, 0)
+                            : (e && e.date.getTime() > st.getTime() ? e.date : new Date(st.getTime() + 3600000))
+            root.intentData(function (cals, evs) {
+                var c = root.intentCalendar(cals, p.calendar, true)
+                if (c.error) { root.intentRefuse(requestId, c.error); return }
+                var nv = { title: title, startTime: st.getTime(), endTime: en.getTime(), allDay: allDay,
+                           description: String(p.description || "").trim(), location: String(p.location || "").trim(),
+                           url: "", reminderMin: 0 }
+                root.coreAsync("createEvent", [c.cal.id, JSON.stringify(nv)], function (r) {
+                    var id = String(root.j(r, ""))
+                    if (id === "") { root.notify("Couldn't add the event.", true); root.intentReply(requestId, false, ({}), "failed"); return }
+                    root.lastCalId = c.cal.id
+                    root.selectedDay = st; root.viewMonth = st
+                    root.refresh()
+                    root.notify("Added \"" + title + "\" to " + c.cal.name + ".", false)
+                    nv.calendarId = c.cal.id
+                    root.intentReply(requestId, true, { event: root.intentEvent(nv, cals) }, "")
+                })
+            })
+        } else if (intent === "scala.calendar.create") {
+            var name = String(p.name || "").trim()
+            if (name === "") { root.intentRefuse(requestId, "The calendar needs a name."); return }
+            root.coreAsync("createCalendar", [name, "", root.createDefaultOwner], function (r) {
+                var id = String(root.j(r, ""))
+                if (id === "") { root.notify("Couldn't create the calendar.", true); root.intentReply(requestId, false, ({}), "failed"); return }
+                root.refresh()
+                root.notify("Created the calendar " + name + ".", false)
+                root.intentReply(requestId, true, { calendar: { name: name } }, "")
+            })
+        } else if (intent === "scala.calendar.join") {
+            var link = String(p.link || "").trim()
+            if (link.indexOf("scala://join") !== 0) { root.intentRefuse(requestId, "That is not a Scala invite link (scala://join?…)."); return }
+            root.coreAsync("parseShareLink", [link], function (pr) {
+                var info = root.j(pr, null)
+                if (!info || !info.id) { root.intentRefuse(requestId, "That invite link is incomplete."); return }
+                root.coreAsync("handleShareLink", [link, root.defaultIdentityId], function (r) {
+                    if (root.j(r, false) !== true) { root.notify("Couldn't join the calendar.", true); root.intentReply(requestId, false, ({}), "failed"); return }
+                    root.refresh()
+                    root.notify("Joined " + (info.name || "the calendar") + ".", false)
+                    root.intentReply(requestId, true, { calendar: { name: info.name || "" } }, "")
+                })
+            })
+        } else if (intent === "scala.calendar.share") {
+            root.intentData(function (cals, evs) {
+                var c = root.intentCalendar(cals, p.calendar, false)
+                if (c.error) { root.intentRefuse(requestId, c.error); return }
+                root.openShare(c.cal)
+                root.intentReply(requestId, true, { calendar: { name: c.cal.name } }, "")
+            })
+        } else if (intent === "scala.calendar.show") {
+            var at = p.date ? root.intentDate(p.date) : { date: new Date(), allDay: true }
+            if (!at) { root.intentRefuse(requestId, "Not a date: \"" + p.date + "\"."); return }
+            var mode = String(p.view || "")
+            if (mode === "day" || mode === "week" || mode === "month") root.calMode = mode
+            root.selectedDay = at.date; root.viewMonth = at.date
+            root.intentReply(requestId, true, ({}), "")
+        } else {
+            root.intentReply(requestId, false, ({}), "bad_request")
+        }
+    }
+
     // ── layout ───────────────────────────────────────────────────────────────
     Rectangle { anchors.fill: parent; color: root.cBase }
 
