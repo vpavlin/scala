@@ -228,6 +228,34 @@ inline bool verifyEvent(const Event& e) {
     return ecdsaVerify(pub, digest, sig);
 }
 
+// ── invite tickets (scala ADR 0022) — mirrors identity.ts inviteClaimMessage/sign/verifyInviteClaim ──
+inline std::string inviteClaimMessage(const std::string& calId, const std::string& ticket, const std::string& member) {
+    return "scala-invite-claim-v1|" + calId + "|" + ticket + "|" + member;
+}
+struct InviteClaim { std::string ticket, ticketPub, ticketSig; bool ok = false; };
+inline InviteClaim signInviteClaim(const Bytes& ticketPriv, const std::string& calId, const std::string& member) {
+    InviteClaim c; SignId t = identityFromPriv(ticketPriv); if (!t.valid) return c;
+    Bytes sig = ecdsaSignLowS(ticketPriv, sha256b(strBytes(inviteClaimMessage(calId, t.address, member))));
+    if (sig.size() != 64) return c;
+    c.ticket = t.address; c.ticketPub = t.pubHex; c.ticketSig = toHexS(sig.data(), (int)sig.size()); c.ok = true;
+    return c;
+}
+inline bool verifyInviteClaim(const std::string& calId, const std::string& ticket, const std::string& ticketPub,
+                              const std::string& member, const std::string& ticketSig) {
+    Bytes pub = fromHexB(ticketPub);
+    if (pub.size() != 33 || ticketSig.size() != 128) return false;
+    Bytes h = sha256b(pub);
+    if ("0x" + toHexS(h.data(), 32).substr(24, 40) != ticket) return false;
+    Bytes sig = fromHexB(ticketSig);
+    if (sig.size() != 64) return false;
+    // Require LOW-S, exactly like noble's verify on the phone: OpenSSL also accepts the high-S twin of a
+    // signature, and a crafted claim must not count on one platform and not the other.
+    static const unsigned char kHalfN[32] = {0x7F,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+                                             0x5D,0x57,0x6E,0x73,0x57,0xA4,0x50,0x1D,0xDF,0xE9,0x2F,0x46,0x68,0x1B,0x20,0xA0};
+    if (std::lexicographical_compare(kHalfN, kHalfN + 32, sig.begin() + 32, sig.end())) return false;   // s > n/2
+    return ecdsaVerify(pub, sha256b(strBytes(inviteClaimMessage(calId, ticket, member))), sig);
+}
+
 // An event is "legacy" (pre-signing) when it carries no signature — admitted for
 // backward compat, but never treated as an authenticated author.
 inline bool isSigned(const Event& e) { return !e.sig.empty(); }

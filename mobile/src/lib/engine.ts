@@ -8,7 +8,7 @@
 // One channel == one calendar; its log holds that calendar's events. Keep this in
 // lockstep with scala_engine.hpp; the golden-vector parity test (test/parity)
 // guards the two against drift.
-import { verifyEvent, isSigned } from "./identity";
+import { verifyEvent, isSigned, verifyInviteClaim } from "./identity";
 
 // ── HLC (hybrid logical clock): total order wall → ctr → dev ─────────────────
 export interface HLC {
@@ -42,6 +42,8 @@ export const ET = {
   EVENT_DEL: "event.del", // {id}                   — tombstone an event (terminal)
   MEMBER_SET: "member.set", // {member,role}        — roles (#3): owner/admin grants admin|viewer|remove; opt-in
   EVENT_RSVP: "event.rsvp", // {eventId,status}     — attendance (ADR 0021): LWW per (eventId,author); self-scoped
+  MEMBER_INVITE: "member.invite", // {ticket,role}  — invite ticket (ADR 0022): owner/editor offers a role to whoever holds the ticket key
+  MEMBER_CLAIM: "member.claim", // {ticket,ticketPub,member,ticketSig} — redeem a ticket (first valid claim wins)
   SYNC_REQ: "sync.req", // {from}                  — catch-up: ask peers to re-serve; NOT stored/folded
 } as const;
 
@@ -94,6 +96,7 @@ export interface FoldedCalendar {
   owner: string;
   roles: Record<string, string>;
   rolesConfigured: boolean;
+  invites: Record<string, string>; // pending (unclaimed) invite tickets: ticket address -> role
   open: boolean;
   collab: boolean;
   events: any[];
@@ -119,6 +122,8 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   // ADD iff Open, and EDIT/DELETE only the events THEY authored. Single HLC-ordered pass.
   const roleOf = new Map<string, string>(); // dev -> "editor"|"viewer"
   const creatorOf = new Map<string, string>(); // event id -> ORIGINAL author (edit-your-own)
+  const invites = new Map<string, string>(); // ticket address -> offered role (ADR 0022)
+  const claimed = new Set<string>(); // tickets already redeemed (one-time)
   let rolesConfigured = false;
   let openCal = true; // cal.meta "open" (LWW): may participants add? default yes
   let collabCal = false; // cal.meta "collab" (LWW): may any non-viewer edit ANY event?
@@ -173,6 +178,26 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
       if (r === "remove") roleOf.delete(m);
       else if (r === "editor" || r === "admin") roleOf.set(m, "editor"); // "admin" = legacy alias
       else if (r === "viewer") roleOf.set(m, "viewer");
+    } else if (e.type === ET.MEMBER_INVITE) {
+      // An invite ticket is offered only by an AUTHENTICATED owner/editor (same rule as member.set).
+      const authed = verified && (author === owner || roleOf.get(author) === "editor" || roleOf.get(author) === "admin");
+      if (!owner || !authed) continue;
+      const t: string = (e.payload as any)?.ticket ?? "";
+      const r: string = (e.payload as any)?.role ?? "";
+      if (!t || claimed.has(t)) continue; // a redeemed ticket can't be re-offered or revoked (use member.set)
+      if (r === "revoke") invites.delete(t);
+      else if (r === "editor" || r === "viewer") invites.set(t, r);
+    } else if (e.type === ET.MEMBER_CLAIM) {
+      // Redeem a ticket for YOURSELF: member must be the (signed) author, ticketSig must prove the ticket key.
+      const p: any = e.payload || {};
+      const t: string = p.ticket ?? "";
+      const m: string = p.member ?? "";
+      if (!t || !m || m !== author || m === owner || claimed.has(t) || !invites.has(t)) continue;
+      if (!verifyInviteClaim(calId, t, p.ticketPub ?? "", m, p.ticketSig ?? "")) continue;
+      roleOf.set(m, invites.get(t)!);
+      invites.delete(t);
+      claimed.add(t);
+      rolesConfigured = true;
     } else if (e.type === ET.EVENT_PUT) {
       const id: string = e.payload?.id ?? "";
       if (!id || tombstones.has(id)) continue; // tombstone terminal
@@ -212,7 +237,9 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   const ids = [...events.keys()].sort();
   const roles: Record<string, string> = {};
   [...roleOf.keys()].sort().forEach((k) => (roles[k] = roleOf.get(k)!));
-  return { id: calId, name, color, description, schema, owner, roles, rolesConfigured, open: openCal, collab: collabCal, events: ids.map((id) => events.get(id)) };
+  const pendingInvites: Record<string, string> = {};
+  [...invites.keys()].sort().forEach((k) => (pendingInvites[k] = invites.get(k)!));
+  return { id: calId, name, color, description, schema, owner, roles, rolesConfigured, invites: pendingInvites, open: openCal, collab: collabCal, events: ids.map((id) => events.get(id)) };
 }
 
 // ── Clock: stamps local events, advances past ingested causes ────────────────
