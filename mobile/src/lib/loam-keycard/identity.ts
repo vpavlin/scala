@@ -6,7 +6,10 @@
 //
 // Kinds: "device" (built-in software key, always present) · "soft" (extra named software keys, to
 // compartmentalise without a card) · "keycard" (the enrolled Status Keycard, hardware, present iff
-// enrolled). A container with no explicit binding falls back to the DEFAULT identity (itself
+// enrolled) · "loam" (an identity HELD BY THE LOAM APP, derived from the user's one root — loam-keycard
+// ADR 0001; two bindings: `loam:ctx` = a fresh identity just for this container (context = container
+// id), `loam:main` = the user's main identity (context "")). Loam bindings are never listed (they are
+// per-container, not a key you pick globally); they resolve through the optional loam seam. A container with no explicit binding falls back to the DEFAULT identity (itself
 // keycard-if-enrolled-else-device), so pre-feature containers keep today's behaviour.
 //
 // Generic by dependency injection: the app supplies its own software-key seam (its event signing +
@@ -17,7 +20,7 @@ import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export type IdKind = "device" | "soft" | "keycard";
+export type IdKind = "device" | "soft" | "keycard" | "loam";
 export type IdentityMeta = { id: string; kind: IdKind; label: string; address: string; pubHex: string };
 export interface SoftKey { priv: Uint8Array; address: string; pubHex: string }
 
@@ -38,10 +41,24 @@ export interface KeycardIdentitySeam {
   pubHex(): string | null;
   signEvent(ev: any): Promise<any>;
 }
+/** Identities held by Loam (loam-transport loamIdentity / loamSign). Optional. */
+export interface LoamIdentitySeam {
+  /** {exists} when Loam holds a root; null when there is no shared Loam (or it is too old). */
+  status(): Promise<{ exists: boolean; mainAddress?: string; mainPubHex?: string } | null>;
+  /** The identity for a context ("" = main), or {error}. */
+  identity(contextId: string): Promise<{ address: string; pubHex: string } | { error: string }>;
+  /** Sign one app event as the context's identity; THROWS (with a user-facing message) on failure. */
+  signEvent(contextId: string, expected: { address: string; pubHex: string }, ev: any): Promise<any>;
+}
+export const LOAM_CTX = "loam:ctx";
+export const LOAM_MAIN = "loam:main";
+export const isLoamBinding = (id: string | null | undefined): boolean => id === LOAM_CTX || id === LOAM_MAIN;
+
 export interface IdentityRegistryOpts {
   storagePrefix: string; // e.g. "scala" → scala.identities.registry, scala-soft-<id>
   soft: SoftKeySeam;
   keycard?: KeycardIdentitySeam;
+  loam?: LoamIdentitySeam;
   deviceLabel?: string;
   keycardLabel?: string;
 }
@@ -60,14 +77,19 @@ export interface IdentityRegistry {
   authorEvent(containerId: string, ev: any): Promise<any>;
   /** Address of the default identity (for the clock/senderId; per-event author is set by authorEvent). */
   defaultAddress(): Promise<string>;
+  /** Does Loam hold a root (so `loam:ctx` / `loam:main` can be offered)? false when no shared Loam. */
+  loamRootExists(): Promise<boolean>;
 }
 
 export function createIdentityRegistry(opts: IdentityRegistryOpts): IdentityRegistry {
-  const { soft, keycard } = opts;
+  const { soft, keycard, loam } = opts;
   const REG_KEY = opts.storagePrefix + ".identities.registry";
   const BIND_KEY = opts.storagePrefix + ".identities.bindings";
   const DEFAULT_KEY = opts.storagePrefix + ".identities.default";
   const softPrivKey = (id: string) => opts.storagePrefix + "-soft-" + id;
+  // Loam identities are deterministic per (app, context), so their PUBLIC part is cached once resolved:
+  // the app can show "you" and check roles while Loam is closed; only signing needs Loam.
+  const LOAM_CACHE_KEY = opts.storagePrefix + ".identities.loam";
   const deviceLabel = opts.deviceLabel ?? "This device";
   const keycardLabel = opts.keycardLabel ?? "Keycard";
 
@@ -96,6 +118,25 @@ export function createIdentityRegistry(opts: IdentityRegistryOpts): IdentityRegi
     return out;
   };
 
+  const loamContext = (containerId: string, bindingId: string) => (bindingId === LOAM_MAIN ? "" : containerId);
+  const loamMeta = async (containerId: string, bindingId: string): Promise<IdentityMeta> => {
+    const ctx = loamContext(containerId, bindingId);
+    const label = bindingId === LOAM_MAIN ? "Main identity (Loam)" : "Just for this space (Loam)";
+    const slot = ctx === "" ? "main" : "ctx:" + ctx;
+    const cache = await readJson<Record<string, { address: string; pubHex: string }>>(LOAM_CACHE_KEY, {});
+    const hit = cache[slot];
+    if (hit) return { id: bindingId, kind: "loam", label, address: hit.address, pubHex: hit.pubHex };
+    if (!loam) throw new Error("This space signs with a Loam identity, but this build has no Loam support.");
+    const r = await loam.identity(ctx);
+    if (!r || "error" in r || !r.address) {
+      const why = r && "error" in r ? r.error : "no answer";
+      throw new Error(`This space signs with your Loam identity, but Loam didn't provide it (${why}). Open Loam and try again.`);
+    }
+    cache[slot] = { address: r.address, pubHex: r.pubHex };
+    await writeJson(LOAM_CACHE_KEY, cache);
+    return { id: bindingId, kind: "loam", label, address: r.address, pubHex: r.pubHex };
+  };
+
   const listIdentities = async (): Promise<IdentityMeta[]> => {
     const out = [await deviceMeta(), ...(await softMetas())];
     const kc = await keycardMeta(); if (kc) out.push(kc);
@@ -111,6 +152,7 @@ export function createIdentityRegistry(opts: IdentityRegistryOpts): IdentityRegi
   };
   const identityForContainer = async (containerId: string): Promise<IdentityMeta> => {
     const wantId = (await bindingFor(containerId)) ?? (await getDefaultIdentityId());
+    if (isLoamBinding(wantId)) return loamMeta(containerId, wantId); // throws a clear error if unresolvable
     const all = await listIdentities();
     return all.find((m) => m.id === wantId) ?? (await deviceMeta());
   };
@@ -148,12 +190,20 @@ export function createIdentityRegistry(opts: IdentityRegistryOpts): IdentityRegi
     },
     async authorEvent(containerId, ev) {
       const meta = await identityForContainer(containerId);
+      if (meta.kind === "loam") {
+        if (!loam) throw new Error("loam identity but no loam seam");
+        return loam.signEvent(loamContext(containerId, meta.id), { address: meta.address, pubHex: meta.pubHex }, ev);
+      }
       if (meta.kind === "keycard") { if (!keycard) throw new Error("keycard identity but no keycard seam"); return keycard.signEvent(ev); }
       const priv = meta.kind === "device"
         ? (await soft.getDeviceKey()).priv
         : soft.fromHex((await SecureStore.getItemAsync(softPrivKey(meta.id))) || "");
       if (priv.length !== 32) throw new Error("identity key unavailable");
       return soft.signEvent(soft.keyFromPriv(priv), ev);
+    },
+    async loamRootExists() {
+      if (!loam) return false;
+      try { const st = await loam.status(); return !!(st && st.exists); } catch { return false; }
     },
     async defaultAddress() {
       const wantId = await getDefaultIdentityId();
