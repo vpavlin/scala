@@ -61,7 +61,7 @@ Item {
     // Detect it (old cores lack coreVersion() → "" → stale) and warn loudly instead of failing quietly.
     property bool coreOutOfDate: false
     property string coreVer: ""
-    readonly property string minCore: "0.9.0"   // first core with loam-identity signing
+    readonly property string minCore: "0.11.0"   // first core with Loam HD identities + invite tickets (ADR 0022)
     function verLt(a, b) {
         var pa = String(a).split("."), pb = String(b).split(".")
         for (var i = 0; i < 3; i++) { var x = parseInt(pa[i] || "0"), y = parseInt(pb[i] || "0"); if (x !== y) return x < y }
@@ -97,7 +97,27 @@ Item {
     // there rebuilds that Repeater and destroys the very delegate whose handler is still on the stack
     // → "Object destroyed while a QML signal handler is in progress" → Aborted. Reads stay sync; only
     // the assign is deferred, so any caller (delegate or not) is crash-safe.
+    // ── Loam HD identities (ADR 0022) ─────────────────────────────────────────
+    // hd = loam_core.hdStatus {exists, unlocked, mainAddress}; when a root exists, new/joined calendars
+    // offer "Appear as: a new identity just for this calendar / my main identity".
+    // hdSign = scala core hdState {pending, error}: writes waiting for Loam (locked / no root).
+    property var hd: ({ exists: false, unlocked: false })
+    property var hdSign: ({ pending: 0, error: "" })
+    function refreshHd() {
+        root.loamAsync("hdStatus", [], function (r) { var s = root.j(r, null); if (s && typeof s === "object" && !s.error) root.hd = s })
+        root.coreAsync("hdState", [], function (r) { var s = root.j(r, null); if (s && typeof s === "object") root.hdSign = s })
+    }
+    function hdSignMessage() {
+        var n = root.hdSign.pending || 0, e = root.hdSign.error || ""
+        var what = n + " change" + (n === 1 ? "" : "s") + " waiting to be signed"
+        if (e === "locked") return "Unlock your identity in Loam — " + what + "."
+        if (e === "no root") return "Set up your identity in Loam — " + what + "."
+        return "Waiting for Loam (" + e + ") — " + what + "."
+    }
+    function bindingLabel(b) { return b === "loam:main" ? "My main identity" : (b === "loam:ctx" ? "An identity just for this calendar" : "") }
+
     function refreshIdentities() {
+        root.refreshHd()
         root.loamAsync("listIdentities", [], function (r1) {
             var ids = root.j(r1, [])
             root.loamAsync("getDefaultIdentityId", [], function (r2) {
@@ -486,6 +506,20 @@ Item {
                 color: "#11111b"; font.pixelSize: 12
             }
         }
+    }
+
+    // Writes on a calendar bound to a Loam identity wait (unsigned, unpublished) while Loam is locked or
+    // has no root. Say so, and say what to do — never drop or publish them silently.
+    Rectangle {
+        id: hdBanner
+        visible: (root.hdSign.pending || 0) > 0 && (root.hdSign.error || "") !== ""
+        anchors { top: staleCoreBanner.bottom; left: parent.left; right: parent.right }
+        height: visible ? hdBannerT.implicitHeight + 16 : 0
+        z: 9998
+        color: "#3a2f1a"
+        LogosText { textFormat: Text.PlainText; id: hdBannerT
+            anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; leftMargin: 16; rightMargin: 16 }
+            text: root.hdSignMessage(); color: root.cYellow; font.pixelSize: 13; wrapMode: Text.WordWrap }
     }
 
     // ── "starting soon" banner (in-app substitute for desktop notifications) ──
@@ -1034,7 +1068,10 @@ Item {
     // calAddr[calId] = that address; falls back to the default identity's address.
     property var calAddr: ({})
     function defaultAddr() { for (var i = 0; i < identities.length; i++) if (identities[i].id === defaultIdentityId) return identities[i].address; return "" }
-    function addrFor(c) { return (c && root.calAddr[c.id]) ? root.calAddr[c.id] : defaultAddr() }
+    function addrFor(c) {
+        if (c && c.binding) return root.calAddr[c.id] || ""   // Loam HD identity: its own address (empty until resolved)
+        return (c && root.calAddr[c.id]) ? root.calAddr[c.id] : defaultAddr()
+    }
     function isEditorMe(c) { if (!c) return true; var a = addrFor(c); if (c.owner === a) return true; var r = c.roles || {}; return r[a] === "editor" || r[a] === "admin" }
     function isViewerMe(c) { if (!c) return false; return (c.roles || {})[addrFor(c)] === "viewer" }
     function canAddTo(c) { if (isEditorMe(c)) return true; if (isViewerMe(c)) return false; return !c || c.open !== false }
@@ -1995,6 +2032,57 @@ Item {
         }
     }
 
+    // "Appear as" (ADR 0022): which Loam identity a NEW or JOINED calendar signs with. Shown only when
+    // Loam has a root. "ctx" = a new identity just for this calendar (default, unlinkable), "main" =
+    // the identity family and friends know, "other" = one of this device's classic identities.
+    readonly property var appearChoices: [
+        { k: "ctx",   title: "A new identity just for this calendar", desc: "Nobody can link it to your other calendars. Recommended." },
+        { k: "main",  title: "My main identity", desc: "The one your family and friends know — for a household calendar." },
+        { k: "other", title: "Another identity on this device", desc: "A device, software or Keycard identity, as before." }
+    ]
+    component AppearChooser: ColumnLayout {
+        id: ac
+        property string sel: "ctx"
+        signal pick(string k)
+        spacing: Theme.spacing.small
+        LogosText { textFormat: Text.PlainText; text: "Appear as"; color: root.cFaint; font.pixelSize: 11 }
+        Repeater {
+            model: root.appearChoices
+            Rectangle {
+                Layout.fillWidth: true
+                radius: Theme.spacing.radiusSmall
+                color: ac.sel === modelData.k ? root.cSurface : "transparent"
+                border.width: 1
+                border.color: ac.sel === modelData.k ? root.cBlue : root.cSurface2
+                implicitHeight: acRow.implicitHeight + 2 * Theme.spacing.small
+                RowLayout {
+                    id: acRow
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    anchors.margins: Theme.spacing.small; spacing: Theme.spacing.small
+                    Rectangle {
+                        Layout.alignment: Qt.AlignTop; width: 16; height: 16; radius: 8; color: "transparent"
+                        border.width: 2; border.color: ac.sel === modelData.k ? root.cBlue : root.cSurface2
+                        Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: root.cBlue; visible: ac.sel === modelData.k }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true; spacing: 0
+                        LogosText { textFormat: Text.PlainText; text: modelData.title; color: root.cText; font.pixelSize: 13 }
+                        LogosText { textFormat: Text.PlainText; text: modelData.desc; color: root.cSub; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                    }
+                }
+                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: ac.pick(modelData.k) }
+            }
+        }
+        LogosText { textFormat: Text.PlainText
+            visible: !root.hd.unlocked && ac.sel !== "other"
+            text: "Loam is locked. Unlock your identity in Loam — until then your changes here wait on this device."
+            color: root.cYellow; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+    }
+    property string newCalAppear: "ctx"
+    property string joinAppear: "ctx"
+    // The identity argument for createCalendar / handleShareLink: a Loam HD binding, or a classic id.
+    function appearArg(appear, legacyId) { return (root.hd.exists && appear !== "other") ? "loam:" + appear : legacyId }
+
     // ── new-calendar popup ───────────────────────────────────────────────────
     property string newCalTier: "closed"    // access tier (ADR 0019): closed | open | collaborative — default Closed
     property string newCalIdentity: ""      // "author as" (loam identity) — "" = pick createDefaultOwner
@@ -2010,6 +2098,7 @@ Item {
         return d
     }
     property string joinIdentity: ""         // "author as" for a joined calendar
+    property bool joinBusy: false            // a handleShareLink call is in flight (no double join)
     property string ncNewType: "text"   // staged field type in the new-calendar add-row
     // Add a custom field to the NEW-calendar schema (mirrors addSchemaField).
     function addNcField() {
@@ -2029,7 +2118,8 @@ Item {
         width: 500; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
         onOpened: {
-            newCalName.text = ""; newCalDesc.text = ""; root.newCalTier = "closed"; root.newCalIdentity = ""
+            newCalName.text = ""; newCalDesc.text = ""; root.newCalTier = "closed"; root.newCalIdentity = ""; root.newCalAppear = "ctx"
+            root.refreshHd()
             newCalSchemaModel.clear(); ncNewKey.text = ""; ncNewLabel.text = ""; ncNewOptions.text = ""; root.ncNewType = "text"
         }
         function createNow() {
@@ -2041,7 +2131,7 @@ Item {
             // (the global default, but never silently a keycard). WYSIWYG: the highlighted chip owns +
             // signs the calendar; a keycard only owns it if the user explicitly taps it.
             if (root.creatingCal) return
-            var calName = newCalName.text.trim(), calOwner = (root.newCalIdentity || root.createDefaultOwner)
+            var calName = newCalName.text.trim(), calOwner = root.appearArg(root.newCalAppear, (root.newCalIdentity || root.createDefaultOwner))
             var sch = []
             for (var i = 0; i < newCalSchemaModel.count; i++) {
                 var it = newCalSchemaModel.get(i)
@@ -2092,9 +2182,15 @@ Item {
                     LogosText { textFormat: Text.PlainText; text: "Description"; color: root.cFaint; font.pixelSize: 11 }
                     Field { id: newCalDesc; Layout.fillWidth: true; placeholderText: "Optional description" }
 
+                    AppearChooser {
+                        visible: root.hd.exists; Layout.fillWidth: true
+                        sel: root.newCalAppear; onPick: function (k) { root.newCalAppear = k }
+                    }
                     // Author as — which loam identity OWNS + signs this calendar (loam ADR 0004).
-                    LogosText { textFormat: Text.PlainText; text: "Author as"; color: root.cFaint; font.pixelSize: 11 }
+                    LogosText { textFormat: Text.PlainText; text: "Author as"; color: root.cFaint; font.pixelSize: 11
+                        visible: !root.hd.exists || root.newCalAppear === "other" }
                     Flow {
+                        visible: !root.hd.exists || root.newCalAppear === "other"
                         Layout.fillWidth: true; spacing: Theme.spacing.small
                         Repeater {
                             model: root.identities
@@ -2111,11 +2207,12 @@ Item {
                             }
                         }
                     }
-                    LogosText { textFormat: Text.PlainText; text: "This identity owns the calendar and signs its events."; color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    LogosText { textFormat: Text.PlainText; text: "This identity owns the calendar and signs its events."; color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        visible: !root.hd.exists || root.newCalAppear === "other" }
                     // Explain the divergence when the global default is a Keycard: we pre-select This device
                     // so creating a calendar doesn't force a card tap. Pick the Keycard chip to own it with the card.
                     LogosText { textFormat: Text.PlainText;
-                        visible: root.createDefaultOwner !== root.defaultIdentityId && root.newCalIdentity === ""
+                        visible: root.createDefaultOwner !== root.defaultIdentityId && root.newCalIdentity === "" && (!root.hd.exists || root.newCalAppear === "other")
                         text: "Your default is a 🔑 Keycard — new calendars use This device unless you pick the card, so you're not asked to tap on every calendar."
                         color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
@@ -2306,12 +2403,75 @@ Item {
         var r = c.roles || {}
         return r[a] === "editor" || r[a] === "admin"
     }
+    // Add by identity (ADR 0022): an identity link (loam://id?pub=…; the core computes the address
+    // from the key, so a typo can't grant a role to nobody) or a plain 0x address.
+    property bool memberBusy: false
     function addMember() {
-        var id = setNewMember.text.trim(); if (id === "") return
-        root.coreAsync("setMemberRole", [setCalId, id, root.setNewRole], function () { root.refresh() })
-        setNewMember.text = ""
+        var id = setNewMember.text.trim(); if (id === "" || root.memberBusy) return
+        var role = root.setNewRole
+        root.memberBusy = true
+        root.coreAsync("addMemberByIdentity", [setCalId, id, role], function (r) {
+            root.memberBusy = false
+            var res = root.j(r, null)
+            if (!res || !res.ok) { root.notify("Couldn't add: " + ((res && res.error) ? res.error : "no answer from the Scala core"), true); return }
+            setNewMember.text = ""
+            root.refresh(); root.notify("Added " + root.shortAuthor(res.member) + " as " + role + ".", false)
+        })
     }
-    function removeMember(id) { root.coreAsync("setMemberRole", [setCalId, id, "remove"], function () { root.refresh() }) }
+    function removeMember(id) {
+        if (root.memberBusy) return
+        root.memberBusy = true
+        root.coreAsync("removeMember", [setCalId, id], function (r) {
+            root.memberBusy = false
+            var ok = root.j(r, false) === true
+            root.refresh(); root.notify(ok ? "Removed " + root.shortAuthor(id) + "." : "Couldn't remove the member.", !ok)
+        })
+    }
+    // ── invite tickets (ADR 0022) ──
+    property bool inviteBusy: false
+    function invitesFor(calId) {
+        var c = calById(calId); if (!c || !c.invites) return []
+        var out = [], links = c.inviteLinks || {}
+        for (var t in c.invites) out.push({ ticket: t, role: c.invites[t], link: links[t] || "" })
+        return out
+    }
+    function createInvite(role) {
+        if (root.inviteBusy) return
+        root.inviteBusy = true
+        var calId = root.setCalId
+        root.coreAsync("createInvite", [calId, role], function (r) {
+            root.inviteBusy = false
+            var res = root.j(r, null)
+            if (!res || !res.ok) { root.notify("Couldn't create the invite: " + ((res && res.error) ? res.error : "no answer from the Scala core"), true); return }
+            root.refresh()
+            root.openInviteLink(root.calById(calId), role, res.link)
+        })
+    }
+    function openInviteLink(cal, role, link) {
+        root.shareCal = cal
+        root.shareIsInvite = true
+        shareTitle.text = "Invite as " + role + " — " + ((cal && cal.name) ? cal.name : "calendar")
+        shareStatus.text = "Whoever opens this link first becomes " + (role === "editor" ? "an editor" : "a viewer")
+            + ". Share it privately, and withdraw it in ⚙ if it goes unused."
+        root.setShareQr(link)
+        sharePopup.open()
+    }
+    function revokeInvite(ticket) {
+        if (root.inviteBusy) return
+        root.inviteBusy = true
+        root.coreAsync("revokeInvite", [root.setCalId, ticket], function (r) {
+            root.inviteBusy = false
+            var ok = root.j(r, false) === true
+            root.refresh(); root.notify(ok ? "Invite withdrawn." : "Couldn't withdraw the invite.", !ok)
+        })
+    }
+    function claimText(c) {
+        var st = (c && c.claim) ? (c.claim.state || "") : ""
+        if (st === "waiting") return "Waiting for your invite to sync…" + (c.claim.note ? " (" + c.claim.note + ")" : "")
+        if (st === "posted") return "Invite sent — your role shows once it has synced."
+        if (st === "" || st === "redeemed") return ""
+        return c.claim.note || ("Invite: " + st)
+    }
 
     Popup {
         id: calSettingsPopup
@@ -2327,6 +2487,7 @@ Item {
             Flickable {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(contentHeight, 520)
+                id: settingsFlick
                 contentWidth: width; contentHeight: settingsBody.implicitHeight
                 clip: true
                 ScrollBar.vertical: ScrollBar {}
@@ -2346,7 +2507,15 @@ Item {
                     // OWNER is fixed at creation; this only changes who I author as. Tapping a Keycard
                     // makes my future writes need a card tap.
                     LogosText { textFormat: Text.PlainText; text: "Signs as"; color: root.cText; font.pixelSize: 14; font.weight: Theme.typography.weightMedium }
+                    // A calendar bound to a Loam identity keeps it (switching would cost your role here).
+                    LogosText { textFormat: Text.PlainText
+                        visible: { var c = root.calById(root.setCalId); return !!c && !!c.binding }
+                        text: { var c = root.calById(root.setCalId); if (!c || !c.binding) return ""
+                                var a = root.calAddr[c.id] || ""
+                                return root.bindingLabel(c.binding) + " (Loam) · " + (a ? root.shortAuthor(a) : "unlock Loam to see the address") }
+                        color: root.cText; font.pixelSize: 13; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     Flow {
+                        visible: { var c = root.calById(root.setCalId); return !c || !c.binding }
                         Layout.fillWidth: true; spacing: Theme.spacing.small
                         Repeater {
                             model: root.identities
@@ -2363,7 +2532,9 @@ Item {
                             }
                         }
                     }
-                    LogosText { textFormat: Text.PlainText; text: "Changes who signs your future events on this calendar; the owner is unchanged."
+                    LogosText { textFormat: Text.PlainText
+                        text: { var c = root.calById(root.setCalId); return (c && c.binding) ? "Your Loam identity for this calendar is fixed: your role here belongs to it."
+                                                                                       : "Changes who signs your future events on this calendar; the owner is unchanged." }
                         color: root.cFaint; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: root.cSurface2; Layout.topMargin: 4 }
@@ -2457,38 +2628,84 @@ Item {
                         }
                     }
                     LogosText { textFormat: Text.PlainText;
-                        text: "Add someone by their identity (they'll find it in Diagnostics ⚙ → This device id). Editors can edit any event; viewers are read-only."
+                        text: "Invite people with a one-time link, or add someone by their identity. Editors can edit any event; viewers are read-only."
                         color: root.cFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    }
+                    LogosText { textFormat: Text.PlainText
+                        visible: text !== ""
+                        text: root.claimText(root.calById(root.setCalId))
+                        color: root.cYellow; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
 
                     LogosText { textFormat: Text.PlainText;
                         visible: { var c = root.calById(root.setCalId); return !!c && c.rolesConfigured === false }
-                        text: "No members yet — anyone with the invite can add events (and edit their own). Add an editor to let someone edit everyone's; add a viewer for read-only."
+                        text: "No members yet — anyone with the calendar link can add events (and edit their own). Invite an editor to let someone edit everyone's; a viewer for read-only."
                         color: root.cYellow; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
 
+                    // ── Members: owner + roles ──
+                    LogosText { textFormat: Text.PlainText; text: "Members"; color: root.cFaint; font.pixelSize: 11 }
                     Repeater {
                         model: root.membersFor(root.setCalId)
                         delegate: Rectangle {
                             Layout.fillWidth: true; implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: root.cMantle
                             RowLayout {
                                 anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
-                                LogosText { textFormat: Text.PlainText; text: root.shortAuthor(modelData.id); color: root.cText; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
+                                LogosText { textFormat: Text.PlainText
+                                    text: root.shortAuthor(modelData.id) + (modelData.id === root.addrFor(root.calById(root.setCalId)) ? "  (you)" : "")
+                                    color: root.cText; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
                                 LogosText { textFormat: Text.PlainText; text: modelData.role; color: root.cSub; font.pixelSize: 12 }
-                                LogosText { textFormat: Text.PlainText;
+                                LogosText { textFormat: Text.PlainText
                                     visible: modelData.removable && root.canManage(root.setCalId)
-                                    text: "✕"; color: root.cFaint; font.pixelSize: 14
-                                    MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: root.removeMember(modelData.id) }
+                                    text: "Remove"; color: root.memberBusy ? root.cFaint : root.cRed; font.pixelSize: 12
+                                    MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; enabled: !root.memberBusy
+                                        onClicked: root.removeMember(modelData.id) }
                                 }
                             }
                         }
                     }
 
-                    // add-member row (owner/admin only)
+                    // ── Pending invites (folded `invites`) ──
+                    LogosText { textFormat: Text.PlainText; text: "Pending invites"; color: root.cFaint; font.pixelSize: 11
+                        visible: root.invitesFor(root.setCalId).length > 0 }
+                    Repeater {
+                        model: root.invitesFor(root.setCalId)
+                        delegate: Rectangle {
+                            Layout.fillWidth: true; implicitHeight: 34; radius: Theme.spacing.radiusSmall; color: root.cMantle
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small; spacing: Theme.spacing.small
+                                LogosText { textFormat: Text.PlainText; text: "Invite · " + root.shortAuthor(modelData.ticket)
+                                    color: root.cText; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
+                                LogosText { textFormat: Text.PlainText; text: modelData.role; color: root.cSub; font.pixelSize: 12 }
+                                LogosText { textFormat: Text.PlainText
+                                    visible: modelData.link !== ""
+                                    text: "Link"; color: root.cBlue; font.pixelSize: 12
+                                    MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.openInviteLink(root.calById(root.setCalId), modelData.role, modelData.link) }
+                                }
+                                LogosText { textFormat: Text.PlainText
+                                    visible: root.canManage(root.setCalId)
+                                    text: "Revoke"; color: root.inviteBusy ? root.cFaint : root.cRed; font.pixelSize: 12
+                                    MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; enabled: !root.inviteBusy
+                                        onClicked: root.revokeInvite(modelData.ticket) }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Invite + add by identity (owner/editor only) ──
+                    RowLayout {
+                        visible: root.canManage(root.setCalId)
+                        Layout.fillWidth: true; spacing: Theme.spacing.small
+                        LogosButton { text: "Invite as editor"; enabled: !root.inviteBusy; onClicked: root.createInvite("editor") }
+                        LogosButton { text: "Invite as viewer"; enabled: !root.inviteBusy; onClicked: root.createInvite("viewer") }
+                        Item { Layout.fillWidth: true }
+                    }
                     ColumnLayout {
                         visible: root.canManage(root.setCalId)
                         Layout.fillWidth: true; spacing: Theme.spacing.small
-                        Field { id: setNewMember; Layout.fillWidth: true; placeholderText: "paste an identity to add" }
+                        LogosText { textFormat: Text.PlainText; text: "Add by identity"; color: root.cFaint; font.pixelSize: 11 }
+                        Field { id: setNewMember; Layout.fillWidth: true; placeholderText: "loam://id?pub=… or a 0x… address" }
                         RowLayout {
                             Layout.fillWidth: true; spacing: 6
                             Repeater {
@@ -2502,7 +2719,7 @@ Item {
                                 }
                             }
                             Item { Layout.fillWidth: true }
-                            LogosButton { text: "Add member"; enabled: setNewMember.text.trim().length > 0; onClicked: root.addMember() }
+                            LogosButton { text: "Add"; enabled: setNewMember.text.trim().length > 0 && !root.memberBusy; onClicked: root.addMember() }
                         }
                     }
                 }
@@ -2538,15 +2755,25 @@ Item {
         anchors.centerIn: Overlay.overlay
         width: 420; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
-        onOpened: { joinLink.text = ""; root.joinIdentity = "" }
+        onOpened: { joinLink.text = ""; root.joinIdentity = ""; root.joinAppear = "ctx"; root.joinBusy = false; root.refreshHd() }
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.spacing.small
             LogosText { textFormat: Text.PlainText; text: "Join a shared calendar"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
             LogosText { textFormat: Text.PlainText; text: "Paste the scala:// invite link"; color: root.cFaint; font.pixelSize: 12 }
             Field { id: joinLink; Layout.fillWidth: true; placeholderText: "scala://join?..." }
+            LogosText { textFormat: Text.PlainText
+                visible: joinLink.text.indexOf("&inv=") >= 0
+                text: "This is an invite: you'll get the offered role under the identity you appear as. Calendars you already joined keep their identity."
+                color: root.cSub; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            AppearChooser {
+                visible: root.hd.exists; Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
+                sel: root.joinAppear; onPick: function (k) { root.joinAppear = k }
+            }
             // Author as — which identity signs YOUR events on this calendar (owner stays the inviter).
-            LogosText { textFormat: Text.PlainText; text: "Author as"; color: root.cFaint; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small }
+            LogosText { textFormat: Text.PlainText; text: "Author as"; color: root.cFaint; font.pixelSize: 11; Layout.topMargin: Theme.spacing.small
+                visible: !root.hd.exists || root.joinAppear === "other" }
             Flow {
+                visible: !root.hd.exists || root.joinAppear === "other"
                 Layout.fillWidth: true; spacing: Theme.spacing.small
                 Repeater {
                     model: root.identities
@@ -2566,13 +2793,19 @@ Item {
                 Item { Layout.fillWidth: true }
                 LogosButton { text: "Cancel"; onClicked: joinPopup.close() }
                 LogosButton {
-                    text: "Join"; enabled: joinLink.text.trim().length > 0
+                    text: "Join"; enabled: joinLink.text.trim().length > 0 && !root.joinBusy
                     onClicked: {
-                        root.coreAsync("handleShareLink", [joinLink.text.trim(), (root.joinIdentity || root.defaultIdentityId)], function (r) {
-                            var ok = root.j(r, false) === true
-                            root.refresh(); root.notify(ok ? "Calendar joined." : "Couldn't join — check the link.", !ok)
-                        })
+                        if (root.joinBusy) return
+                        root.joinBusy = true
+                        var link = joinLink.text.trim(), isInvite = link.indexOf("&inv=") >= 0
                         joinPopup.close()
+                        root.coreAsync("handleShareLink", [link, root.appearArg(root.joinAppear, (root.joinIdentity || root.defaultIdentityId))], function (r) {
+                            root.joinBusy = false
+                            var ok = root.j(r, false) === true
+                            root.refresh()
+                            root.notify(!ok ? "Couldn't join — check the link."
+                                        : (isInvite ? "Calendar joined — your role arrives once the invite has synced." : "Calendar joined."), !ok)
+                        })
                     }
                 }
             }
@@ -2582,6 +2815,7 @@ Item {
     // ── share popup (link + a real QR the phone can scan) ─────────────────────
     property var qrData: null    // { n, cells } from core qrMatrix
     property var shareCal: null  // the calendar being shared (for "add snapshot")
+    property bool shareIsInvite: false   // the popup shows an invite link (ADR 0022): no snapshot button
     property int snapPolls: 0
     function b64url(s) { return Qt.btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") }
     function setShareQr(link) {
@@ -2599,6 +2833,7 @@ Item {
     }
     function openShare(cal) {
         root.shareCal = cal
+        root.shareIsInvite = false
         shareTitle.text = cal.name || "calendar"
         shareStatus.text = ""
         root.setShareQr("")
@@ -2687,12 +2922,12 @@ Item {
                 }
             }
             Field { id: shareLink; Layout.fillWidth: true; readOnly: true; selectByMouse: true }
-            LogosText { textFormat: Text.PlainText; id: shareStatus; text: ""; visible: text !== ""; color: root.cFaint; font.pixelSize: 12 }
+            LogosText { textFormat: Text.PlainText; id: shareStatus; text: ""; visible: text !== ""; color: root.cFaint; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
-                LogosButton { text: "＋ Snapshot"; onClicked: root.shareWithSnapshot() }
+                LogosButton { text: "＋ Snapshot"; visible: !root.shareIsInvite; onClicked: root.shareWithSnapshot() }
                 Item { Layout.fillWidth: true }
-                LogosButton { text: "Copy"; onClicked: { shareLink.selectAll(); shareLink.copy() } }
+                LogosButton { text: "Copy"; enabled: shareLink.text !== ""; onClicked: { shareLink.selectAll(); shareLink.copy(); shareLink.deselect(); root.notify("Link copied.", false) } }
                 LogosButton { text: "Close"; onClicked: sharePopup.close() }
             }
         }

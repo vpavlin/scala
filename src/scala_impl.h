@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <functional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -49,7 +51,8 @@ public:
     std::string keycardState();
 
     // ── Calendar CRUD ────────────────────────────────────────────────────────
-    /// Create a new calendar. Returns the calendar ID.
+    /// Create a new calendar. Returns the calendar ID. identityId: a loam_core identity id, "" (the
+    /// default), or "loam:ctx" / "loam:main" to sign with a Loam HD identity (ADR 0022).
     std::string createCalendar(const std::string& name, const std::string& color, const std::string& identityId);
 
     /// List all calendars. Returns JSON array string.
@@ -66,6 +69,24 @@ public:
     /// Same as setMemberRole but with all fields in one JSON arg {calId,member,role} — so a 0x… member
     /// address survives a CLI/headless caller (bare-arg role setting hits logoscore's hex-number typing).
     bool manageMember(const std::string& json);
+
+    // ── Invite tickets + Loam identities (ADR 0022) ──────────────────────────
+    // Offer a role ("editor" | "viewer") to whoever opens the returned link first. Posts member.invite
+    // for a fresh one-time ticket key and returns {ok, link, ticket, role} (link = the join link plus
+    // &inv=<ticket private key>) or {ok:false, error}.
+    std::string createInvite(const std::string& calId, const std::string& role);
+    // Withdraw a pending ticket (member.invite role "revoke"). A redeemed ticket can't be revoked: use removeMember.
+    bool revokeInvite(const std::string& calId, const std::string& ticket);
+    // Take a member's role away (member.set role "remove").
+    bool removeMember(const std::string& calId, const std::string& member);
+    // Give a role to a person by their identity link (loam://id?pub=<66 hex>; the address is computed
+    // from the key) or a plain 0x address. Returns {ok, member} or {ok:false, error}.
+    std::string addMemberByIdentity(const std::string& calId, const std::string& identity, const std::string& role);
+    // Validate an identity link or address without posting anything: {ok, address, pubHex} or {ok:false, error}.
+    std::string parseIdentity(const std::string& identity);
+    // Signing status for calendars bound to a Loam identity: {pending, error, calId, at}. error is
+    // "locked" / "no root" / another reason while writes wait for Loam; "" when all is well.
+    std::string hdState();
 
     // ── Event CRUD ───────────────────────────────────────────────────────────
     /// Create an event in a calendar. Returns the event ID.
@@ -137,7 +158,8 @@ public:
     /// Parse a scala:// share link. Returns JSON with calendar info.
     std::string parseShareLink(const std::string& link);
 
-    /// Handle a scala:// share link (join the calendar).
+    /// Handle a scala:// share link (join the calendar). identityId as for createCalendar. A link with
+    /// &inv=<ticket> also redeems the invite (member.claim) once the calendar's invite has synced.
     bool handleShareLink(const std::string& link, const std::string& identityId);
 
     // ── Search API ───────────────────────────────────────────────────────────
@@ -234,6 +256,33 @@ private:
     std::map<std::string, PendingKc> m_pendingKc;   // events awaiting a card signature, keyed by event id (== ref)
     std::string m_kcState = "{\"active\":false}";   // last keycard op snapshot, polled by keycardState()
     void applyIncoming(const std::string& calId, const std::string& eventJson);  // merge a received event
+
+    // ── Loam HD identities + invite tickets (ADR 0022) ───────────────────────
+    // A calendar bound to "loam:ctx" (its own identity: app "scala", context = calendar id) or
+    // "loam:main" (the shared main identity) signs through loam_core.hdSign, asynchronously and in
+    // order. Writes wait in m_hdQueue while Loam is locked or has no root; nothing is published unsigned.
+    static constexpr int kLoamCallTimeoutMs = 15000;
+    struct PendingHd { std::string calId, type, id; scala::json payload; };
+    std::deque<PendingHd> m_hdQueue;
+    bool m_hdBusy = false;
+    std::string m_hdError, m_hdErrorCal;
+    long long m_hdErrorAt = 0;
+    scala::json kvJson(const std::string& key);
+    void kvJsonSet(const std::string& key, const scala::json& v);
+    std::string hdBinding(const std::string& calId);
+    void setHdBinding(const std::string& calId, const std::string& mode);
+    std::string hdCachedAddr(const std::string& calId);
+    void resolveHdAddr(const std::string& calId, std::function<void(std::string, std::string)> cb);
+    bool bindIdentityChoice(const std::string& calId, const std::string& identityId);
+    void pumpHd();
+    void hdFail(const std::string& calId, const std::string& err);
+    void boundAddress(const std::string& calId, std::function<void(std::string, std::string)> cb);
+    void tryClaims(const std::string& onlyCalId);
+    void setClaimState(const std::string& calId, const std::string& state, const std::string& note);
+    std::set<std::string> m_claimBusy;   // calendars whose claim is being built (address lookup in flight)
+    std::map<std::string, long long> m_lastFresh;   // calId -> when its log last grew from the wire
+    std::set<std::string> m_claimRecheck;            // calendars with a settle re-check scheduled
+    static constexpr int kClaimSettleMs = 8000;
 
     // ── Attachments / Logos Storage (ADR 0017) ────────────────────────────────
     bool m_storageInit = false;          // storage_module init+start issued + events subscribed
