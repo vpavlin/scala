@@ -280,6 +280,9 @@ private:
     void tryClaims(const std::string& onlyCalId);
     void setClaimState(const std::string& calId, const std::string& state, const std::string& note);
     std::set<std::string> m_claimBusy;   // calendars whose claim is being built (address lookup in flight)
+    std::map<std::string, long long> m_lastFresh;   // calId -> when its log last grew from the wire
+    std::set<std::string> m_claimRecheck;            // calendars with a settle re-check scheduled
+    static constexpr int kClaimSettleMs = 8000;
 
     // ── Attachments / Logos Storage (ADR 0017) ────────────────────────────────
     bool m_storageInit = false;          // storage_module init+start issued + events subscribed

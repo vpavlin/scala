@@ -2468,8 +2468,8 @@ Item {
     function claimText(c) {
         var st = (c && c.claim) ? (c.claim.state || "") : ""
         if (st === "waiting") return "Waiting for your invite to sync…" + (c.claim.note ? " (" + c.claim.note + ")" : "")
-        if (st === "posted") return "Invite redeemed — your role shows once it has synced."
-        if (st === "") return ""
+        if (st === "posted") return "Invite sent — your role shows once it has synced."
+        if (st === "" || st === "redeemed") return ""
         return c.claim.note || ("Invite: " + st)
     }
 

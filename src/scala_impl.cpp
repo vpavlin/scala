@@ -232,6 +232,7 @@ void ScalaImpl::applyIncoming(const std::string& calId, const std::string& event
     const bool fresh = m_store->appendEvent(calId, e);   // idempotent (dedup by id); the view's poll refolds
     cacheAttachments(e);
     // A waiting invite claim can go out as soon as its member.invite (or the calendar's owner) arrives.
+    if (fresh) m_lastFresh[calId] = nowMs();
     if (fresh && (e.type == scala::ET::MEMBER_INVITE || e.type == scala::ET::CAL_META))
         onLoop([this, calId] { tryClaims(calId); });              // ADR 0017: pull+pin any attachment CID we lack → we now serve it too
 }
@@ -565,9 +566,16 @@ std::string ScalaImpl::listCalendars() {
                     links[it.key()] = scala::links::buildInviteLink(join, mine[it.key()].get<std::string>());
         }
         json claim = json::object();
-        if (claims.contains(c.id) && claims[c.id].is_object())
-            claim = json{{"state", claims[c.id].value("state", std::string())}, {"note", claims[c.id].value("note", std::string())},
-                         {"ticket", claims[c.id].value("ticket", std::string())}};
+        if (claims.contains(c.id) && claims[c.id].is_object()) {
+            std::string st = claims[c.id].value("state", std::string()), note = claims[c.id].value("note", std::string());
+            const std::string ticket = claims[c.id].value("ticket", std::string());
+            if (st == "posted") {   // what the fold made of our claim
+                const json roles = f.value("roles", json::object());
+                if (!authorAddr.empty() && roles.contains(authorAddr)) { st = "redeemed"; note = ""; }
+                else if (!invites.contains(ticket)) { st = "unavailable"; note = "Someone else used this invite first, or it was withdrawn."; }
+            }
+            claim = json{{"state", st}, {"note", note}, {"ticket", ticket}};
+        }
         arr.push_back(json{{"id", c.id}, {"name", nm}, {"color", col}, {"authorAddr", authorAddr},
                            {"binding", hdMode.empty() ? std::string() : "loam:" + hdMode},
                            {"invites", invites}, {"inviteLinks", links}, {"claim", claim},
@@ -1132,6 +1140,18 @@ void ScalaImpl::tryClaims(const std::string& onlyCalId) {
         if (!c.is_object() || c.value("state", std::string()) != "waiting") continue;
         const std::string priv = c.value("priv", std::string()), ticket = c.value("ticket", std::string());
         if (m_store->calendar(calId).id.empty()) continue;
+        // Let the join's catch-up settle first: the invite can arrive a moment before someone else's
+        // claim of the same ticket, and a claim posted then is only wasted (the fold ignores it).
+        auto lf = m_lastFresh.find(calId);
+        if (lf != m_lastFresh.end() && nowMs() - lf->second < kClaimSettleMs) {
+            if (!m_claimRecheck.count(calId)) {
+                m_claimRecheck.insert(calId);
+                auto again = [this, calId] { m_claimRecheck.erase(calId); tryClaims(calId); };
+                if (m_resyncTimer) QTimer::singleShot(kClaimSettleMs, m_resyncTimer, again);
+                else QTimer::singleShot(kClaimSettleMs, again);
+            }
+            continue;
+        }
         const std::vector<scala::Event> log = m_store->log(calId);
         json f = scala::foldCalendar(calId, log);
         if (f.value("owner", std::string()).empty()) continue;            // not synced yet
