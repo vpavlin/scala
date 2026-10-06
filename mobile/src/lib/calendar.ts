@@ -6,11 +6,11 @@
 import { AppState, ToastAndroid } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
-import { fromByteArray, toByteArray } from "base64-js";
+import { toByteArray } from "base64-js";
 import { store, Calendar, CalEvent } from "./store";
 import { Event, ET, Clock, eventToJson, eventFromJson } from "./engine";
-import { utf8Bytes, utf8Decode } from "./utf8";
-import { authorEvent, defaultAddress, bindCalendar, identityForCalendar } from "./identities";
+import { authorEvent, defaultAddress, bindCalendar, identityForCalendar, isLoamBinding } from "./identities";
+import { parseInvite, buildInvite, cleanInviteLink, parseQuery, b64urlDecode, newTicket, invitePayload, claimPayload, ticketAddress } from "./invite-link";
 import * as sstat from "./syncstatus";
 import * as sync from "./scala-sync";
 import { buildInitial, respond } from "./catchup";
@@ -114,65 +114,8 @@ async function sendSyncReq(calId: string, force = false): Promise<boolean> {
 }
 
 // ── scala:// invite links — MUST match the desktop core byte-for-byte ─────────
-// scala://join?id=<calendarId>&key=<b64url(encryptionKey)>&name=<name>
-function b64urlEncode(s: string): string {
-  return fromByteArray(utf8Bytes(s)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function b64urlDecode(s: string): string {
-  let b = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (b.length % 4) b += "=";
-  return utf8Decode(toByteArray(b));
-}
-// Robust query parse (RN Hermes has spotty URLSearchParams).
-function parseQuery(q: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const pair of q.split("&")) {
-    const i = pair.indexOf("=");
-    if (i < 0) continue;
-    try {
-      out[decodeURIComponent(pair.slice(0, i))] = decodeURIComponent(pair.slice(i + 1).replace(/\+/g, "%20"));
-    } catch { /* skip malformed */ }
-  }
-  return out;
-}
-// A pasted invite can pick up line breaks, zero-width spaces or soft hyphens from the app it was
-// copied out of. None of them can appear in a scala:// link (names are percent-encoded), and one
-// inside a base64 value silently corrupts it, so they are removed before parsing.
-export function cleanInviteLink(link: string): string {
-  return link.replace(/[\s­​-‍⁠﻿]/g, "");
-}
-
-const CID_RE = /^[1-9A-HJ-NP-Za-km-z]{20,}$/;   // base58btc (Logos Storage CIDs start with zDv…)
-const SPR_RE = /^spr:[A-Za-z0-9_-]{20,}$/;
-
-export function parseInvite(link: string): {
-  calendarId: string; key: string; name?: string;
-  // Optional ADR-0020 bootstrap hint: the snapshot to fetch — `snapcid=<CID>` (plain), or the older
-  // `snap=<base64url pointer JSON>` — and `stor`, the base64url SPR of the Storage node that has it.
-  // When present, join bootstraps from the snapshot first, then RBSR-tails the delta.
-  snap?: any; stor?: string;
-} | null {
-  try {
-    const q = cleanInviteLink(link).split("?")[1] || "";
-    const p = parseQuery(q);
-    const id = p["id"] || "";
-    const keyB64 = p["key"] || "";
-    if (!id || !keyB64) return null;
-    let snap: any; let stor: string | undefined;
-    if (p["snapcid"] && CID_RE.test(p["snapcid"])) snap = { v: 1, cid: p["snapcid"] };
-    else if (p["snap"]) { try { snap = JSON.parse(b64urlDecode(p["snap"])); } catch {} }
-    if (!snap || typeof snap.cid !== "string" || !CID_RE.test(snap.cid)) snap = undefined; // must name a CID
-    if (p["stor"]) { try { stor = b64urlDecode(p["stor"]); } catch {} }
-    if (stor !== undefined && !SPR_RE.test(stor)) stor = undefined;          // must be a signed peer record
-    return { calendarId: id, key: b64urlDecode(keyB64), name: p["name"] || undefined, snap, stor };
-  } catch {
-    return null;
-  }
-}
-export function buildInvite(cal: Calendar): string {
-  const key = b64urlEncode(cal.encryptionKey || "");
-  return `scala://join?id=${encodeURIComponent(cal.id)}&key=${key}&name=${encodeURIComponent(cal.name)}`;
-}
+// The parsing/building lives in invite-link.ts (pure, node-tested); re-exported for the app.
+export { parseInvite, buildInvite, cleanInviteLink } from "./invite-link";
 
 // ── inbound: merge one received event into the calendar's log ────────────────
 sync.setEventHandler((calendarId, eventJson) => {
@@ -442,6 +385,132 @@ export async function setMemberRole(calId: string, member: string, role: "editor
   notifyChange();
 }
 
+// ── invite tickets (ADR 0022) ─────────────────────────────────────────────────
+// Owner/editor: make a one-time ticket key, post member.invite {ticket, role}, and return the invite
+// link (join link + &inv=<ticket priv>). The ticket key is also kept on THIS device so the pending
+// invite's link can be shown again; it is a bearer secret, like the link.
+const ticketKeyName = (ticket: string) => "scala-inv-" + ticket;
+export async function createInviteTicket(calId: string, role: "editor" | "viewer"): Promise<{ link: string; ticket: string }> {
+  const reg = await store.getReg(calId);
+  if (!reg || !reg.key) throw new Error("This calendar has no shared key on this device, so it can't be shared.");
+  const folded: any = await store.folded(calId);
+  const t = newTicket((n) => Crypto.getRandomBytes(n)); // Hermes-safe RNG (no crypto.getRandomValues)
+  await publishAndApply(calId, await mkEvent(ET.MEMBER_INVITE, invitePayload(t.ticket, role), calId));
+  try { await SecureStore.setItemAsync(ticketKeyName(t.ticket), t.priv); } catch { /* the link below still works */ }
+  notifyChange();
+  return { link: buildInvite({ id: calId, name: folded.name || reg.name, encryptionKey: reg.key }, t.priv), ticket: t.ticket };
+}
+/** The invite link for a pending ticket made on THIS device, or null if its key isn't here. */
+export async function inviteLinkFor(calId: string, ticket: string): Promise<string | null> {
+  let priv: string | null = null;
+  try { priv = await SecureStore.getItemAsync(ticketKeyName(ticket)); } catch { /* */ }
+  const reg = await store.getReg(calId);
+  if (!priv || !reg || !reg.key || ticketAddress(priv) !== ticket) return null;
+  const folded: any = await store.folded(calId);
+  return buildInvite({ id: calId, name: folded.name || reg.name, encryptionKey: reg.key }, priv);
+}
+export async function revokeInvite(calId: string, ticket: string): Promise<void> {
+  await publishAndApply(calId, await mkEvent(ET.MEMBER_INVITE, invitePayload(ticket, "revoke"), calId));
+  try { await SecureStore.deleteItemAsync(ticketKeyName(ticket)); } catch { /* */ }
+  notifyChange();
+}
+
+// Joiner: redeem a ticket from an invite link. The claim must sort AFTER the invite in HLC order, so it
+// is posted only once the invite has synced in (our clock has then observed it). Pending claims are kept
+// in SecureStore (the ticket key is a secret) and retried on every log change and on restart; the result
+// is reported once via onClaimResult.
+type PendingClaim = { priv: string; posted?: boolean; member?: string; errShown?: boolean };
+export type ClaimResult = { calId: string; name: string; kind: "ok" | "used" | "error"; role?: string; message?: string };
+const PENDING_CLAIMS = "scala-pending-claims";
+const claimListeners = new Set<(r: ClaimResult) => void>();
+export function onClaimResult(cb: (r: ClaimResult) => void): () => void { claimListeners.add(cb); return () => claimListeners.delete(cb); }
+const emitClaim = (r: ClaimResult) => claimListeners.forEach((l) => { try { l(r); } catch { /* */ } });
+let claimsPending: boolean | null = null; // null = not read yet this run
+async function readClaims(): Promise<Record<string, PendingClaim>> {
+  let c: Record<string, PendingClaim> = {};
+  try { const s = await SecureStore.getItemAsync(PENDING_CLAIMS); c = s ? JSON.parse(s) : {}; } catch { /* */ }
+  claimsPending = Object.keys(c).length > 0;
+  return c;
+}
+async function writeClaims(c: Record<string, PendingClaim>): Promise<void> {
+  claimsPending = Object.keys(c).length > 0;
+  try {
+    if (Object.keys(c).length) await SecureStore.setItemAsync(PENDING_CLAIMS, JSON.stringify(c));
+    else await SecureStore.deleteItemAsync(PENDING_CLAIMS);
+  } catch { /* */ }
+}
+async function addPendingClaim(calId: string, priv: string): Promise<void> {
+  const c = await readClaims();
+  if (c[calId] && c[calId].priv === priv) return; // same link opened twice
+  c[calId] = { priv };
+  await writeClaims(c);
+}
+let claimsBusy = false;
+let claimsAgain = false;
+export async function processPendingClaims(): Promise<void> {
+  if (claimsBusy) { claimsAgain = true; return; } // guard re-entry (onChange fires in bursts)
+  claimsBusy = true;
+  let anyChange = false;
+  try {
+    do {
+      claimsAgain = false;
+      const claims = await readClaims();
+      let changed = false;
+      for (const calId of Object.keys(claims)) {
+        const pc = claims[calId];
+        const reg = await store.getReg(calId);
+        if (!reg) { delete claims[calId]; changed = true; continue; } // calendar removed from this device
+        const folded: any = await store.folded(calId);
+        const name = folded.name || reg.name || "calendar";
+        let ticket = "";
+        try { ticket = ticketAddress(pc.priv); } catch { delete claims[calId]; changed = true; continue; }
+        let member = pc.member;
+        if (!member) {
+          try { member = (await identityForCalendar(calId)).address; }
+          catch (e) {
+            if (!pc.errShown) { pc.errShown = true; changed = true; emitClaim({ calId, name, kind: "error", message: String((e as any)?.message ?? e) }); }
+            continue;
+          }
+        }
+        const role = (folded.roles || {})[member];
+        if (role || (folded.owner && folded.owner === member)) {
+          delete claims[calId]; changed = true;
+          emitClaim({ calId, name, kind: "ok", role: role || "owner" });
+          continue;
+        }
+        if (pc.posted) {
+          // Our claim is in the log but gives no role: an earlier claim won, or the ticket was revoked first.
+          delete claims[calId]; changed = true;
+          emitClaim({ calId, name, kind: "used" });
+          continue;
+        }
+        if ((folded.invites || {})[ticket]) {
+          try {
+            await publishAndApply(calId, await mkEvent(ET.MEMBER_CLAIM, claimPayload(calId, pc.priv, member), calId));
+            pc.posted = true; pc.member = member; changed = true;
+            claimsAgain = true; // re-check the fold now that the claim is in
+          } catch (e) {
+            if (!pc.errShown) { pc.errShown = true; changed = true; emitClaim({ calId, name, kind: "error", message: String((e as any)?.message ?? e) }); }
+          }
+          continue;
+        }
+        // Not pending. If the invite IS in our log, it was already redeemed or revoked; otherwise it just
+        // hasn't synced yet — keep waiting.
+        const log = await store.getLog(calId);
+        const seen = log.some((e) => e.type === ET.MEMBER_INVITE && (e.payload as any)?.ticket === ticket && isSigned(e) && verifyEvent(e));
+        if (seen) { delete claims[calId]; changed = true; emitClaim({ calId, name, kind: "used" }); }
+      }
+      if (changed) { await writeClaims(claims); anyChange = true; }
+    } while (claimsAgain);
+  } finally { claimsBusy = false; }
+  if (anyChange) notifyChange();
+}
+let claimTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleClaims(): void {
+  if (claimTimer) return;
+  claimTimer = setTimeout(() => { claimTimer = null; processPendingClaims().catch(() => {}); }, 400);
+}
+
 // Device-LOCAL alias (never synced): overrides the display name on THIS phone while the
 // official cal.meta name is preserved for everyone. Empty alias clears it.
 export async function getAlias(calId: string): Promise<string> {
@@ -464,7 +533,15 @@ export { bindingFor as calendarIdentityId } from "./identities";
 export async function joinFromInvite(link: string, identityId?: string): Promise<Calendar | null> {
   const inv = parseInvite(link);
   if (!inv) return null;
-  if (identityId) await bindCalendar(inv.calendarId, identityId); // author my events here as this identity
+  // Author my events here as this identity — but a calendar ALREADY on this device keeps its binding
+  // (re-opening a link, e.g. an invite for a role, must not switch identity: that would cost the role).
+  const existing = await store.getReg(inv.calendarId);
+  if (identityId && !existing) {
+    await bindCalendar(inv.calendarId, identityId);
+    // A Loam identity is resolved now, so a Loam problem surfaces here (nothing joined) instead of at
+    // the first write. Throws a user-facing message.
+    if (isLoamBinding(identityId)) await identityForCalendar(inv.calendarId);
+  }
   // Register membership; name/color arrive via cal.meta events once synced (the
   // invite name seeds the registry so the UI isn't blank in the meantime).
   await store.upsertReg({
@@ -474,7 +551,9 @@ export async function joinFromInvite(link: string, identityId?: string): Promise
     color: "#89b4fa",
     isShared: true,
   });
+  if (inv.inv) await addPendingClaim(inv.calendarId, inv.inv); // ADR 0022: claim the offered role once the invite syncs
   notifyChange();   // local-first: the calendar shows up NOW; history/subscribe happen in the background
+  if (inv.inv) scheduleClaims();
   const f = (await store.listCalendars()).find((c) => c.id === inv.calendarId) || null;
   // Subscribe + pull history off the UI path — never block "joined" on the network.
   void joinInBackground(link, inv);
@@ -629,6 +708,7 @@ export async function startSyncing(shared?: boolean, onStatus?: (s: string) => v
   // After the warm-up ladder, keep reconciling on our own (foreground-gated) so late peer
   // events arrive without relying on a peer to push or on an app restart.
   ensurePeriodicReconcile();
+  scheduleClaims(); // resume invite claims left pending by a previous run
 }
 
 // ── tiny change bus so the UI can refresh after inbound/outbound edits ───────
@@ -641,3 +721,6 @@ export function onChange(cb: Listener): () => void {
 function notifyChange() {
   listeners.forEach((l) => l());
 }
+// Pending invite claims advance as the log changes (the invite arrives → claim; the claim folds → role).
+// The claim processor itself calls notifyChange only through listeners, never this hook, so no loop.
+listeners.add(() => { if (!claimsBusy && claimsPending !== false) scheduleClaims(); });

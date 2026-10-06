@@ -23,6 +23,7 @@ export interface Calendar {
   owner?: string; // address of the creator
   roles?: Record<string, string>; // address -> "editor"|"viewer"
   rolesConfigured?: boolean;
+  invites?: Record<string, string>; // pending invite tickets (ADR 0022): ticket address -> offered role
   open?: boolean; // may participants add events? (default true)
   collab?: boolean; // Collaborative: may any non-viewer edit ANY event? (default false)
 }
@@ -220,6 +221,7 @@ export const store = {
         owner: f.owner,
         roles: f.roles,
         rolesConfigured: f.rolesConfigured,
+        invites: f.invites,
         open: f.open,
         collab: f.collab,
       });

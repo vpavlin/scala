@@ -13,8 +13,10 @@ import {
   onChange, startSyncing, joinFromInvite, getJoinTrace, createEvent, updateEvent, deleteEvent,
   createCalendar, deleteCalendar, buildInvite, getSharedNode, setSharedNode,
   updateCalendarMeta, getAlias, setAlias, getEventHistory, getDeviceId, setMemberRole,
-  setCalendarIdentity, calendarIdentityId, pendingEventIds, setRsvp,
+  setCalendarIdentity, calendarIdentityId, pendingEventIds, setRsvp, parseInvite, onClaimResult,
 } from "./src/lib/calendar";
+import { MembersModal } from "./src/components/MembersModal";
+import { AppearAs } from "./src/components/AppearAs";
 import { FieldDef } from "./src/components/EventModal";
 
 const FIELD_TYPES = ["text", "longtext", "number", "date", "datetime", "bool", "url", "enum", "color"];
@@ -26,10 +28,11 @@ import { expandEvents } from "./src/lib/recur";
 import { EventModal, EventDraft } from "./src/components/EventModal";
 import { Drawer } from "./src/components/Drawer";
 import { IdentitiesPanel, KeycardTapOverlay, KeycardPinGate } from "./src/components/KeycardProbe";
-import { listIdentities, getDefaultIdentityId, identityForCalendar } from "./src/lib/identities";
+import { listIdentities, getDefaultIdentityId, identityForCalendar, loamRootExists, LOAM_CTX, LOAM_MAIN, isLoamBinding } from "./src/lib/identities";
 import * as codexStorage from "./src/lib/logos-storage";
 import { buildIcs, parseIcs, icsToBase64 } from "./src/lib/ics";
 import { open as openSealed } from "./src/lib/crypto";
+import { shortAddr } from "./src/lib/identity";
 import { toByteArray, fromByteArray } from "base64-js";
 import type { Attachment } from "./src/lib/store";
 import * as sstat from "./src/lib/syncstatus";
@@ -184,6 +187,14 @@ export default function App() {
   const [newCalSchema, setNewCalSchema] = useState<FieldDef[]>([]); // custom fields, set at create
   const [newCalTier, setNewCalTier] = useState<AccessTier>("closed"); // access tier (ADR 0019) — default Closed
   const [joinIdentity, setJoinIdentity] = useState("");       // identity to author my events on a joined calendar
+  // ADR 0022: Loam holds a root → offer "a new identity just for this calendar" (default) / "my main
+  // identity" on create + join. Picked-by-user refs stop the default from overriding a manual choice.
+  const [loamRoot, setLoamRoot] = useState(false);
+  const newCalPicked = useRef(false);
+  const joinPicked = useRef(false);
+  const [membersCalId, setMembersCalId] = useState<string | null>(null); // Members screen open for this calendar
+  const creatingCal = useRef(false);   // double-fire guard for Create
+  const joining = useRef(false);       // double-fire guard for Join / Scan / opened links
   // DEV: editable Codex fetch target. Default = the always-on scala VPS hub (public Storage provider
   // 128.140.55.128:8199, systemd scala-hub.service) so attachments resolve out-of-the-box; still
   // editable in the debug modal for a LAN/mesh/other bootstrap without a rebuild.
@@ -240,7 +251,6 @@ export default function App() {
   const [aliasMap, setAliasMap] = useState<Record<string, string>>({}); // #7: device-local name overrides
   const [calSet, setCalSet] = useState<{ cal: Calendar; name: string; desc: string; alias: string; schema: FieldDef[] } | null>(null); // #7 settings sheet
   const [nf, setNf] = useState<{ key: string; label: string; type: string; options: string }>({ key: "", label: "", type: "text", options: "" }); // #8 new custom field (options: comma-separated, for enum)
-  const [nm, setNm] = useState<{ id: string; role: "editor" | "viewer" }>({ id: "", role: "editor" }); // #3 new member
   const [invite, setInvite] = useState("");
   const [lastInvite, setLastInvite] = useState("");
   const [qr, setQr] = useState<{ value: string; title: string } | null>(null);
@@ -309,6 +319,30 @@ export default function App() {
     getDefaultIdentityId().then((d) => { if (alive) { setNewCalIdentity((cur) => cur || d); setJoinIdentity((cur) => cur || d); } }).catch(() => {});
     return () => { alive = false; clearInterval(t); };
   }, []);
+  // Does Loam hold a root? Asked when the create/join surfaces open and as the sync status changes
+  // (the shared node connects after start). No root / no shared Loam → the local identities, as before.
+  useEffect(() => {
+    let alive = true;
+    loamRootExists().then(async (has) => {
+      if (!alive) return;
+      setLoamRoot(has);
+      const d = await getDefaultIdentityId().catch(() => "device");
+      if (has) {
+        if (!newCalPicked.current) setNewCalIdentity(LOAM_CTX);
+        if (!joinPicked.current) setJoinIdentity(LOAM_CTX);
+      } else {
+        setNewCalIdentity((cur) => (isLoamBinding(cur) ? d : cur));
+        setJoinIdentity((cur) => (isLoamBinding(cur) ? d : cur));
+      }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [drawer, newCalOpen, status]);
+  // Invite claims (ADR 0022) resolve in the background once the calendar syncs — report each once.
+  useEffect(() => onClaimResult((r) => {
+    if (r.kind === "ok") Alert.alert("Invite accepted", `You're now ${r.role === "owner" ? "the owner" : r.role === "editor" ? "an editor" : "a viewer"} on "${r.name}".`);
+    else if (r.kind === "used") Alert.alert("Invite already used", `The invite to "${r.name}" was already used or revoked. You joined, but without a role — ask for a new invite link.`);
+    else Alert.alert("Couldn't accept the invite yet", `${r.message || "Unknown error"}\n\nScala keeps trying in the background.`);
+  }), []);
   useEffect(() => {   // load the open settings-sheet's calendar→identity binding
     if (!calSet) return;
     let alive = true;
@@ -329,13 +363,19 @@ export default function App() {
   // calId → that authoring address; falls back to `me` until resolved.
   const [meFor, setMeFor] = useState<Record<string, string>>({});
   const [kcFor, setKcFor] = useState<Record<string, boolean>>({}); // calId → signed by a Keycard (edits need a card tap)
+  const [pubFor, setPubFor] = useState<Record<string, string>>({}); // calId → the bound identity's public key
   useEffect(() => {
     let alive = true;
     (async () => {
-      const metas = await Promise.all(cals.map(async (c) => [c.id, await identityForCalendar(c.id)] as const));
+      // A Loam-bound calendar whose identity Loam can't provide right now resolves to null (skipped):
+      // its writes then fail with a clear message instead of this whole map failing.
+      const metas = (await Promise.all(cals.map(async (c) => {
+        try { return [c.id, await identityForCalendar(c.id)] as const; } catch { return null; }
+      }))).filter((x): x is NonNullable<typeof x> => !!x);
       if (!alive) return;
       setMeFor(Object.fromEntries(metas.map(([id, m]) => [id, m.address])));
       setKcFor(Object.fromEntries(metas.map(([id, m]) => [id, m.kind === "keycard"])));
+      setPubFor(Object.fromEntries(metas.map(([id, m]) => [id, m.pubHex || ""])));
     })();
     return () => { alive = false; };
   }, [cals, identities]);
@@ -365,7 +405,7 @@ export default function App() {
   const addableCals = useMemo(() => writable.filter((c) => canAddTo(c)), [writable, canAddTo]);
   const pickCals = addableCals.length ? addableCals : writable;
   const openCalSettings = (c: Calendar) => {
-    setNf({ key: "", label: "", type: "text", options: "" }); setNm({ id: "", role: "editor" });
+    setNf({ key: "", label: "", type: "text", options: "" });
     setCalSet({ cal: c, name: c.name, desc: c.description || "", alias: aliasMap[c.id] || "", schema: c.schema ? [...c.schema] : [] });
   };
   const saveCalSettings = async () => {
@@ -440,35 +480,11 @@ export default function App() {
   };
   const removeField = (key: string) => setCalSet((v) => v && { ...v, schema: v.schema.filter((f) => f.key !== key) });
   // #3: role management — writes a member.set event immediately (owner/admin only; the fold enforces it).
-  const canManage = !!calSet && (calSet.cal.owner === me || calSet.cal.roles?.[me] === "editor" || calSet.cal.roles?.[me] === "admin");
+  const canManage = !!calSet && isEditorMe(calSet.cal); // judged by the identity bound to THIS calendar
   const members: [string, string][] = calSet
     ? [...(calSet.cal.owner ? [[calSet.cal.owner, "owner"] as [string, string]] : []),
        ...Object.entries(calSet.cal.roles || {}).filter(([id]) => id !== calSet.cal.owner)]
     : [];
-  const addMember = async () => {
-    const id = nm.id.trim();
-    if (!id || !calSet) return;
-    await setMemberRole(calSet.cal.id, id, nm.role);
-    setNm({ id: "", role: "editor" });
-    Alert.alert("Member added", `${id.slice(0, 16)}… is now ${nm.role}. They'll appear once the change syncs.`);
-    setCalSet(null);
-  };
-  const removeMember = (id: string) => {
-    if (!calSet) return;
-    const calId = calSet.cal.id;
-    Alert.alert(
-      "Remove member",
-      `Remove ${id.slice(0, 16)}… from "${calSet.cal.name}"? They lose access on this calendar (they keep any local copy).`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Remove", style: "destructive", onPress: async () => {
-          try { await setMemberRole(calId, id, "remove"); setCalSet(null); }
-          catch (e: any) { onKeycardAbort(e, () => removeMember(id)); }
-        } },
-      ],
-    );
-  };
-  const copyIdentity = async () => { await Clipboard.setStringAsync(me); Alert.alert("Copied", "Your identity is on the clipboard — share it so an owner can add you."); };
   const removeCalendar = () => {
     if (!calSet) return;
     const c = calSet.cal;
@@ -798,6 +814,8 @@ export default function App() {
   };
   const removeNewCalField = (key: string) => setNewCalSchema((v) => v.filter((f) => f.key !== key));
   const doCreateCal = async () => {
+    if (creatingCal.current) return; // double-tap guard: one Create = one calendar
+    creatingCal.current = true;
     try {
       const cal = await createCalendar(newCalName || "My calendar", "#89b4fa", newCalDesc, newCalIdentity || undefined,
         { schema: newCalSchema, ...tierMeta(newCalTier) });
@@ -810,22 +828,39 @@ export default function App() {
       startSyncing(undefined, setStatus).catch(() => {});
       setQr({ value: buildInvite(cal), title: cal.name }); // show the QR right away
     } catch (e: any) { onKeycardAbort(e, () => doCreateCal()); }
+    finally { creatingCal.current = false; }
   };
   const showShare = (cal: Calendar) => { setLastInvite(buildInvite(cal)); setQr({ value: buildInvite(cal), title: cal.name }); };
   const copyInvite = async (link: string) => { await Clipboard.setStringAsync(link); Alert.alert("Copied", "Invite link copied to clipboard."); };
+  // One join path for paste / scan / opened link. Guarded against double-fire; a Loam identity that
+  // can't be resolved throws a clear message and nothing is joined. An `inv` ticket (ADR 0022) is
+  // claimed in the background once the calendar syncs; the outcome arrives via onClaimResult.
+  const joinWith = async (link: string, identityId: string | undefined, bad: [string, string]): Promise<boolean> => {
+    if (joining.current) return false;
+    joining.current = true;
+    try {
+      const cal = await joinFromInvite(link.trim(), identityId);
+      if (!cal) { Alert.alert(bad[0], bad[1]); return false; }
+      startSyncing(undefined, setStatus).catch(() => {});   // fire-and-forget (offline-safe): the join is already persisted
+      const p = parseInvite(link.trim());
+      if (p?.invBad) Alert.alert("Joined, without a role", `Syncing "${cal.name}". The invite part of the link is damaged, so no role could be claimed — ask for a new invite link.`);
+      else if (p?.inv) Alert.alert("Joined", `Syncing "${cal.name}". You were invited: your role is claimed as soon as the calendar has synced, and you'll get a message.`);
+      else Alert.alert("Joined", `Syncing "${cal.name}"`);
+      return true;
+    } catch (e) {
+      Alert.alert("Couldn't join", msg(e) + "\n\nNothing was joined.");
+      return false;
+    } finally { joining.current = false; }
+  };
   const onScanned = async (data: string) => {
     setScanning(false);
-    const cal = await joinFromInvite(data.trim(), joinIdentity || undefined);
-    if (!cal) { Alert.alert("Not a Scala invite", "That QR isn't a scala://join link."); return; }
-    startSyncing(undefined, setStatus).catch(() => {});   // fire-and-forget (offline-safe): the join is already persisted
-    Alert.alert("Joined", `Syncing "${cal.name}"`);
+    await joinWith(data, joinIdentity || undefined, ["Not a Scala invite", "That QR isn't a scala://join link."]);
   };
   const doJoin = async () => {
-    const cal = await joinFromInvite(invite.trim(), joinIdentity || undefined);
-    if (!cal) { Alert.alert("Bad invite", "Expected a scala://join?cal=…&key=… link"); return; }
-    setInvite(""); startSyncing(undefined, setStatus).catch(() => {});   // fire-and-forget (offline-safe): the join is already persisted
-    Alert.alert("Joined", `Syncing "${cal.name}"`);
+    if (await joinWith(invite, joinIdentity || undefined, ["Bad invite", "Expected a scala://join?id=…&key=… link"])) setInvite("");
   };
+  const loamRootRef = useRef(false); loamRootRef.current = loamRoot;
+  const calsRef = useRef<Calendar[]>([]); calsRef.current = cals;
   // A scala://join link opened from outside (camera app, browser, chat) — Android starts or resumes
   // Scala with it; before this the app registered the scheme but ignored the link.
   const handledLinks = useRef(new Set<string>());
@@ -833,10 +868,19 @@ export default function App() {
     const onUrl = async (url: string | null) => {
       if (!url || !url.startsWith("scala://join") || handledLinks.current.has(url)) return;
       handledLinks.current.add(url);
-      const cal = await joinFromInvite(url.trim(), joinIdentity || undefined);
-      if (!cal) { Alert.alert("Not a Scala invite", "That link isn't a valid scala://join link."); return; }
-      startSyncing(undefined, setStatus).catch(() => {});
-      Alert.alert("Joined", `Syncing "${cal.name}"`);
+      const bad: [string, string] = ["Not a Scala invite", "That link isn't a valid scala://join link."];
+      const p = parseInvite(url.trim());
+      // A NEW calendar opened from outside, with a Loam root: ask which identity to appear as (the drawer
+      // choice isn't on screen). A calendar already here keeps its identity.
+      if (p && loamRootRef.current && !calsRef.current.some((c) => c.id === p.calendarId)) {
+        Alert.alert("Appear as", `Which identity should sign your events in "${p.name || "this calendar"}"?`, [
+          { text: "Cancel", style: "cancel", onPress: () => { handledLinks.current.delete(url); } },
+          { text: "My main identity", onPress: () => { void joinWith(url, LOAM_MAIN, bad); } },
+          { text: "Just for this calendar", onPress: () => { void joinWith(url, LOAM_CTX, bad); } },
+        ]);
+        return;
+      }
+      await joinWith(url, joinIdentity || undefined, bad);
     };
     Linking.getInitialURL().then(onUrl).catch(() => {});
     const sub = Linking.addEventListener("url", (e) => { void onUrl(e.url); });
@@ -1093,15 +1137,11 @@ export default function App() {
                 <TextInput style={[s.input, { flex: 1 }]} value={invite} onChangeText={setInvite} placeholder="scala://join?…" placeholderTextColor={C.sub} autoCapitalize="none" />
                 <Pressable style={s.smBtn} onPress={doJoin}><Text style={s.smBtnT}>Join</Text></Pressable>
               </View>
-              {identities.length > 1 ? (
-                <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 6 }}>
-                  <Text style={[s.sub, { marginRight: 2 }]}>author as</Text>
-                  {identities.map((m) => (
-                    <Pressable key={m.id} onPress={() => setJoinIdentity(m.id)}
-                      style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: joinIdentity === m.id ? "#89b4fa" : "#45475a" }}>
-                      <Text style={{ color: joinIdentity === m.id ? "#1e1e2e" : "#cdd6f4", fontSize: 12, fontWeight: "600" }}>{m.label}{m.kind === "keycard" ? " 🔑" : ""}</Text>
-                    </Pressable>
-                  ))}
+              {loamRoot || identities.length > 1 ? (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={[s.sub, { marginBottom: 6 }]}>Appear as</Text>
+                  <AppearAs compact loamRoot={loamRoot} value={joinIdentity} identities={identities}
+                    onChange={(id) => { joinPicked.current = true; setJoinIdentity(id); }} />
                 </View>
               ) : null}
               <Pressable style={[s.smBtn, { marginTop: 8, alignItems: "center" }]} onPress={() => setScanning(true)}>
@@ -1142,8 +1182,24 @@ export default function App() {
                 {/* Which identity signs MY events on this calendar (rebind). Owner is fixed. */}
                 <Text style={s.pLabel}>Authored by</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                  {isLoamBinding(calSetIdentity) && (
+                    <View style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12, backgroundColor: C.primary, borderWidth: 1, borderColor: C.primary }}>
+                      <Text style={{ color: "#1e1e2e", fontWeight: "600", fontSize: 13 }}>{calSetIdentity === LOAM_MAIN ? "My main identity (Loam)" : "Just for this calendar (Loam)"}</Text>
+                    </View>
+                  )}
                   {identities.map((m) => (
-                    <Pressable key={m.id} onPress={async () => { if (calSet) { await setCalendarIdentity(calSet.cal.id, m.id); setCalSetIdentity(m.id); } }}
+                    <Pressable key={m.id} onPress={() => {
+                      if (!calSet || calSetIdentity === m.id) return;
+                      const calId = calSet.cal.id;
+                      // Switching identity costs the role held by the old one (ADR 0022) — confirm first.
+                      Alert.alert("Switch identity?", `Your new events here will be signed by "${m.label}". A role or ownership held by your current identity does not carry over.`, [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Switch", onPress: async () => {
+                          try { await setCalendarIdentity(calId, m.id); setCalSetIdentity(m.id); ToastAndroid.show(`Now signing as ${m.label}`, ToastAndroid.SHORT); }
+                          catch (e) { Alert.alert("Couldn't switch", msg(e)); }
+                        } },
+                      ]);
+                    }}
                       style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12, backgroundColor: calSetIdentity === m.id ? C.primary : C.surface, borderWidth: 1, borderColor: calSetIdentity === m.id ? C.primary : C.border }}>
                       <Text style={{ color: calSetIdentity === m.id ? "#1e1e2e" : C.text, fontWeight: "600", fontSize: 13 }}>{m.label}{m.kind === "keycard" ? " 🔑" : ""}</Text>
                     </Pressable>
@@ -1193,26 +1249,19 @@ export default function App() {
                 <Text style={[s.sub, { marginBottom: 6, marginTop: 8 }]}>
                   {calSet ? `Your role: ${roleOf(calSet.cal)}${roleOf(calSet.cal) === "viewer" ? " — read-only." : "."}` : ""}
                 </Text>
-                {members.map(([id, role]) => (
-                  <View key={id} style={s.fieldRow}>
-                    <Text style={{ color: C.text, flex: 1, fontFamily: "monospace", fontSize: 12 }} numberOfLines={1}>
-                      {id === me ? "you" : id.replace(/^scala-/, "").slice(0, 12)} <Text style={{ color: C.sub }}>· {role}</Text>
-                    </Text>
-                    {canManage && role !== "owner" && <Pressable onPress={() => removeMember(id)} hitSlop={8}><Text style={{ color: C.danger, fontSize: 18 }}>×</Text></Pressable>}
-                  </View>
-                ))}
-                {canManage && (
-                  <>
-                    <TextInput style={[s.input, { marginTop: 6 }]} value={nm.id} onChangeText={(t) => setNm((v) => ({ ...v, id: t }))} placeholder="Paste a member's identity" placeholderTextColor={C.sub} autoCapitalize="none" />
-                    <View style={[s.row2, { marginTop: 6, alignItems: "center" }]}>
-                      {(["editor", "viewer"] as const).map((r) => (
-                        <Pressable key={r} onPress={() => setNm((v) => ({ ...v, role: r }))} style={[s.typeChip, nm.role === r && s.typeChipOn]}>
-                          <Text style={[s.typeChipT, nm.role === r && { color: C.bg }]}>{r}</Text>
-                        </Pressable>
-                      ))}
-                      <Pressable style={[s.smBtn, { flex: 1, alignItems: "center", backgroundColor: C.accent }]} onPress={addMember}><Text style={[s.smBtnT, { color: C.bg }]}>Add member</Text></Pressable>
+                {canManage ? (
+                  <Pressable style={[s.smBtn, { alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]}
+                    onPress={() => { if (calSet) { setMembersCalId(calSet.cal.id); setCalSet(null); } }}>
+                    <Text style={[s.smBtnT, { color: C.text }]}>Members &amp; invites ({members.length + Object.keys(calSet?.cal.invites || {}).length})</Text>
+                  </Pressable>
+                ) : (
+                  members.map(([id, role]) => (
+                    <View key={id} style={s.fieldRow}>
+                      <Text style={{ color: C.text, flex: 1, fontFamily: "monospace", fontSize: 12 }} numberOfLines={1}>
+                        {calSet && id === addrFor(calSet.cal) ? "you" : shortAddr(id)} <Text style={{ color: C.sub }}>· {role}</Text>
+                      </Text>
                     </View>
-                  </>
+                  ))
                 )}
 
                 <Text style={s.pLabel}>iCalendar</Text>
@@ -1238,14 +1287,10 @@ export default function App() {
                 <Text style={{ color: C.text, fontSize: 18, fontWeight: "700", marginBottom: 14 }}>New calendar</Text>
                 <TextInput style={s.input} value={newCalName} onChangeText={setNewCalName} placeholder="Name" placeholderTextColor={C.sub} autoFocus />
                 <TextInput style={[s.input, { marginTop: 10 }]} value={newCalDesc} onChangeText={setNewCalDesc} placeholder="Description (optional)" placeholderTextColor={C.sub} />
-                <Text style={[s.pLabel, { marginTop: 14 }]}>Author as</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-                  {identities.map((m) => (
-                    <Pressable key={m.id} onPress={() => setNewCalIdentity(m.id)}
-                      style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 14, backgroundColor: newCalIdentity === m.id ? C.primary : C.surface, borderWidth: 1, borderColor: newCalIdentity === m.id ? C.primary : C.border }}>
-                      <Text style={{ color: newCalIdentity === m.id ? "#1e1e2e" : C.text, fontWeight: "600" }}>{m.label}{m.kind === "keycard" ? " 🔑" : ""}</Text>
-                    </Pressable>
-                  ))}
+                <Text style={[s.pLabel, { marginTop: 14 }]}>{loamRoot ? "Appear as" : "Author as"}</Text>
+                <View style={{ marginTop: 4 }}>
+                  <AppearAs loamRoot={loamRoot} value={newCalIdentity} identities={identities}
+                    onChange={(id) => { newCalPicked.current = true; setNewCalIdentity(id); }} />
                 </View>
                 <Text style={[s.sub, { marginTop: 8 }]}>This identity owns the calendar and signs its events. A Keycard calendar asks for your PIN + a tap.</Text>
 
@@ -1289,6 +1334,14 @@ export default function App() {
             </View>
           </KeyboardAvoidingView>
         </Modal>
+        <MembersModal
+          cal={membersCalId ? cals.find((c) => c.id === membersCalId) || null : null}
+          me={membersCalId ? addrFor(cals.find((c) => c.id === membersCalId)) : me}
+          myPubHex={membersCalId ? pubFor[membersCalId] || "" : ""}
+          onShowQr={(link, title) => { setLastInvite(link); setQr({ value: link, title }); }}
+          onWriteError={(e, retry) => onKeycardAbort(e, retry)}
+          onClose={() => setMembersCalId(null)}
+        />
         <QRModal visible={!!qr} value={qr?.value || ""} title={qr?.title || "Invite"} onClose={() => setQr(null)} />
         <ScanModal visible={scanning} onScanned={onScanned} onClose={() => setScanning(false)} />
 
