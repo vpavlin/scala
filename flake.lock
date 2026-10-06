@@ -5696,18 +5696,18 @@
       },
       "locked": {
         "dir": "core",
-        "lastModified": 1790961049,
-        "narHash": "sha256-WRLDjb1OvxYYzc/njfEpJhnGB95sltfaerBAHi2bnzI=",
+        "lastModified": 1791212893,
+        "narHash": "sha256-6h2ldccvvMEUrTKvgVlxDQD2zOxv5eqAE/RbsWPjCsA=",
         "owner": "vpavlin",
         "repo": "loam-basecamp",
-        "rev": "7ec67c43c9357e787945eb731388c5dc89d31b7c",
+        "rev": "f66ad0ac8973a314f17eca12e4ce0b9939b1a19a",
         "type": "github"
       },
       "original": {
         "dir": "core",
         "owner": "vpavlin",
         "repo": "loam-basecamp",
-        "rev": "7ec67c43c9357e787945eb731388c5dc89d31b7c",
+        "rev": "f66ad0ac8973a314f17eca12e4ce0b9939b1a19a",
         "type": "github"
       }
     },
