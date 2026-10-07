@@ -113,6 +113,23 @@ async function sendSyncReq(calId: string, force = false): Promise<boolean> {
   catch { return false; }
 }
 
+// Fast follow-up while a catch-up is making progress. Without it the phone asks once at join (and at
+// 0/9/24 s) and then only every 45 s, so one reply lost on the phone's light (filter/lightpush)
+// connection stalls the catch-up for up to 45 s, and a history that takes several rounds trickles in
+// over minutes. Instead: whenever a round brings in new events (or we just asked for missing ones),
+// ask again a few seconds later. A round that brings nothing schedules nothing, so it stops by
+// itself once converged. Desktops and the hub answer every fingerprint (no throttle there).
+const FOLLOW_UP_MS = 4000;
+const followUpTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function followUp(calId: string): void {
+  const t = followUpTimers.get(calId);
+  if (t) clearTimeout(t);
+  followUpTimers.set(calId, setTimeout(() => {
+    followUpTimers.delete(calId);
+    sendSyncReq(calId).catch(() => {});
+  }, FOLLOW_UP_MS));
+}
+
 // ── scala:// invite links — MUST match the desktop core byte-for-byte ─────────
 // The parsing/building lives in invite-link.ts (pure, node-tested); re-exported for the app.
 export { parseInvite, buildInvite, cleanInviteLink } from "./invite-link";
@@ -149,14 +166,14 @@ sync.setEventHandler((calendarId, eventJson) => {
         for (const ev of step.serve)
           await sync.sendEvent(calendarId, JSON.stringify(eventToJson(ev))).catch(() => {});
         for (const r of step.replies) {
-          if (r.t === "need" && Array.isArray(r.ids)) sstat.noteNeed(calendarId, r.ids.length); // events WE still lack
+          if (r.t === "need" && Array.isArray(r.ids)) { sstat.noteNeed(calendarId, r.ids.length); followUp(calendarId); } // events WE still lack
           await sync.sendEvent(calendarId, JSON.stringify(eventToJson(await mkEvent(ET.SYNC_REQ, r)))).catch(() => {});
         }
         return;
       }
       (await ensureClock()).receive(e.hlc); // advance past the ingested cause
       const isNew = await store.appendEvent(calendarId, e); // idempotent (dedup by id)
-      if (isNew) { sstat.noteRecv(calendarId); notifyChange(); } // one deficit event fulfilled
+      if (isNew) { sstat.noteRecv(calendarId); notifyChange(); followUp(calendarId); } // one deficit event fulfilled; keep going
     } catch {
       /* malformed event — ignore */
     }
