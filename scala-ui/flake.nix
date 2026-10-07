@@ -2,12 +2,12 @@
   description = "Scala Calendar UI — pure-QML view over the scala core module";
 
   inputs = {
-    # Pin to the SAME builder the scala core uses (full 40-char SHA) so the view,
-    # core and host stay on one SDK. An unpinned builder was building the view
-    # against a different rev than the core — part of why it never loaded.
-    logos-module-builder.url = "github:logos-co/logos-module-builder/afe4430ee6eb7ba45c08a516a43e18500720c715";
-    scala.url = "github:vpavlin/scala";
-    scala.inputs.logos-module-builder.follows = "logos-module-builder";
+    # port/0.3: builder 0.3.1 — the SAME builder the scala core and loam_core use.
+    logos-module-builder.url = "github:logos-co/logos-module-builder/0.3.1";
+    scala.url = "github:vpavlin/scala/7af46fa7c091f8bae683bd9862f1aa83cebc4f74";
+    # The view also calls loam_core directly (identities, keycard enrol, node status), so it
+    # declares it: Basecamp 0.3 gives each view its own identity and checks what it may call.
+    loam_core.url = "github:vpavlin/loam-basecamp/f66ad0ac8973a314f17eca12e4ce0b9939b1a19a?dir=core";
   };
 
   outputs = inputs@{ logos-module-builder, scala, ... }:

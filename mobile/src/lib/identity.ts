@@ -115,5 +115,28 @@ export function verifyEvent(ev: any): boolean {
   }
 }
 
+// ── invite tickets (scala ADR 0022) ──────────────────────────────────────────
+// An invite link carries a one-time TICKET private key. The owner/editor posts member.invite
+// {ticket: address(ticketPub), role}; whoever opens the link posts member.claim {ticket, ticketPub,
+// member, ticketSig} under THEIR identity for this calendar. ticketSig proves they hold the ticket key
+// (members who merely saw the invite in the log can't claim it). Mirrors scala_identity.hpp exactly.
+export function inviteClaimMessage(calId: string, ticket: string, member: string): string {
+  return "scala-invite-claim-v1|" + calId + "|" + ticket + "|" + member;
+}
+export function signInviteClaim(ticketPriv: Uint8Array, calId: string, member: string): { ticket: string; ticketPub: string; ticketSig: string } {
+  const t = identityFromPriv(ticketPriv);
+  const sig = secp256k1.sign(sha256(utf8Bytes(inviteClaimMessage(calId, t.address, member))), ticketPriv);
+  return { ticket: t.address, ticketPub: t.pubHex, ticketSig: sig.toCompactHex() };
+}
+export function verifyInviteClaim(calId: string, ticket: string, ticketPub: string, member: string, ticketSig: string): boolean {
+  try {
+    const pub = fromHex(ticketPub);
+    if (pub.length !== 33 || addressFor(pub) !== ticket || !/^[0-9a-f]{128}$/i.test(ticketSig)) return false;
+    return secp256k1.verify(fromHex(ticketSig), sha256(utf8Bytes(inviteClaimMessage(calId, ticket, member))), pub);
+  } catch {
+    return false;
+  }
+}
+
 // An event is "legacy" (pre-signing) when it carries no signature.
 export function isSigned(ev: any): boolean { return !!(ev && ev.sig); }

@@ -1,15 +1,13 @@
 {
   description = "scala engine + sync CORE module (delivery via the shared logos-transport).";
   inputs = {
-    # scala routes sync through the loam_core FACADE (not delivery_module directly) — ADR 0015.
-    # Released tooling baseline (module-builder 0.2.6); loam_core pulls delivery + ble_mesh.
-    loam_core.url = "github:vpavlin/loam-basecamp?dir=core";
-    logos-module-builder.url = "github:logos-co/logos-module-builder/0.2.6";
-    loam_core.inputs.logos-module-builder.follows = "logos-module-builder";
-    # ADR 0017 Gate 3: attachments live in Logos Storage. storage_module wraps libstorage
-    # (currently tracks upstream master = Kademlia DHT, matching our mobile fetch client).
-    storage_module.url = "github:logos-co/logos-storage-module";
-    storage_module.inputs.logos-module-builder.follows = "logos-module-builder";
+    # port/0.3: builder 0.3.1 (Basecamp 0.3.x). scala routes sync through the loam_core FACADE
+    # (ADR 0015), now on UPSTREAM delivery_module v0.3.0 (loam-basecamp port/0.3).
+    logos-module-builder.url = "github:logos-co/logos-module-builder/0.3.1";
+    loam_core.url = "github:vpavlin/loam-basecamp/f66ad0ac8973a314f17eca12e4ce0b9939b1a19a?dir=core";
+    # ADR 0017 Gate 3: attachments live in Logos Storage. Pinned (was: tracking master, which
+    # silently pulled the 3.0 API break): v3.0.1 = libstorage v0.5.2.
+    storage_module.url = "github:logos-co/logos-storage-module/v3.0.1";
   };
   outputs = inputs@{ logos-module-builder, ... }:
     logos-module-builder.lib.mkLogosModule {

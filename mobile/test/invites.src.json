@@ -1,0 +1,341 @@
+{
+ "calId": "cal-invites",
+ "note": "Invite tickets (ADR 0022). Signed by sign_invites.mjs: authors A..G and tickets T1..T7 map to deterministic test keys.",
+ "log": [
+  {
+   "v": 1,
+   "id": "m1",
+   "type": "cal.meta",
+   "hlc": {
+    "wall": 100,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "name": "Invites",
+    "color": "#123456"
+   }
+  },
+  {
+   "v": 1,
+   "id": "g1",
+   "type": "member.set",
+   "hlc": {
+    "wall": 110,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "member": "B",
+    "role": "editor"
+   }
+  },
+  {
+   "v": 1,
+   "id": "i1",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 120,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "ticket": "T1",
+    "role": "editor"
+   }
+  },
+  {
+   "v": 1,
+   "id": "i2",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 130,
+    "ctr": 0,
+    "dev": "B"
+   },
+   "dev": "B",
+   "payload": {
+    "ticket": "T2",
+    "role": "viewer"
+   }
+  },
+  {
+   "v": 1,
+   "id": "i3",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 140,
+    "ctr": 0,
+    "dev": "D"
+   },
+   "dev": "D",
+   "payload": {
+    "ticket": "T3",
+    "role": "editor"
+   }
+  },
+  {
+   "v": 1,
+   "id": "c1",
+   "type": "member.claim",
+   "hlc": {
+    "wall": 150,
+    "ctr": 0,
+    "dev": "F"
+   },
+   "dev": "F",
+   "payload": {
+    "ticket": "T1",
+    "member": "F"
+   }
+  },
+  {
+   "v": 1,
+   "id": "c2",
+   "type": "member.claim",
+   "hlc": {
+    "wall": 160,
+    "ctr": 0,
+    "dev": "G"
+   },
+   "dev": "G",
+   "payload": {
+    "ticket": "T1",
+    "member": "G"
+   }
+  },
+  {
+   "v": 1,
+   "id": "c3",
+   "type": "member.claim",
+   "hlc": {
+    "wall": 170,
+    "ctr": 0,
+    "dev": "E"
+   },
+   "dev": "E",
+   "payload": {
+    "ticket": "T2",
+    "member": "E"
+   },
+   "_sigTicket": "T3"
+  },
+  {
+   "v": 1,
+   "id": "c4",
+   "type": "member.claim",
+   "hlc": {
+    "wall": 180,
+    "ctr": 0,
+    "dev": "C"
+   },
+   "dev": "C",
+   "payload": {
+    "ticket": "T2",
+    "member": "G"
+   }
+  },
+  {
+   "v": 1,
+   "id": "c5",
+   "type": "member.claim",
+   "hlc": {
+    "wall": 190,
+    "ctr": 0,
+    "dev": "E"
+   },
+   "dev": "E",
+   "payload": {
+    "ticket": "T2",
+    "member": "E"
+   }
+  },
+  {
+   "v": 1,
+   "id": "i4",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 200,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "ticket": "T4",
+    "role": "editor"
+   }
+  },
+  {
+   "v": 1,
+   "id": "i4r",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 210,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "ticket": "T4",
+    "role": "revoke"
+   }
+  },
+  {
+   "v": 1,
+   "id": "c6",
+   "type": "member.claim",
+   "hlc": {
+    "wall": 220,
+    "ctr": 0,
+    "dev": "C"
+   },
+   "dev": "C",
+   "payload": {
+    "ticket": "T4",
+    "member": "C"
+   }
+  },
+  {
+   "v": 1,
+   "id": "i5",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 230,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "ticket": "T5",
+    "role": "editor"
+   }
+  },
+  {
+   "v": 1,
+   "id": "c7",
+   "type": "member.claim",
+   "hlc": {
+    "wall": 240,
+    "ctr": 0,
+    "dev": "G"
+   },
+   "dev": "G",
+   "payload": {
+    "ticket": "T5",
+    "member": "G"
+   },
+   "_highS": true
+  },
+  {
+   "v": 1,
+   "id": "i1r",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 250,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "ticket": "T1",
+    "role": "revoke"
+   }
+  },
+  {
+   "v": 1,
+   "id": "c8",
+   "type": "member.claim",
+   "hlc": {
+    "wall": 260,
+    "ctr": 0,
+    "dev": "D"
+   },
+   "dev": "D",
+   "payload": {
+    "ticket": "T6",
+    "member": "D"
+   }
+  },
+  {
+   "v": 1,
+   "id": "i6",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 270,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "ticket": "T6",
+    "role": "editor"
+   }
+  },
+  {
+   "v": 1,
+   "id": "i7",
+   "type": "member.invite",
+   "hlc": {
+    "wall": 280,
+    "ctr": 0,
+    "dev": "F"
+   },
+   "dev": "F",
+   "payload": {
+    "ticket": "T7",
+    "role": "viewer"
+   }
+  },
+  {
+   "v": 1,
+   "id": "e1",
+   "type": "event.put",
+   "hlc": {
+    "wall": 290,
+    "ctr": 0,
+    "dev": "F"
+   },
+   "dev": "F",
+   "payload": {
+    "id": "evF",
+    "title": "by F (editor via invite)",
+    "startTime": 1,
+    "endTime": 2
+   }
+  },
+  {
+   "v": 1,
+   "id": "e2",
+   "type": "event.put",
+   "hlc": {
+    "wall": 300,
+    "ctr": 0,
+    "dev": "E"
+   },
+   "dev": "E",
+   "payload": {
+    "id": "evE",
+    "title": "by E (viewer via invite)",
+    "startTime": 1,
+    "endTime": 2
+   }
+  },
+  {
+   "v": 1,
+   "id": "mc",
+   "type": "cal.meta",
+   "hlc": {
+    "wall": 310,
+    "ctr": 0,
+    "dev": "A"
+   },
+   "dev": "A",
+   "payload": {
+    "open": false
+   }
+  }
+ ]
+}

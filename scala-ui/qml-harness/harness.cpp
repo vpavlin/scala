@@ -52,12 +52,16 @@ QString MockLogos::callModule(const QString &mod, const QString &method, const Q
         fprintf(stderr, "[CALL] %s(%s)\n", qPrintable(method), qPrintable(parts.join(" | ")));
     }
     if (method == "listCalendars")
-        return QString(R"([{"id":"c1","name":"Team","color":"#89b4fa","encryptionKey":"k","creatorId":"0xowner","owner":"0xowner","roles":{},"rolesConfigured":false,"open":true,"schema":[]}])");
+        return QString(R"([{"id":"c1","name":"Team","color":"#89b4fa","encryptionKey":"k","creatorId":"0xowner","owner":"0xowner","authorAddr":"0xowner","binding":"loam:ctx","roles":{"0xed11111111111111111111111111111111111111":"editor"},"rolesConfigured":true,"open":true,"schema":[],"invites":{"0x7ic0000000000000000000000000000000000001":"editor","0x7ic0000000000000000000000000000000000002":"viewer"},"inviteLinks":{"0x7ic0000000000000000000000000000000000001":"scala://join?id=c1&key=a2V5&name=Team&inv=1111111111111111111111111111111111111111111111111111111111111111"},"claim":{}}])");
     if (method == "listEvents" || method == "listAllEvents")
         return QString(R"([{"id":"e1","calendarId":"c1","title":"Their event","startTime":%1,"endTime":%2,"creatorId":"0xowner"}])")
             .arg(EV_START).arg(EV_END);
     if (method == "createCalendar") return "\"cNEW\"";
-    if (method == "coreVersion") return "\"0.9.1\""; // current core → no stale banner // JSON-encoded id (like the real core) — must be j()-unwrapped
+    // ADR 0022: Loam HD root exists but is locked; two writes wait for it.
+    if (method == "hdStatus") return QString(R"({"exists":true,"unlocked":false,"mainAddress":"0xma1n000000000000000000000000000000000000"})");
+    if (method == "hdState") return QString(R"({"pending":2,"error":"locked","calId":"c1","at":1})");
+    if (method == "createInvite") return QString(R"({"ok":true,"link":"scala://join?id=c1&key=a2V5&name=Team&inv=2222222222222222222222222222222222222222222222222222222222222222","ticket":"0x7ic3","role":"editor"})");
+    if (method == "coreVersion") return "\"0.11.0\""; // current core → no stale banner // JSON-encoded id (like the real core) — must be j()-unwrapped
     // Mock Alisher's keycard module (ADR 0016): requestSign → pending signId; checkSignStatus stays
     // pending (so the "hold your Keycard" overlay renders for the screenshot).
     if (method == "requestSign") return QString(R"({"signId":"sig-1","status":"pending"})");
@@ -139,7 +143,14 @@ int main(int argc, char **argv) {
     // Keycard overlay: trigger enrol → keycardState() reports pending → the 700ms poll opens it.
     QTimer::singleShot(5100, [&] { runJs(&view, "coreAsync('enrollKeycard', ['My Keycard','scala']); identitiesPopup.close()"); });
     QTimer::singleShot(6100, [&] { grab(&view, out + "/06-keycard-overlay.png"); });
-    QTimer::singleShot(6500, [&] { app.quit(); });
+    // ADR 0022: the Members panel (scrolled to the bottom), an invite link popup, the join popup.
+    QTimer::singleShot(6300, [&] { runJs(&view, "kcLastRef = 'enroll:scala:mock'; keycardOverlay.close(); openCalSettings(calById(\"c1\"))"); });
+    QTimer::singleShot(6700, [&] { runJs(&view, "settingsFlick.contentY = Math.max(0, settingsFlick.contentHeight - settingsFlick.height)"); });
+    QTimer::singleShot(7000, [&] { grab(&view, out + "/09-members.png"); runJs(&view, "createInvite('editor')"); });
+    QTimer::singleShot(7600, [&] { grab(&view, out + "/10-invite-link.png"); runJs(&view, "sharePopup.close(); calSettingsPopup.close(); joinPopup.open()"); });
+    QTimer::singleShot(7900, [&] { runJs(&view, "joinLink.text = 'scala://join?id=c1&key=a2V5&name=Team&inv=22'"); });
+    QTimer::singleShot(8200, [&] { grab(&view, out + "/11-join-invite.png"); runJs(&view, "joinPopup.close()"); });
+    QTimer::singleShot(8500, [&] { app.quit(); });
     return app.exec();
 }
 #include "harness.moc"

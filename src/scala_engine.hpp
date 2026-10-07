@@ -42,6 +42,8 @@ namespace ET {
     constexpr const char* EVENT_DEL = "event.del";   // {id}                  — tombstone an event (terminal)
     constexpr const char* MEMBER_SET = "member.set"; // {member,role}         — roles (#3): owner/admin grants admin|viewer|remove. Opt-in: no member.set = open calendar.
     constexpr const char* EVENT_RSVP = "event.rsvp"; // {eventId,status}       — attendance (ADR 0021): LWW per (eventId,author); self-scoped
+    constexpr const char* MEMBER_INVITE = "member.invite"; // {ticket,role} — invite ticket (ADR 0022): owner/editor offers a role to the ticket holder
+    constexpr const char* MEMBER_CLAIM  = "member.claim";  // {ticket,ticketPub,member,ticketSig} — redeem a ticket (first valid claim wins)
     constexpr const char* SYNC_REQ  = "sync.req";    // {have:[id…], from} — CATCH-UP: a joining peer publishes the ids it already holds; peers serve ONLY the delta (logos_sync::catchup). NOT stored, NOT folded (foldCalendar ignores unknown types); handled in the receive path → onSyncReq().
 }
 
@@ -70,6 +72,8 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     // trusted only when the event is signed by that author; unsigned legacy events are still
     // admitted (best-effort author). Single HLC-ordered pass → order-independent, convergent.
     std::map<std::string, std::string> roleOf;    // dev -> "editor"|"viewer"
+    std::map<std::string, std::string> invites;   // ticket address -> offered role (ADR 0022)
+    std::set<std::string> claimed;                // tickets already redeemed (one-time)
     std::map<std::string, std::string> creatorOf; // event id -> ORIGINAL author (edit-your-own)
     bool rolesConfigured = false;
     bool openCal = true;                          // cal.meta "open" (LWW): may participants add? default yes
@@ -130,6 +134,25 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
             if (r == "remove") roleOf.erase(m);
             else if (r == "editor" || r == "admin") roleOf[m] = "editor";  // "admin" = legacy alias
             else if (r == "viewer") roleOf[m] = "viewer";
+        } else if (e.type == ET::MEMBER_INVITE) {
+            // An invite ticket is offered only by an AUTHENTICATED owner/editor (same rule as member.set).
+            bool authed = verified && (author == owner || (roleOf.count(author) && (roleOf[author] == "editor" || roleOf[author] == "admin")));
+            if (owner.empty() || !authed) continue;
+            std::string t = e.payload.value("ticket", std::string());
+            std::string r = e.payload.value("role", std::string());
+            if (t.empty() || claimed.count(t)) continue;   // a redeemed ticket can't be re-offered or revoked (use member.set)
+            if (r == "revoke") invites.erase(t);
+            else if (r == "editor" || r == "viewer") invites[t] = r;
+        } else if (e.type == ET::MEMBER_CLAIM) {
+            // Redeem a ticket for YOURSELF: member must be the (signed) author, ticketSig must prove the ticket key.
+            std::string t = e.payload.value("ticket", std::string());
+            std::string m = e.payload.value("member", std::string());
+            if (t.empty() || m.empty() || m != author || m == owner || claimed.count(t) || !invites.count(t)) continue;
+            if (!verifyInviteClaim(calId, t, e.payload.value("ticketPub", std::string()), m, e.payload.value("ticketSig", std::string()))) continue;
+            roleOf[m] = invites[t];
+            invites.erase(t);
+            claimed.insert(t);
+            rolesConfigured = true;
         } else if (e.type == ET::EVENT_PUT) {
             std::string id = e.payload.value("id", std::string());
             if (id.empty() || tombstones.count(id)) continue;   // tombstone terminal
@@ -170,9 +193,11 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     for (auto& kv : events) evArr.push_back(kv.second);
     json roles = json::object();
     for (auto& kv : roleOf) roles[kv.first] = kv.second;
+    json pendingInvites = json::object();
+    for (auto& kv : invites) pendingInvites[kv.first] = kv.second;
     return json{{"id", calId}, {"name", name}, {"color", color},
                 {"description", description}, {"schema", schema},
-                {"owner", owner}, {"roles", roles}, {"rolesConfigured", rolesConfigured},
+                {"owner", owner}, {"roles", roles}, {"rolesConfigured", rolesConfigured}, {"invites", pendingInvites},
                 {"open", openCal}, {"collab", collabCal}, {"events", evArr}};
 }
 
