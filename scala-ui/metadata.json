@@ -2,7 +2,7 @@
   "name": "scala_ui",
   "display_name": "Scala",
   "icon": "icon.png",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "type": "ui_qml",
   "category": "general",
   "description": "Scala Calendar UI - pure-QML view over the scala calendar core module",

@@ -552,7 +552,10 @@ Item {
         })
     }
     function handleIntent(requestId, intent, p, requesterName) {
-        if (!root.ready) { root.intentReply(requestId, false, ({}), "failed"); return }
+        // Basecamp may load this view to deliver the request: it can arrive before
+        // Component.onCompleted has set `ready`, so ask the bridge itself.
+        if (!root.hasBridge()) { root.intentReply(requestId, false, ({}), "failed"); return }
+        root.ready = true
         if (intent === "scala.calendars.list") {
             root.intentData(function (cals, evs) {
                 var out = []

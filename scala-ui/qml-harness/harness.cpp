@@ -141,7 +141,11 @@ int main(int argc, char **argv) {
     if (qEnvironmentVariableIsSet("SCALA_HARNESS_INTENTS")) {
         // Each request the way Basecamp delivers it; then check every answer.
         struct Case { QString id, intent, params, expect; };
+        // Basecamp may load the view just to deliver a request: it arrives before
+        // Component.onCompleted's deferred setup has run.
+        emit logos->intentRequested("r0", "scala.calendars.list", QVariantMap(), "basecamp_voice");
         const QList<Case> cases = {
+            {"r0", "scala.calendars.list", "{}", "ok|{\"calendars\":"},
             {"r1", "scala.calendars.list", "{}", "ok|{\"calendars\":[{\"canAdd\":true,\"events\":1,\"name\":\"Team\"}]}"},
             {"r2", "scala.events.list", "{}", "ok|"},
             {"r3", "scala.events.search", "{\"query\":\"their\"}", "ok|{\"events\":[{\"calendar\":\"Team\""},
@@ -160,6 +164,7 @@ int main(int argc, char **argv) {
         };
         int at = 1500;
         for (const auto &c : cases) {
+            if (c.id == "r0") continue;
             QTimer::singleShot(at, [logos, c] {
                 emit logos->intentRequested(c.id, c.intent, QJsonDocument::fromJson(c.params.toUtf8()).toVariant(), "basecamp_voice");
             });
