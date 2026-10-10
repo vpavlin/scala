@@ -218,17 +218,12 @@ int main(int argc, char **argv) {
     QTimer::singleShot(8500, [&] { runJs(&view, "fieldFilter = { key: 'status', value: 'Confirmed' }; searchQuery = 'e'"); });
     QTimer::singleShot(8900, [&] { grab(&view, out + "/12-filter-search.png"); runJs(&view, "rangeId = 'next7'; rangePicked = true"); });
     QTimer::singleShot(9200, [&] { grab(&view, out + "/13-filter-range.png"); });
-    // Lanes view: by calendar, then by the Status field.
-    QTimer::singleShot(9500, [&] { runJs(&view, "searchQuery = ''; fieldFilter = null; calMode = 'lanes'"); });
-    QTimer::singleShot(9800, [&] { grab(&view, out + "/14-lanes-calendar.png"); runJs(&view, "laneBy = { kind: 'field', key: 'status' }"); });
-    QTimer::singleShot(10100, [&] { grab(&view, out + "/15-lanes-status.png"); });
     // Event editor scrolled to the comments (ADR 0024).
-    QTimer::singleShot(10400, [&] { runJs(&view, "calMode = 'month'; openEditEvent(monthOccurrences.length ? monthOccurrences[0] : events[0])"); });
-    QTimer::singleShot(10800, [&] { runJs(&view, "evFlick.contentY = Math.max(0, evFlick.contentHeight - evFlick.height)"); });
-    // The popup's height settles after it opens, so scroll once more just before the grab.
-    QTimer::singleShot(11300, [&] { runJs(&view, "evFlick.contentY = Math.max(0, evFlick.contentHeight - evFlick.height)"); });
-    QTimer::singleShot(11500, [&] { grab(&view, out + "/16-comments.png"); });
-    QTimer::singleShot(11800, [&] { app.quit(); });
+    QTimer::singleShot(9500, [&] { runJs(&view, "searchQuery = ''; fieldFilter = null; openEditEvent(monthOccurrences.length ? monthOccurrences[0] : events[0])"); });
+    // The popup's height settles after it opens, so scroll just before the grab.
+    QTimer::singleShot(10200, [&] { runJs(&view, "evFlick.contentY = Math.max(0, evFlick.contentHeight - evFlick.height)"); });
+    QTimer::singleShot(10400, [&] { grab(&view, out + "/16-comments.png"); });
+    QTimer::singleShot(10700, [&] { app.quit(); });
     return app.exec();
 }
 #include "harness.moc"

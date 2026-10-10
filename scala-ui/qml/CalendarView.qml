@@ -461,77 +461,6 @@ Item {
         if (ev && ev.fields) for (var k in ev.fields) { var v = String(ev.fields[k]); if (v.length > 0 && v.length <= 24) out.push(v) }
         return out.slice(0, 4)
     }
-    // ── lanes view (same algorithm as mobile src/lib/lanes.ts) ─────────────────
-    // Days down the side, one column per calendar or per value of an enum field (e.g. venue).
-    property var laneBy: ({ kind: "calendar" })
-    function laneFieldsOf(cals, hidden) {
-        var out = []
-        for (var i = 0; i < cals.length; i++) {
-            if (hidden[cals[i].id]) continue
-            var sc = cals[i].schema || []
-            for (var j = 0; j < sc.length; j++) {
-                var f = sc[j]; if (!f || !f.key || f.type !== "enum") continue
-                var have = null
-                for (var k = 0; k < out.length; k++) if (out[k].key === f.key) have = out[k]
-                var opts = f.options || []
-                if (have) { for (var m = 0; m < opts.length; m++) if (opts[m] && have.options.indexOf(opts[m]) < 0) have.options.push(opts[m]) }
-                else { var o2 = []; for (var n = 0; n < opts.length; n++) if (opts[n]) o2.push(opts[n]); out.push({ key: f.key, label: f.label || f.key, options: o2 }) }
-            }
-        }
-        return out
-    }
-    readonly property var laneFields: root.laneFieldsOf(root.calendars, root.hiddenCals)
-    readonly property var effectiveLaneBy: {
-        var b = root.laneBy
-        if (b && b.kind === "field") for (var i = 0; i < root.laneFields.length; i++) if (root.laneFields[i].key === b.key) return b
-        return { kind: "calendar" }
-    }
-    function laneOf(o, by) {
-        if (by.kind === "calendar") return o.calendarId
-        var v = o.fields ? o.fields[by.key] : undefined
-        return (v === undefined || v === null || v === "") ? "—" : String(v)
-    }
-    function buildLanes(occs, by, firstDay, nDays, cals, options) {
-        var lanes = [], index = {}
-        function addLane(id, label) { if (index[id] === undefined) { index[id] = lanes.length; lanes.push({ id: id, label: label }) } }
-        if (by.kind === "calendar") { for (var i = 0; i < cals.length; i++) addLane(cals[i].id, cals[i].name || "(unnamed)") }
-        else { for (var j = 0; j < options.length; j++) if (options[j]) addLane(options[j], options[j]) }
-        function dayStart(n) { var d = new Date(firstDay); d.setDate(d.getDate() + n); return d.getTime() }
-        var end = dayStart(nDays), inWin = []
-        for (var a = 0; a < occs.length; a++) if (occs[a].startTime >= firstDay && occs[a].startTime < end) inWin.push(occs[a])
-        inWin.sort(function (x, y) { return x.startTime - y.startTime })
-        var noValue = false
-        for (var b = 0; b < inWin.length; b++) { var id = root.laneOf(inWin[b], by); if (id === "—") { noValue = true; continue } addLane(id, id) }
-        if (noValue) addLane("—", "—")
-        var days = []
-        for (var c = 0; c < nDays; c++) { var cells = []; for (var e = 0; e < lanes.length; e++) cells.push([]); days.push({ date: dayStart(c), cells: cells }) }
-        for (var g = 0; g < inWin.length; g++) {
-            var dd = new Date(inWin[g].startTime); dd.setHours(0, 0, 0, 0)
-            var row = -1; for (var r = 0; r < days.length; r++) if (days[r].date === dd.getTime()) { row = r; break }
-            var col = index[root.laneOf(inWin[g], by)]
-            if (row >= 0 && col !== undefined) days[row].cells[col].push(inWin[g])
-        }
-        return { lanes: lanes, days: days }
-    }
-    function computeLaneGrid(day, by, fields) {
-        var d0 = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0).getTime()
-        var cals = []
-        for (var i = 0; i < root.calendars.length; i++) {
-            var c = root.calendars[i]
-            if (root.hiddenCals[c.id] || (root.filterCalId !== "" && c.id !== root.filterCalId)) continue
-            cals.push({ id: c.id, name: c.name })
-        }
-        var opts = []
-        if (by.kind === "field") for (var j = 0; j < fields.length; j++) if (fields[j].key === by.key) opts = fields[j].options
-        return root.buildLanes(root.expandEvents(root.eventsFiltered(), d0, d0 + 15 * 864e5), by, d0, 14, cals, opts)
-    }
-    readonly property var laneGrid: root.calMode === "lanes" ? root.computeLaneGrid(root.selectedDay, root.effectiveLaneBy, root.laneFields) : null
-    function laneRangeLabel(day) {
-        var a = new Date(day.getFullYear(), day.getMonth(), day.getDate()); var b = new Date(a); b.setDate(b.getDate() + 13)
-        var mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-        return a.getDate() + " " + mo[a.getMonth()] + " – " + b.getDate() + " " + mo[b.getMonth()] + " " + b.getFullYear()
-    }
-
     // ── view filters (same logic as mobile src/lib/filters.ts) ──────────────────
     // One custom-field value at a time (enum options and yes/no fields of the shown calendars),
     // applied to every view; plus date-range presets for search results. View-only.
@@ -601,7 +530,7 @@ Item {
     readonly property bool searching: root.searchQuery.trim() !== ""
     readonly property var searchResults: root.searching ? root.eventsMatching(root.searchQuery, root.effectiveRange) : []
     // ── month / week view ────────────────────────────────────────────────────
-    property string calMode: "month"   // "month" | "week" | "day" | "lanes"
+    property string calMode: "month"   // "month" | "week"
     function weekDaysOf(d) {
         var mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7))
         var out = []
@@ -615,12 +544,12 @@ Item {
         return a.getDate() + " " + mo[a.getMonth()] + " – " + b.getDate() + " " + mo[b.getMonth()] + " " + b.getFullYear()
     }
     function goPrev() {
-        if (calMode === "week" || calMode === "lanes") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() - 7); selectedDay = d; viewMonth = d }
+        if (calMode === "week") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() - 7); selectedDay = d; viewMonth = d }
         else if (calMode === "day") { var dd = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() - 1); selectedDay = dd; viewMonth = dd }
         else viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1)
     }
     function goNext() {
-        if (calMode === "week" || calMode === "lanes") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() + 7); selectedDay = d; viewMonth = d }
+        if (calMode === "week") { var d = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() + 7); selectedDay = d; viewMonth = d }
         else if (calMode === "day") { var dd = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate() + 1); selectedDay = dd; viewMonth = dd }
         else viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1)
     }
@@ -1102,7 +1031,6 @@ Item {
                 }
                 LogosText { textFormat: Text.PlainText;
                     text: root.calMode === "week" ? root.weekLabel(root.selectedDay)
-                        : root.calMode === "lanes" ? root.laneRangeLabel(root.selectedDay)
                         : root.calMode === "day" ? Qt.formatDate(root.selectedDay, "dddd, MMMM d")
                         : root.monthNames[root.viewMonth.getMonth()] + " " + root.viewMonth.getFullYear()
                     color: root.cText; font.pixelSize: 20; font.weight: Theme.typography.weightMedium
@@ -1115,7 +1043,7 @@ Item {
                     Row {
                         id: modeRow; anchors.centerIn: parent; spacing: 2
                         Repeater {
-                            model: [{ m: "month", t: "Month" }, { m: "week", t: "Week" }, { m: "day", t: "Day" }, { m: "lanes", t: "Lanes" }]
+                            model: [{ m: "month", t: "Month" }, { m: "week", t: "Week" }, { m: "day", t: "Day" }]
                             Rectangle {
                                 width: segT.implicitWidth + 18; height: 26; radius: 7
                                 color: root.calMode === modelData.m ? root.cBlue : "transparent"
@@ -1272,102 +1200,6 @@ Item {
                             }
                         }
                         MouseArea { anchors.fill: parent; z: -1; onClicked: root.selectedDay = modelData }
-                    }
-                }
-            }
-
-            // ── lanes: rows = days (14 from the selected day), columns = calendars or enum-field values ──
-            ColumnLayout {
-                visible: root.calMode === "lanes"
-                Layout.fillWidth: true; Layout.fillHeight: true
-                Layout.leftMargin: Theme.spacing.medium; Layout.rightMargin: Theme.spacing.medium
-                Layout.topMargin: 4; Layout.bottomMargin: Theme.spacing.medium; spacing: 8
-                Flow {
-                    Layout.fillWidth: true; spacing: 6
-                    Repeater {
-                        model: [{ key: "", label: "Calendar" }].concat(root.laneFields)
-                        delegate: Rectangle {
-                            required property var modelData
-                            readonly property bool on: modelData.key === "" ? root.effectiveLaneBy.kind === "calendar" : (root.effectiveLaneBy.kind === "field" && root.effectiveLaneBy.key === modelData.key)
-                            height: 26; radius: 13; width: laneByLbl.implicitWidth + 20
-                            color: on ? root.cSurface : "transparent"; border.width: 1; border.color: on ? root.cBlue : root.cSurface2
-                            LogosText { id: laneByLbl; textFormat: Text.PlainText; anchors.centerIn: parent; text: "By " + String(modelData.label).toLowerCase(); color: parent.on ? root.cBlue : root.cSub; font.pixelSize: 12 }
-                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.laneBy = modelData.key === "" ? { kind: "calendar" } : { kind: "field", key: modelData.key } }
-                        }
-                    }
-                }
-                LogosText { textFormat: Text.PlainText; visible: !!root.laneGrid && root.laneGrid.lanes.length === 0; text: "No calendars to show."; color: root.cSub; font.pixelSize: 13 }
-                Flickable {
-                    id: laneFlick
-                    Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                    contentWidth: laneCol.width; contentHeight: laneCol.height
-                    ScrollBar.vertical: ScrollBar {}
-                    ScrollBar.horizontal: ScrollBar {}
-                    Column {
-                        id: laneCol
-                        readonly property int dateW: 84
-                        readonly property int cellW: 170
-                        Row {
-                            Item { width: laneCol.dateW; height: 30 }
-                            Repeater {
-                                model: root.laneGrid ? root.laneGrid.lanes : []
-                                delegate: Row {
-                                    required property var modelData
-                                    width: laneCol.cellW; height: 30; spacing: 6
-                                    Rectangle { visible: root.effectiveLaneBy.kind === "calendar"; width: 10; height: 10; radius: 5; anchors.verticalCenter: parent.verticalCenter; color: root.calColor(modelData.id) }
-                                    LogosText { textFormat: Text.PlainText; text: modelData.label; color: root.cText; font.pixelSize: 13; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; width: laneCol.cellW - 20; anchors.verticalCenter: parent.verticalCenter }
-                                }
-                            }
-                        }
-                        Repeater {
-                            model: root.laneGrid ? root.laneGrid.days : []
-                            delegate: Row {
-                                id: laneDayRow
-                                required property var modelData
-                                readonly property bool isToday: root.sameDay(new Date(modelData.date), new Date())
-                                Rectangle {
-                                    width: laneCol.dateW; height: laneDayRow.rowH; color: "transparent"
-                                    Column {
-                                        anchors.verticalCenter: parent.verticalCenter; x: 4
-                                        LogosText { textFormat: Text.PlainText; text: Qt.formatDate(new Date(laneDayRow.modelData.date), "ddd"); color: laneDayRow.isToday ? root.cYellow : root.cSub; font.pixelSize: 12 }
-                                        LogosText { textFormat: Text.PlainText; text: Qt.formatDate(new Date(laneDayRow.modelData.date), "d MMM"); color: laneDayRow.isToday ? root.cYellow : root.cSub; font.pixelSize: 12 }
-                                    }
-                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.selectedDay = new Date(laneDayRow.modelData.date); root.calMode = "day" } }
-                                }
-                                property int rowH: Math.max(44, laneCellsRow.implicitHeight)
-                                Row {
-                                    id: laneCellsRow
-                                    Repeater {
-                                        model: laneDayRow.modelData.cells
-                                        delegate: Rectangle {
-                                            required property var modelData
-                                            width: laneCol.cellW; height: Math.max(44, laneEvCol.implicitHeight + 8)
-                                            color: "transparent"; border.width: 1; border.color: root.cSurface2
-                                            Column {
-                                                id: laneEvCol
-                                                x: 4; y: 4; width: laneCol.cellW - 8; spacing: 4
-                                                Repeater {
-                                                    model: parent.parent.modelData
-                                                    delegate: Rectangle {
-                                                        required property var modelData
-                                                        width: laneEvCol.width; height: 38; radius: 6; color: root.cSurface
-                                                        Rectangle { width: 3; height: parent.height; radius: 1; color: root.evColor(parent.modelData) }
-                                                        Column {
-                                                            x: 9; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 12
-                                                            LogosText { textFormat: Text.PlainText; width: parent.width; elide: Text.ElideRight; font.pixelSize: 12; color: root.cText
-                                                                text: root.clashMark(parent.parent.modelData) + root.rsvpMark(parent.parent.modelData) + (parent.parent.modelData.title || "(untitled)") }
-                                                            LogosText { textFormat: Text.PlainText; font.pixelSize: 11; color: root.cSub
-                                                                text: parent.parent.modelData.allDay ? "All day" : root.fmtTime(parent.parent.modelData.startTime) }
-                                                        }
-                                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(parent.modelData) }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
