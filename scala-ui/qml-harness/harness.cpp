@@ -52,9 +52,9 @@ QString MockLogos::callModule(const QString &mod, const QString &method, const Q
         fprintf(stderr, "[CALL] %s(%s)\n", qPrintable(method), qPrintable(parts.join(" | ")));
     }
     if (method == "listCalendars")
-        return QString(R"([{"id":"c1","name":"Team","color":"#89b4fa","encryptionKey":"k","creatorId":"0xowner","owner":"0xowner","authorAddr":"0xowner","binding":"loam:ctx","roles":{"0xed11111111111111111111111111111111111111":"editor"},"rolesConfigured":true,"open":true,"schema":[],"invites":{"0x7ic0000000000000000000000000000000000001":"editor","0x7ic0000000000000000000000000000000000002":"viewer"},"inviteLinks":{"0x7ic0000000000000000000000000000000000001":"scala://join?id=c1&key=a2V5&name=Team&inv=1111111111111111111111111111111111111111111111111111111111111111"},"claim":{}}])");
+        return QString(R"([{"id":"c1","name":"Team","color":"#89b4fa","encryptionKey":"k","creatorId":"0xowner","owner":"0xowner","authorAddr":"0xowner","binding":"loam:ctx","roles":{"0xed11111111111111111111111111111111111111":"editor"},"rolesConfigured":true,"open":true,"schema":[{"key":"status","label":"Status","type":"enum","options":["Draft","Confirmed","Cancelled"]},{"key":"sold","label":"Sold out","type":"bool"}],"invites":{"0x7ic0000000000000000000000000000000000001":"editor","0x7ic0000000000000000000000000000000000002":"viewer"},"inviteLinks":{"0x7ic0000000000000000000000000000000000001":"scala://join?id=c1&key=a2V5&name=Team&inv=1111111111111111111111111111111111111111111111111111111111111111"},"claim":{}}])");
     if (method == "listEvents" || method == "listAllEvents")
-        return QString(R"([{"id":"e1","calendarId":"c1","title":"Their event","startTime":%1,"endTime":%2,"creatorId":"0xowner"},{"id":"e2","calendarId":"c1","title":"Overlapping soundcheck","startTime":%3,"endTime":%4,"creatorId":"0xowner"}])")
+        return QString(R"([{"id":"e1","calendarId":"c1","title":"Their event","startTime":%1,"endTime":%2,"creatorId":"0xowner","fields":{"status":"Confirmed"}},{"id":"e2","calendarId":"c1","title":"Overlapping soundcheck","startTime":%3,"endTime":%4,"creatorId":"0xowner"}])")
             .arg(EV_START).arg(EV_END).arg(EV_START.toLongLong() + 1800000LL).arg(EV_END.toLongLong() + 1800000LL);
     if (method == "createCalendar") return "\"cNEW\"";
     // ADR 0022: Loam HD root exists but is locked; two writes wait for it.
@@ -150,7 +150,11 @@ int main(int argc, char **argv) {
     QTimer::singleShot(7600, [&] { grab(&view, out + "/10-invite-link.png"); runJs(&view, "sharePopup.close(); calSettingsPopup.close(); joinPopup.open()"); });
     QTimer::singleShot(7900, [&] { runJs(&view, "joinLink.text = 'scala://join?id=c1&key=a2V5&name=Team&inv=22'"); });
     QTimer::singleShot(8200, [&] { grab(&view, out + "/11-join-invite.png"); runJs(&view, "joinPopup.close()"); });
-    QTimer::singleShot(8500, [&] { app.quit(); });
+    // Frequencies filters: pick "Status: Confirmed" and search → only the confirmed event, with range chips.
+    QTimer::singleShot(8500, [&] { runJs(&view, "fieldFilter = { key: 'status', value: 'Confirmed' }; searchQuery = 'e'"); });
+    QTimer::singleShot(8900, [&] { grab(&view, out + "/12-filter-search.png"); runJs(&view, "rangeId = 'next7'; rangePicked = true"); });
+    QTimer::singleShot(9200, [&] { grab(&view, out + "/13-filter-range.png"); });
+    QTimer::singleShot(9500, [&] { app.quit(); });
     return app.exec();
 }
 #include "harness.moc"

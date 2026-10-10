@@ -26,6 +26,7 @@ import { ensureNotifyPermission, scheduleReminders } from "./src/lib/notify";
 import { MonthGrid, CellRect } from "./src/components/MonthGrid";
 import { expandEvents } from "./src/lib/recur";
 import { findClashes, occKey } from "./src/lib/clashes";
+import { filterChoices, matchesFieldFilter, rangeWindow, RANGES, type FieldFilter, type RangeId } from "./src/lib/filters";
 import { EventModal, EventDraft } from "./src/components/EventModal";
 import { Drawer } from "./src/components/Drawer";
 import { IdentitiesPanel, KeycardTapOverlay, KeycardPinGate } from "./src/components/KeycardProbe";
@@ -168,7 +169,22 @@ export default function App() {
     });
   }, []);
   // Events on visible calendars only — feeds every combined view (month/week/day/agenda).
-  const visibleEvents = useMemo(() => events.filter((e) => !hiddenCals.has(e.calendarId)), [events, hiddenCals]);
+  // Field filter (src/lib/filters.ts): one enum value or yes/no field at a time, across every view.
+  const [fieldFilter, setFieldFilter] = useState<FieldFilter | null>(null);
+  const [rangeId, setRangeId] = useState<RangeId>("next90"); // agenda window
+  const [rangePicked, setRangePicked] = useState(false);     // until picked, a search widens to ±1 year
+  const shownCals = useMemo(() => cals.filter((c) => !hiddenCals.has(c.id)), [cals, hiddenCals]);
+  const fieldChoices = useMemo(() => filterChoices(shownCals.map((c) => c.schema)), [shownCals]);
+  // A filter whose field/value no longer exists in any shown calendar's schema is ignored.
+  const activeFilter = useMemo(
+    () => (fieldFilter && fieldChoices.some((c) => c.key === fieldFilter.key && c.value === fieldFilter.value) ? fieldFilter : null),
+    [fieldFilter, fieldChoices],
+  );
+  const calVisibleEvents = useMemo(() => events.filter((e) => !hiddenCals.has(e.calendarId)), [events, hiddenCals]);
+  const visibleEvents = useMemo(
+    () => (activeFilter ? calVisibleEvents.filter((e) => matchesFieldFilter(e, activeFilter)) : calVisibleEvents),
+    [calVisibleEvents, activeFilter],
+  );
   const [viewMode, setViewMode] = useState<"month" | "week" | "day" | "agenda">("month"); // month grid / week strip / day timeline / upcoming agenda
   const [query, setQuery] = useState(""); // agenda search
   const [status, setStatus] = useState("starting");
@@ -549,10 +565,8 @@ export default function App() {
   // Agenda: occurrences grouped by day. Default = next 90 days from today; a search widens the
   // window (−30d … +365d) and filters by title/location/description across all calendars.
   const agenda = useMemo(() => {
-    const now = new Date(); const t0 = new Date(now); t0.setHours(0, 0, 0, 0);
     const q = query.trim().toLowerCase();
-    const start = q ? now.getTime() - 30 * 864e5 : t0.getTime();
-    const end = q ? now.getTime() + 365 * 864e5 : t0.getTime() + 90 * 864e5;
+    const [start, end] = rangeWindow(q && !rangePicked ? "all" : rangeId, Date.now());
     let occ = expandEvents(visibleEvents, start, end);
     if (q) occ = occ.filter((o) => `${o.title || ""} ${o.location || ""} ${o.description || ""} ${Object.values((o as any).fields || {}).join(" ")}`.toLowerCase().includes(q));
     occ.sort((a, b) => a.startTime - b.startTime);
@@ -564,7 +578,7 @@ export default function App() {
       g.items.push(o);
     }
     return groups;
-  }, [visibleEvents, query]);
+  }, [visibleEvents, query, rangeId, rangePicked]);
 
   // Clash warnings: timed events in the same calendar whose times overlap (src/lib/clashes.ts).
   // One window covers everything any view shows: the month grid (± a week), the selected week,
@@ -573,8 +587,8 @@ export default function App() {
     const t0 = new Date(); t0.setHours(0, 0, 0, 0);
     const start = Math.min(new Date(cursor.getFullYear(), cursor.getMonth(), 1).getTime() - 7 * 864e5, weekDays[0].getTime(), t0.getTime() - 30 * 864e5);
     const end = Math.max(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1).getTime() + 7 * 864e5, weekDays[6].getTime() + 864e5, t0.getTime() + 365 * 864e5);
-    return findClashes(expandEvents(visibleEvents, start, end));
-  }, [visibleEvents, cursor, weekDays]);
+    return findClashes(expandEvents(calVisibleEvents, start, end)); // a filter hides events, not clashes
+  }, [calVisibleEvents, cursor, weekDays]);
   const clashesOf = useCallback((ev: any) => (ev && ev.seriesId != null ? clashes.get(occKey(ev)) : undefined) || [], [clashes]);
 
   // Feed the home-screen agenda widget: the next 24h of events, grouped by day with Today/Tomorrow
@@ -583,7 +597,7 @@ export default function App() {
   const widgetItems = useMemo(() => {
     const now = Date.now();
     const soon = now + 24 * 3600e3;
-    const up = expandEvents(visibleEvents, now, now + 30 * 864e5)
+    const up = expandEvents(calVisibleEvents, now, now + 30 * 864e5)
       .filter((o) => o.endTime >= now)
       .sort((a, b) => a.startTime - b.startTime);
     let picked = up.filter((o) => o.startTime <= soon);
@@ -615,7 +629,7 @@ export default function App() {
       });
     }
     return rows;
-  }, [visibleEvents, cals, displayName, evColor]);
+  }, [calVisibleEvents, cals, displayName, evColor]);
   useEffect(() => { updateWidgetAgenda(widgetItems); }, [widgetItems]);
 
   const openNew = () => {
@@ -950,6 +964,34 @@ export default function App() {
           )}
         </View>
 
+        {/* Field filter (every view) + date range (agenda). Hidden when there's nothing to pick. */}
+        {(fieldChoices.length > 0 || viewMode === "agenda") && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={s.chipRow}>
+            {fieldChoices.length > 0 && (
+              <Pressable onPress={() => setFieldFilter(null)} style={[s.chip, !activeFilter && s.chipOn]}>
+                <Text style={[s.chipT, !activeFilter && s.chipTOn]}>All events</Text>
+              </Pressable>
+            )}
+            {fieldChoices.map((c) => {
+              const on = !!activeFilter && activeFilter.key === c.key && activeFilter.value === c.value;
+              return (
+                <Pressable key={c.key + "=" + c.value} onPress={() => setFieldFilter(on ? null : { key: c.key, value: c.value })} style={[s.chip, on && s.chipOn]}>
+                  <Text style={[s.chipT, on && s.chipTOn]} numberOfLines={1}>{c.label}</Text>
+                </Pressable>
+              );
+            })}
+            {viewMode === "agenda" && fieldChoices.length > 0 && <View style={s.chipSep} />}
+            {viewMode === "agenda" && RANGES.map((r) => {
+              const on = (query.trim() && !rangePicked ? "all" : rangeId) === r.id;
+              return (
+                <Pressable key={r.id} onPress={() => { setRangeId(r.id); setRangePicked(true); }} style={[s.chip, on && s.chipOn]}>
+                  <Text style={[s.chipT, on && s.chipTOn]}>{r.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+
         {viewMode === "month" ? (<>
         <View style={s.grid}>
           <MonthGrid
@@ -1058,7 +1100,7 @@ export default function App() {
         </ScrollView>
         </>) : (
         <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-          {agenda.length === 0 && <Text style={[s.sub, { padding: 16 }]}>{query.trim() ? "No matching events." : "No upcoming events in the next 90 days."}</Text>}
+          {agenda.length === 0 && <Text style={[s.sub, { padding: 16 }]}>{query.trim() || activeFilter ? "No matching events." : `No events: ${(RANGES.find((r) => r.id === rangeId) || RANGES[2]).label.toLowerCase()}.`}</Text>}
           {agenda.map((g) => (
             <View key={g.key}>
               <View style={s.dayHead}><Text style={s.dayTitle}>{g.date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text></View>
@@ -1558,6 +1600,12 @@ const s = StyleSheet.create({
   hourEmpty: { height: 32 },
   hourEvent: { backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, padding: 10, marginTop: 6 },
   evTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
+  chipRow: { gap: 6, paddingHorizontal: 14, paddingBottom: 8, alignItems: "center" },
+  chip: { borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4 },
+  chipOn: { borderColor: C.primary, backgroundColor: C.surface },
+  chipT: { color: C.sub, fontSize: 12 },
+  chipTOn: { color: C.primary, fontWeight: "700" },
+  chipSep: { width: 1, height: 18, backgroundColor: C.border, marginHorizontal: 2 },
   clashPill: { color: C.danger, fontSize: 10, fontWeight: "700", borderWidth: 1, borderColor: C.danger, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, overflow: "hidden" },
   syncPill: { color: C.today, fontSize: 10, fontWeight: "700", borderWidth: 1, borderColor: C.today, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, overflow: "hidden" },
   sub: { color: C.sub, fontSize: 12 },

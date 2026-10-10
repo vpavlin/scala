@@ -351,6 +351,7 @@ Item {
             var e = events[i]
             if (filterCalId !== "" && e.calendarId !== filterCalId) continue  // single-focus filter
             if (root.hiddenCals[e.calendarId]) continue                        // hidden calendars
+            if (!root.matchesFieldFilter(e, root.activeFilter)) continue      // field filter
             out.push(e)
         }
         return out
@@ -390,8 +391,8 @@ Item {
 
     // Cached expansion covering the whole visible 6×7 grid; re-evaluates when the
     // month, event set, or calendar filter changes.
-    property var monthOccurrences: root.computeMonthOccurrences(root.viewMonth, root.events, root.filterCalId, root.hiddenCals)
-    function computeMonthOccurrences(vm, evs, fcal, hidden) {
+    property var monthOccurrences: root.computeMonthOccurrences(root.viewMonth, root.events, root.filterCalId, root.hiddenCals, root.activeFilter)
+    function computeMonthOccurrences(vm, evs, fcal, hidden, ff) {
         var first = new Date(vm.getFullYear(), vm.getMonth(), 1)
         var offset = (first.getDay() + 6) % 7
         var firstCell = new Date(first.getFullYear(), first.getMonth(), 1 - offset)
@@ -401,6 +402,7 @@ Item {
         for (var i = 0; i < evs.length; i++) {
             if (fcal !== "" && evs[i].calendarId !== fcal) continue
             if (hidden[evs[i].calendarId]) continue
+            if (ff && !root.matchesFieldFilter(evs[i], ff)) continue
             src.push(evs[i])
         }
         return root.expandEvents(src, ws, we)
@@ -430,7 +432,8 @@ Item {
         for (var k in out) out[k].sort(function (a, b) { return a.startTime - b.startTime })
         return out
     }
-    property var clashMap: root.findClashes(root.monthOccurrences)
+    // A filter hides events, not clashes: compare against the unfiltered month.
+    property var clashMap: root.findClashes(root.computeMonthOccurrences(root.viewMonth, root.events, root.filterCalId, root.hiddenCals, null))
     function clashesOf(ev) { return (ev && ev.seriesId !== undefined && root.clashMap[root.occKey(ev)]) || [] }
     function clashMark(ev) { var n = root.clashesOf(ev).length; return n ? "⚠ " : "" }
 
@@ -456,12 +459,63 @@ Item {
         if (ev && ev.fields) for (var k in ev.fields) { var v = String(ev.fields[k]); if (v.length > 0 && v.length <= 24) out.push(v) }
         return out.slice(0, 4)
     }
+    // ── view filters (same logic as mobile src/lib/filters.ts) ──────────────────
+    // One custom-field value at a time (enum options and yes/no fields of the shown calendars),
+    // applied to every view; plus date-range presets for search results. View-only.
+    property var fieldFilter: null        // { key, value } or null
+    property string rangeId: "next90"
+    property bool rangePicked: false      // until picked, a search covers ±1 year
+    readonly property var ranges: [
+        { id: "next7", label: "Next 7 days" }, { id: "next30", label: "Next 30 days" }, { id: "next90", label: "Next 90 days" },
+        { id: "past30", label: "Past 30 days" }, { id: "year", label: "This year" }, { id: "all", label: "±1 year" }]
+    function filterChoices(cals, hidden) {
+        var out = [], seen = {}
+        function push(key, value, label) { var id = key + "\u0000" + value; if (seen[id]) return; seen[id] = true; out.push({ key: key, value: value, label: label }) }
+        for (var i = 0; i < cals.length; i++) {
+            if (hidden[cals[i].id]) continue
+            var sc = cals[i].schema || []
+            for (var j = 0; j < sc.length; j++) {
+                var f = sc[j]; if (!f || !f.key) continue
+                var name = f.label || f.key
+                if (f.type === "enum") { var o = f.options || []; for (var k = 0; k < o.length; k++) if (o[k]) push(f.key, o[k], name + ": " + o[k]) }
+                else if (f.type === "bool") push(f.key, "true", name)
+            }
+        }
+        return out
+    }
+    readonly property var fieldChoices: root.filterChoices(root.calendars, root.hiddenCals)
+    // A filter whose field/value no longer exists in a shown calendar's schema is ignored.
+    readonly property var activeFilter: {
+        var f = root.fieldFilter; if (!f) return null
+        for (var i = 0; i < root.fieldChoices.length; i++) if (root.fieldChoices[i].key === f.key && root.fieldChoices[i].value === f.value) return f
+        return null
+    }
+    function matchesFieldFilter(ev, f) {
+        if (!f) return true
+        var v = ev && ev.fields ? ev.fields[f.key] : undefined
+        if (f.value === "true") return v === true || v === "true"
+        return v !== undefined && v !== null && String(v) === f.value
+    }
+    function rangeWindow(id, now) {
+        var d = new Date(now); d.setHours(0, 0, 0, 0); var today = d.getTime()
+        function day(n) { var x = new Date(today); x.setDate(x.getDate() + n); return x.getTime() }
+        if (id === "next7") return [today, day(7) - 1]
+        if (id === "next30") return [today, day(30) - 1]
+        if (id === "past30") return [day(-30), day(1) - 1]
+        if (id === "year") { var y = new Date(today).getFullYear(); return [new Date(y, 0, 1).getTime(), new Date(y + 1, 0, 1).getTime() - 1] }
+        if (id === "all") return [day(-365), day(366) - 1]
+        return [today, day(90) - 1]
+    }
+    readonly property string effectiveRange: (root.searching && !root.rangePicked) ? "all" : root.rangeId
+
     // ── search (#) — match events across ALL dates by title/location/notes/calendar/fields ──
     property string searchQuery: ""
-    function eventsMatching(q) {
+    // Occurrences within the chosen date range (search defaults to ±1 year) that match `q`.
+    function eventsMatching(q, rangeId) {
         q = (q || "").trim().toLowerCase()
         if (q === "") return []
-        var src = eventsFiltered(); var out = []
+        var w = root.rangeWindow(rangeId || "all", Date.now())
+        var src = root.expandEvents(eventsFiltered(), w[0], w[1]); var out = []
         for (var i = 0; i < src.length; i++) {
             var ev = src[i]
             var hay = ((ev.title || "") + " " + (ev.location || "") + " " + (ev.description || "") + " " + calName(ev.calendarId)).toLowerCase()
@@ -472,7 +526,7 @@ Item {
         return out
     }
     readonly property bool searching: root.searchQuery.trim() !== ""
-    readonly property var searchResults: root.searching ? root.eventsMatching(root.searchQuery) : []
+    readonly property var searchResults: root.searching ? root.eventsMatching(root.searchQuery, root.effectiveRange) : []
     // ── month / week view ────────────────────────────────────────────────────
     property string calMode: "month"   // "month" | "week"
     function weekDaysOf(d) {
@@ -681,6 +735,33 @@ Item {
                             }
                         }
                         MouseArea { id: calRowMA; anchors.fill: parent; z: -1; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.filterCalId = modelData.id }
+                    }
+                }
+
+                // Field filter (every view): enum values and yes/no fields of the shown calendars.
+                ColumnLayout {
+                    visible: root.fieldChoices.length > 0
+                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: 6
+                    RowLayout {
+                        Layout.fillWidth: true
+                        LogosText { textFormat: Text.PlainText; text: "Filter"; color: root.cFaint; font.pixelSize: 11; Layout.fillWidth: true }
+                        LogosText { textFormat: Text.PlainText; visible: !!root.activeFilter; text: "clear"; color: root.cBlue; font.pixelSize: 11
+                            MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: root.fieldFilter = null } }
+                    }
+                    Flow {
+                        Layout.fillWidth: true; spacing: 6
+                        Repeater {
+                            model: root.fieldChoices
+                            delegate: Rectangle {
+                            required property var modelData
+                            readonly property bool on: !!root.activeFilter && root.activeFilter.key === modelData.key && root.activeFilter.value === modelData.value
+                            height: 26; radius: 13; width: Math.min(200, chipLblF.implicitWidth + 20)
+                            color: on ? root.cSurface : "transparent"; border.width: 1; border.color: on ? root.cBlue : root.cSurface2
+                            LogosText { id: chipLblF; textFormat: Text.PlainText; anchors.centerIn: parent; width: Math.min(implicitWidth, parent.width - 16); elide: Text.ElideRight
+                                text: modelData.label; color: parent.on ? root.cBlue : root.cSub; font.pixelSize: 12 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.fieldFilter = parent.on ? null : { key: modelData.key, value: modelData.value } }
+                        }
+                        }
                     }
                 }
 
@@ -1003,6 +1084,23 @@ Item {
                         LogosText { textFormat: Text.PlainText;
                             visible: root.searchQuery.length > 0; text: "✕"; color: root.cSub; font.pixelSize: 13
                             MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: { searchField.text = ""; root.searchQuery = "" } }
+                        }
+                    }
+                }
+                // Date range for search results (defaults to ±1 year until one is picked).
+                Flow {
+                    visible: root.searching
+                    Layout.fillWidth: true; spacing: 6
+                    Repeater {
+                        model: root.ranges
+                        delegate: Rectangle {
+                            required property var modelData
+                            readonly property bool on: root.effectiveRange === modelData.id
+                            height: 26; radius: 13; width: Math.min(160, chipLblR.implicitWidth + 20)
+                            color: on ? root.cSurface : "transparent"; border.width: 1; border.color: on ? root.cBlue : root.cSurface2
+                            LogosText { id: chipLblR; textFormat: Text.PlainText; anchors.centerIn: parent; width: Math.min(implicitWidth, parent.width - 16); elide: Text.ElideRight
+                                text: modelData.label; color: parent.on ? root.cBlue : root.cSub; font.pixelSize: 12 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.rangeId = modelData.id; root.rangePicked = true } }
                         }
                     }
                 }
