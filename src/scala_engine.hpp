@@ -120,22 +120,27 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
         // as themselves and claim any `dev`, which folds as that member's authorship, their RSVP, and
         // their role (isEditor keys on this). Resolve it the same way the signature does.
         const std::string author = !e.hlc.dev.empty() ? e.hlc.dev : e.dev;
+        // Typed reads: payloads come from other members, and json::value() throws on a wrong type
+        // (which would take the whole module down). A field counts only if it has the right type;
+        // engine.ts does the same, so both folds treat malformed events identically.
+        auto S = [&](const char* k, const std::string& d) -> std::string {
+            return (e.payload.is_object() && e.payload.contains(k) && e.payload[k].is_string()) ? e.payload[k].get<std::string>() : d;
+        };
+        auto has = [&](const char* k) { return e.payload.is_object() && e.payload.contains(k); };
         if (e.type == ET::CAL_META) {
             bool creating = owner.empty();
             if (creating) owner = author;                  // creator = first cal.meta author
             if (!creating && !isEditor(author, verified)) continue;  // only owner/editors change settings
-            if (e.payload.contains("name"))        name        = e.payload.value("name", name);
-            if (e.payload.contains("color"))       color       = e.payload.value("color", color);
-            if (e.payload.contains("description")) description = e.payload.value("description", description);
-            if (e.payload.contains("schema") && e.payload["schema"].is_array()) schema = e.payload["schema"];
-            if (e.payload.contains("open"))               openCal     = e.payload.value("open", true);
-            if (e.payload.contains("collab"))             collabCal   = e.payload.value("collab", false);
+            name = S("name", name); color = S("color", color); description = S("description", description);
+            if (has("schema") && e.payload["schema"].is_array()) schema = e.payload["schema"];
+            if (has("open"))   openCal   = !(e.payload["open"].is_boolean() && !e.payload["open"].get<bool>());   // anything but false = open
+            if (has("collab")) collabCal = e.payload["collab"].is_boolean() && e.payload["collab"].get<bool>(); // only true = collaborative
         } else if (e.type == ET::MEMBER_SET) {
             // A role grant is admitted only from an AUTHENTICATED owner/editor.
             bool authed = verified && (author == owner || (roleOf.count(author) && (roleOf[author] == "editor" || roleOf[author] == "admin")));
             if (owner.empty() || !authed) continue;
-            std::string m = e.payload.value("member", std::string());
-            std::string r = e.payload.value("role", std::string());
+            std::string m = S("member", std::string());
+            std::string r = S("role", std::string());
             if (m.empty() || m == owner) continue;         // owner role is fixed
             rolesConfigured = true;
             if (r == "remove") roleOf.erase(m);
@@ -145,23 +150,23 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
             // An invite ticket is offered only by an AUTHENTICATED owner/editor (same rule as member.set).
             bool authed = verified && (author == owner || (roleOf.count(author) && (roleOf[author] == "editor" || roleOf[author] == "admin")));
             if (owner.empty() || !authed) continue;
-            std::string t = e.payload.value("ticket", std::string());
-            std::string r = e.payload.value("role", std::string());
+            std::string t = S("ticket", std::string());
+            std::string r = S("role", std::string());
             if (t.empty() || claimed.count(t)) continue;   // a redeemed ticket can't be re-offered or revoked (use member.set)
             if (r == "revoke") invites.erase(t);
             else if (r == "editor" || r == "viewer") invites[t] = r;
         } else if (e.type == ET::MEMBER_CLAIM) {
             // Redeem a ticket for YOURSELF: member must be the (signed) author, ticketSig must prove the ticket key.
-            std::string t = e.payload.value("ticket", std::string());
-            std::string m = e.payload.value("member", std::string());
+            std::string t = S("ticket", std::string());
+            std::string m = S("member", std::string());
             if (t.empty() || m.empty() || m != author || m == owner || claimed.count(t) || !invites.count(t)) continue;
-            if (!verifyInviteClaim(calId, t, e.payload.value("ticketPub", std::string()), m, e.payload.value("ticketSig", std::string()))) continue;
+            if (!verifyInviteClaim(calId, t, S("ticketPub", std::string()), m, S("ticketSig", std::string()))) continue;
             roleOf[m] = invites[t];
             invites.erase(t);
             claimed.insert(t);
             rolesConfigured = true;
         } else if (e.type == ET::EVENT_PUT) {
-            std::string id = e.payload.value("id", std::string());
+            std::string id = S("id", std::string());
             if (id.empty() || tombstones.count(id)) continue;   // tombstone terminal
             bool exists = creatorOf.count(id) > 0;
             if (!exists) { if (!canAdd(author, verified)) continue; creatorOf[id] = author; }  // create
@@ -171,7 +176,7 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
             ev["creatorId"] = creatorOf[id];               // ORIGINAL author (not the last editor)
             events[id] = ev;
         } else if (e.type == ET::EVENT_DEL) {
-            std::string id = e.payload.value("id", std::string());
+            std::string id = S("id", std::string());
             if (id.empty()) continue;
             std::string creator = creatorOf.count(id) ? creatorOf[id] : std::string();
             if (!canEditExisting(author, creator, verified)) continue;
@@ -179,9 +184,9 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
         } else if (e.type == ET::EVENT_RSVP) {
             // Self-scoped attendance (ADR 0021): any verified member sets THEIR OWN status
             // (author = signer), LWW per (eventId, author) — HLC-ordered pass overwrites. "" = retract.
-            std::string eid = e.payload.value("eventId", std::string());
+            std::string eid = S("eventId", std::string());
             if (eid.empty()) continue;
-            std::string status = e.payload.value("status", std::string());
+            std::string status = S("status", std::string());
             if (status.empty()) rsvpOf[eid].erase(author);
             else rsvpOf[eid][author] = status;
         } else if (e.type == ET::EXT) {

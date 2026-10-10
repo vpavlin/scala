@@ -166,23 +166,24 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
     // identity.ts resolve `hlc.dev` first, so trusting `e.dev` here let a member sign as themselves
     // and claim any author — their authorship, their RSVP and their role. Mirror the C++ fold.
     const author = (e.hlc && e.hlc.dev) || e.dev;
+    // Typed reads (parity with scala_engine.hpp's S()): payloads come from other members, so a field
+    // counts only if it has the right type, and both folds treat malformed events identically.
+    const pl: any = e.payload && typeof e.payload === "object" && !Array.isArray(e.payload) ? e.payload : {};
+    const S = (k: string, d = ""): string => (typeof pl[k] === "string" ? pl[k] : d);
     if (e.type === ET.CAL_META) {
       const creating = !owner;
       if (creating) owner = author; // creator = first cal.meta author
       if (!creating && !isEditor(author, verified)) continue; // only owner/editors change settings
-      const p: any = e.payload;
-      if (Object.prototype.hasOwnProperty.call(p, "name")) name = p.name ?? name;
-      if (Object.prototype.hasOwnProperty.call(p, "color")) color = p.color ?? color;
-      if (Object.prototype.hasOwnProperty.call(p, "description")) description = p.description ?? description;
-      if (Array.isArray(p.schema)) schema = p.schema;
-      if (Object.prototype.hasOwnProperty.call(p, "open")) openCal = p.open !== false;
-      if (Object.prototype.hasOwnProperty.call(p, "collab")) collabCal = p.collab === true;
+      name = S("name", name); color = S("color", color); description = S("description", description);
+      if (Array.isArray(pl.schema)) schema = pl.schema;
+      if (Object.prototype.hasOwnProperty.call(pl, "open")) openCal = pl.open !== false;     // anything but false = open
+      if (Object.prototype.hasOwnProperty.call(pl, "collab")) collabCal = pl.collab === true; // only true = collaborative
     } else if (e.type === ET.MEMBER_SET) {
       // A role grant is admitted only from an AUTHENTICATED owner/editor.
       const authed = verified && (author === owner || roleOf.get(author) === "editor" || roleOf.get(author) === "admin");
       if (!owner || !authed) continue;
-      const m: string = (e.payload as any)?.member ?? "";
-      const r: string = (e.payload as any)?.role ?? "";
+      const m = S("member");
+      const r = S("role");
       if (!m || m === owner) continue; // owner role is fixed
       rolesConfigured = true;
       if (r === "remove") roleOf.delete(m);
@@ -192,24 +193,23 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
       // An invite ticket is offered only by an AUTHENTICATED owner/editor (same rule as member.set).
       const authed = verified && (author === owner || roleOf.get(author) === "editor" || roleOf.get(author) === "admin");
       if (!owner || !authed) continue;
-      const t: string = (e.payload as any)?.ticket ?? "";
-      const r: string = (e.payload as any)?.role ?? "";
+      const t = S("ticket");
+      const r = S("role");
       if (!t || claimed.has(t)) continue; // a redeemed ticket can't be re-offered or revoked (use member.set)
       if (r === "revoke") invites.delete(t);
       else if (r === "editor" || r === "viewer") invites.set(t, r);
     } else if (e.type === ET.MEMBER_CLAIM) {
       // Redeem a ticket for YOURSELF: member must be the (signed) author, ticketSig must prove the ticket key.
-      const p: any = e.payload || {};
-      const t: string = p.ticket ?? "";
-      const m: string = p.member ?? "";
+      const t = S("ticket");
+      const m = S("member");
       if (!t || !m || m !== author || m === owner || claimed.has(t) || !invites.has(t)) continue;
-      if (!verifyInviteClaim(calId, t, p.ticketPub ?? "", m, p.ticketSig ?? "")) continue;
+      if (!verifyInviteClaim(calId, t, S("ticketPub"), m, S("ticketSig"))) continue;
       roleOf.set(m, invites.get(t)!);
       invites.delete(t);
       claimed.add(t);
       rolesConfigured = true;
     } else if (e.type === ET.EVENT_PUT) {
-      const id: string = e.payload?.id ?? "";
+      const id = S("id");
       if (!id || tombstones.has(id)) continue; // tombstone terminal
       const exists = creatorOf.has(id);
       if (!exists) { if (!canAdd(author, verified)) continue; creatorOf.set(id, author); } // create
@@ -217,7 +217,7 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
       const ev = { ...e.payload, calendarId: calId, creatorId: creatorOf.get(id) }; // ORIGINAL author
       events.set(id, ev);
     } else if (e.type === ET.EVENT_DEL) {
-      const id: string = e.payload?.id ?? "";
+      const id = S("id");
       if (!id) continue;
       if (!canEditExisting(author, creatorOf.get(id) ?? "", verified)) continue;
       tombstones.add(id);
@@ -225,9 +225,9 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
     } else if (e.type === ET.EVENT_RSVP) {
       // Self-scoped attendance (ADR 0021): any verified member sets THEIR OWN status (author = signer),
       // LWW per (eventId, author) — the log is HLC-ordered so a later RSVP overwrites. "" = retract.
-      const eid: string = e.payload?.eventId ?? "";
+      const eid = S("eventId");
       if (!eid) continue;
-      const status: string = e.payload?.status ?? "";
+      const status = S("status");
       let m = rsvpOf.get(eid);
       if (!m) { m = new Map<string, string>(); rsvpOf.set(eid, m); }
       if (status === "") m.delete(author); else m.set(author, status);
