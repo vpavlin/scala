@@ -506,7 +506,7 @@ std::string ScalaImpl::getEventHistory(const std::string& calId, const std::stri
     json out = json::array();
     json prev; bool havePrev = false;
     for (const auto& e : m_store->log(calId)) {
-        if (!e.payload.is_object() || e.scala::sv(payload, "id") != eventId) continue;
+        if (!e.payload.is_object() || scala::sv(e.payload, "id") != eventId) continue;
         // Only what the fold could accept: an unsigned or forged entry isn't history. And the author
         // is the one the signature covers (hlc.dev), not the top-level dev a sender can set freely.
         if (!scala::isSigned(e) || !scala::verifyEvent(e)) continue;
@@ -1202,14 +1202,14 @@ void ScalaImpl::tryClaims(const std::string& onlyCalId) {
         if (!invites.contains(ticket)) {
             bool offered = false;
             for (const auto& e : log)
-                if (e.type == scala::ET::MEMBER_INVITE && e.payload.is_object() && e.scala::sv(payload, "ticket") == ticket) offered = true;
+                if (e.type == scala::ET::MEMBER_INVITE && e.payload.is_object() && scala::sv(e.payload, "ticket") == ticket) offered = true;
             if (offered) setClaimState(calId, "unavailable", "This invite was already used or withdrawn.");
             else if (nowMs() - scala::lv(c, "since", 0LL) > 7LL * 24 * 3600 * 1000) setClaimState(calId, "expired", "The invite never arrived.");
             continue;   // else: the invite hasn't synced yet — keep waiting
         }
         // Order the claim after the invite in HLC terms, even if our clock is behind the inviter's.
         for (const auto& e : log)
-            if (e.type == scala::ET::MEMBER_INVITE && e.payload.is_object() && e.scala::sv(payload, "ticket") == ticket
+            if (e.type == scala::ET::MEMBER_INVITE && e.payload.is_object() && scala::sv(e.payload, "ticket") == ticket
                 && (e.hlc.wall > m_wall || (e.hlc.wall == m_wall && e.hlc.ctr > m_ctr))) { m_wall = e.hlc.wall; m_ctr = e.hlc.ctr; }
         if (m_claimBusy.count(calId)) continue;
         m_claimBusy.insert(calId);
