@@ -115,10 +115,33 @@ struct Step {
 };
 
 // Pure state-machine step: process one incoming message against my set.
+// A catch-up frame comes from other peers, so its shape is checked before respond() reads it:
+// nlohmann's value()/get() throw on a wrong type, and operator[] on a missing key of a const
+// object is an assertion abort that no try/catch stops (either one kills a Basecamp module).
+// Anything that isn't exactly a v2 fp/ids/need frame is ignored.
+inline bool frameWellFormed(const json& m) {
+    if (!m.is_object()) return false;
+    auto optStr = [&](const char* k) { return !m.contains(k) || m[k].is_string(); };
+    auto strArray = [&](const char* k) {
+        if (!m.contains(k) || !m[k].is_array()) return false;
+        for (const auto& x : m[k]) if (!x.is_string()) return false;
+        return true;
+    };
+    if (!m.contains("t") || !m["t"].is_string() || !optStr("from") || !optStr("lo") || !optStr("hi")) return false;
+    const std::string t = m["t"].get<std::string>();
+    if (t == "fp") {
+        if (!strArray("fps") || !strArray("bounds")) return false;
+        const size_t k = m["fps"].size();
+        return k == 0 || m["bounds"].size() + 1 >= k;   // k ranges need k-1 inner bounds
+    }
+    if (t == "ids" || t == "need") return strArray("ids");
+    return true;   // other types are ignored below
+}
+
 inline Step respond(const std::vector<Event>& myEvents, const json& msg,
                     const std::string& me, int threshold = 8, int buckets = 8) {
     Step step;
-    if (!msg.is_object()) return step;
+    if (!frameWellFormed(msg)) return step;
     if (msg.value("from", std::string()) == me) return step;   // ignore our own echo
     const std::string t = msg.value("t", std::string());
 
