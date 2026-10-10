@@ -629,7 +629,8 @@ std::string ScalaImpl::listAllEvents() {
         for (auto& ev : f["events"]) {
             ev["calendarId"] = c.id;
             const std::string eid = ev.value("id", std::string());
-            if (f["ext"].contains(eid)) ev["ext"] = f["ext"][eid];   // ADR 0021/0024: comments etc.
+            // ADR 0021/0024: the fold's items, always (an old event may carry a stale stored copy).
+            if (f["ext"].contains(eid)) ev["ext"] = f["ext"][eid]; else ev.erase("ext");
             out.push_back(ev);
         }
     }
@@ -649,6 +650,8 @@ std::string ScalaImpl::createEvent(const std::string& calendarId, const std::str
     if (p.is_discarded() || !p.is_object()) return "";
     p["id"] = generateUuid();
     p.erase("calendarId"); p.erase("creatorId");   // set by the fold
+    // Derived by the fold / the view, never stored: a copied event must not carry another's comments.
+    for (const char* k : {"ext", "rsvps", "seriesId", "occ"}) p.erase(k);
     authorAndPublish(scala::ET::EVENT_PUT, p, calendarId);
     return p["id"].get<std::string>();
 }
@@ -667,11 +670,14 @@ std::string ScalaImpl::createEventAt(const std::string& calendarId, const std::s
 }
 std::string ScalaImpl::updateEvent(const std::string& eventJson) {
     json p = json::parse(eventJson, nullptr, false);
-    if (p.is_discarded() || !p.is_object() || !p.contains("id")) return "";
-    std::string calId = p.value("calendarId", std::string());
+    if (p.is_discarded() || !p.is_object() || !p.contains("id") || !p["id"].is_string()) return "";
+    std::string calId = (p.contains("calendarId") && p["calendarId"].is_string()) ? p["calendarId"].get<std::string>() : std::string();
     if (calId.empty()) return "";
     std::string id = p["id"].get<std::string>();
     p.erase("calendarId"); p.erase("creatorId");
+    // Derived by the fold / the view (comments, RSVPs, occurrence markers): never written back into
+    // the event, or a deleted comment would come back from the stored copy.
+    for (const char* k : {"ext", "rsvps", "seriesId", "occ"}) p.erase(k);
     authorAndPublish(scala::ET::EVENT_PUT, p, calId);
     return id;
 }
@@ -692,7 +698,7 @@ std::string ScalaImpl::listEvents(const std::string& calendarId) {
     json f = scala::foldCalendar(calendarId, m_store->log(calendarId));
     for (auto& ev : f["events"]) {
         const std::string eid = ev.value("id", std::string());
-        if (f["ext"].contains(eid)) ev["ext"] = f["ext"][eid];   // ADR 0021/0024
+        if (f["ext"].contains(eid)) ev["ext"] = f["ext"][eid]; else ev.erase("ext");   // ADR 0021/0024
     }
     return f["events"].dump();
 }

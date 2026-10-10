@@ -146,7 +146,12 @@ function scheduleVerifyCacheSave(): void {
 // A copy only for events that have items, so the cached fold stays untouched.
 function withExt(f: FoldedCalendar): CalEvent[] {
   const ext = f.ext || {};
-  return f.events.map((e: any) => (ext[e.id] ? { ...e, ext: ext[e.id] } : e)) as CalEvent[];
+  return f.events.map((e: any) => {
+    if (ext[e.id]) return { ...e, ext: ext[e.id] };
+    if (e.ext === undefined) return e;
+    const { ext: _stale, ...rest } = e; // an old event may carry a stored copy; the fold's items are the truth
+    return rest;
+  }) as CalEvent[];
 }
 
 async function foldedFor(calId: string): Promise<FoldedCalendar> {
