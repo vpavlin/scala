@@ -16,6 +16,8 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QJSValue>
+#include <QJsonDocument>
+#include <QMap>
 
 static QString CAL_MS, EV_START, EV_END;
 
@@ -27,6 +29,12 @@ public:
     // NOTE: defined OUT OF LINE below — moc's parser chokes on raw string literals inside
     // an inline class body, so keep the class declaration clean.
     Q_INVOKABLE QString callModule(const QString &mod, const QString &method, const QVariant &args);
+    // App-to-app intents (Basecamp 0.3.1 bridge): the host emits intentRequested, the view answers
+    // with respond(). Answers are recorded so the intents run (SCALA_HARNESS_INTENTS=1) can check them.
+    Q_INVOKABLE void respond(const QString &requestId, bool ok, const QVariant &data, const QString &error);
+    QMap<QString, QString> answers;   // requestId -> "ok|<json>" or "err|<code>"
+signals:
+    void intentRequested(const QString &requestId, const QString &intent, const QVariant &params, const QString &requesterName);
 };
 // The current Basecamp bridge: adds callModuleAsync (result delivered on a later event-loop turn,
 // like the real host). SCALA_HARNESS_SYNC_ONLY=1 uses the plain MockLogos (old-host fallback path).
@@ -40,6 +48,13 @@ void MockLogosAsync::callModuleAsync(const QString &mod, const QString &method, 
     const QString r = callModule(mod, method, args);
     QJSValue f = cb;
     QTimer::singleShot(0, this, [f, r]() mutable { if (f.isCallable()) f.call(QJSValueList{ QJSValue(r) }); });
+}
+
+void MockLogos::respond(const QString &requestId, bool ok, const QVariant &data, const QString &error) {
+    const QVariant v = data.canConvert<QJSValue>() ? data.value<QJSValue>().toVariant() : data;
+    const QString body = QString::fromUtf8(QJsonDocument::fromVariant(v).toJson(QJsonDocument::Compact));
+    answers[requestId] = ok ? "ok|" + body : "err|" + error;
+    fprintf(stderr, "[RESPOND] %s %s %s %s\n", qPrintable(requestId), ok ? "ok" : "FAIL", qPrintable(body), qPrintable(error));
 }
 
 QString MockLogos::callModule(const QString &mod, const QString &method, const QVariant &args) {
@@ -62,6 +77,9 @@ QString MockLogos::callModule(const QString &mod, const QString &method, const Q
     if (method == "hdState") return QString(R"({"pending":2,"error":"locked","calId":"c1","at":1})");
     if (method == "createInvite") return QString(R"({"ok":true,"link":"scala://join?id=c1&key=a2V5&name=Team&inv=2222222222222222222222222222222222222222222222222222222222222222","ticket":"0x7ic3","role":"editor"})");
     if (method == "coreVersion") return "\"0.11.0\""; // current core → no stale banner // JSON-encoded id (like the real core) — must be j()-unwrapped
+    if (method == "createEvent") return "\"eNEW\"";
+    if (method == "parseShareLink") return QString(R"({"id":"cJ","key":"k","name":"Family"})");
+    if (method == "handleShareLink") return "true";
     // Mock Alisher's keycard module (ADR 0016): requestSign → pending signId; checkSignStatus stays
     // pending (so the "hold your Keycard" overlay renders for the screenshot).
     if (method == "requestSign") return QString(R"({"signId":"sig-1","status":"pending"})");
@@ -119,6 +137,52 @@ int main(int argc, char **argv) {
         return 3;
     }
     view.show();
+
+    if (qEnvironmentVariableIsSet("SCALA_HARNESS_INTENTS")) {
+        // Each request the way Basecamp delivers it; then check every answer.
+        struct Case { QString id, intent, params, expect; };
+        // Basecamp may load the view just to deliver a request: it arrives before
+        // Component.onCompleted's deferred setup has run.
+        emit logos->intentRequested("r0", "scala.calendars.list", QVariantMap(), "basecamp_voice");
+        const QList<Case> cases = {
+            {"r0", "scala.calendars.list", "{}", "ok|{\"calendars\":"},
+            {"r1", "scala.calendars.list", "{}", "ok|{\"calendars\":[{\"canAdd\":true,\"events\":1,\"name\":\"Team\"}]}"},
+            {"r2", "scala.events.list", "{}", "ok|"},
+            {"r3", "scala.events.search", "{\"query\":\"their\"}", "ok|{\"events\":[{\"calendar\":\"Team\""},
+            {"r4", "scala.events.search", "{\"query\":\"\"}", "err|bad_request"},
+            {"r5", "scala.event.create", "{\"title\":\"Dentist\",\"start\":\"2026-10-06T15:00\"}", "ok|{\"event\":{\"calendar\":\"Team\",\"end\":\"2026-10-06 16:00\",\"start\":\"2026-10-06 15:00\",\"title\":\"Dentist\"}}"},
+            {"r6", "scala.event.create", "{\"title\":\"Trip\",\"start\":\"2026-10-09\",\"calendar\":\"team\"}", "ok|{\"event\":{\"allDay\":true,\"calendar\":\"Team\",\"start\":\"2026-10-09\",\"title\":\"Trip\"}}"},
+            {"r7", "scala.event.create", "{\"title\":\"X\",\"start\":\"tomorrow\"}", "err|bad_request"},
+            {"r8", "scala.event.create", "{\"title\":\"X\",\"start\":\"2026-10-06T15:00\",\"calendar\":\"Home\"}", "err|bad_request"},
+            {"r9", "scala.calendar.create", "{\"name\":\"Home\"}", "ok|{\"calendar\":{\"name\":\"Home\"}}"},
+            {"r10", "scala.calendar.join", "{\"link\":\"scala://join?id=cJ&key=aw&name=Family\"}", "ok|{\"calendar\":{\"name\":\"Family\"}}"},
+            {"r11", "scala.calendar.join", "{\"link\":\"https://evil\"}", "err|bad_request"},
+            {"r12", "scala.calendar.share", "{}", "ok|{\"calendar\":{\"name\":\"Team\"}}"},
+            {"r13", "scala.calendar.show", "{\"date\":\"2026-12-24\",\"view\":\"week\"}", "ok|{}"},
+            {"r14", "scala.nope", "{}", "err|bad_request"},
+            {"r15", "scala.events.list", "{\"from\":\"2026-02-30\"}", "err|bad_request"},
+        };
+        int at = 1500;
+        for (const auto &c : cases) {
+            if (c.id == "r0") continue;
+            QTimer::singleShot(at, [logos, c] {
+                emit logos->intentRequested(c.id, c.intent, QJsonDocument::fromJson(c.params.toUtf8()).toVariant(), "basecamp_voice");
+            });
+            at += 150;
+        }
+        QTimer::singleShot(at + 600, [&, logos, cases] {
+            int bad = 0;
+            for (const auto &c : cases) {
+                const QString got = logos->answers.value(c.id, "<no answer>");
+                if (!got.startsWith(c.expect)) { ++bad; fprintf(stderr, "[INTENT-FAIL] %s %s\n   want %s\n   got  %s\n", qPrintable(c.id), qPrintable(c.intent), qPrintable(c.expect), qPrintable(got)); }
+            }
+            const QVariant shareOpen = QQmlExpression(QQmlEngine::contextForObject(view.rootObject()), view.rootObject(), "sharePopup.visible").evaluate();
+            if (!shareOpen.toBool()) { ++bad; fprintf(stderr, "[INTENT-FAIL] share did not open the share dialog\n"); }
+            fprintf(stderr, "[intents] %s\n", bad ? "FAILED" : "all answers as expected, share dialog open");
+            app.exit(bad ? 1 : 0);
+        });
+        return app.exec();
+    }
 
     // Let the 3s poll + first frame settle, then screenshot each surface in turn.
     QTimer::singleShot(1200, [&] { grab(&view, out + "/01-main.png"); });
