@@ -84,6 +84,11 @@ these verbs and the engine signs, appends, publishes, and folds.
 
 ### 2.2 Mobile (TypeScript) — the minimal integration
 
+The TypeScript engine is its own repo, [`vpavlin/scala-sdk`](https://github.com/vpavlin/scala-sdk)
+([ADR 0025](adr/0025-scala-sdk-package.md)). Mount it as a submodule at `src/lib`
+(`git submodule add https://github.com/vpavlin/scala-sdk mobile/src/lib && git submodule update --init --recursive`)
+and the paths below work as written.
+
 ```ts
 import {
   createCalendar, createEvent, updateEvent, deleteEvent,

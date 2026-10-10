@@ -23,7 +23,7 @@ import { FieldDef } from "./src/components/EventModal";
 const FIELD_TYPES = ["text", "longtext", "number", "date", "datetime", "bool", "url", "enum", "color"];
 import { deliveryAvailable, getDebug, refreshDebug } from "./src/lib/scala-sync";
 import { SharedNodeStatus } from "./src/lib/loam-transport-pkg/src/SharedNodeStatus";
-import { ensureNotifyPermission, scheduleReminders } from "./src/lib/notify";
+import { ensureNotifyPermission, scheduleReminders } from "./src/app/notify";
 import { MonthGrid, CellRect } from "./src/components/MonthGrid";
 import { expandEvents } from "./src/lib/recur";
 import { findClashes, occKey } from "./src/lib/clashes";
@@ -130,7 +130,7 @@ function SyncChip({ calId }: { calId: string }) {
 import { QRModal } from "./src/components/QRModal";
 import { ScanModal } from "./src/components/ScanModal";
 import * as Clipboard from "expo-clipboard";
-import { updateWidgetAgenda } from "./src/lib/widget";
+import { updateWidgetAgenda } from "./src/app/widget";
 
 const C = {
   bg: "#1e1e2e", surface: "#2a2a3c", text: "#cdd6f4", sub: "#9399b2",

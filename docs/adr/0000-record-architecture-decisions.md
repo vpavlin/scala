@@ -45,6 +45,7 @@ their own ADRs and are cross-referenced rather than restated:
 - [0022](0022-identities-and-invite-tickets.md) — Loam identities + invite tickets
 - [0023](0023-app-intents.md) — App-to-app intents (proposed)
 - [0024](0024-event-comments.md) — Comments on events, as Scala `ext` items
+- [0025](0025-scala-sdk-package.md) — The mobile engine is a separate package: scala-sdk
 
 Scala also ships an SDK guide for apps built on it — [`docs/sdk.md`](../sdk.md).
 Superseded planning docs are archived under [`../archive/`](../archive/).

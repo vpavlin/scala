@@ -8,8 +8,8 @@
 // matter, and it keeps the schedule exactly in step with edits/deletes/synced-in events.
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-import { CalEvent } from "./store";
-import { expandEvents } from "./recur";
+import { CalEvent } from "../lib/store";
+import { expandEvents } from "../lib/recur";
 
 const HORIZON_MS = 45 * 24 * 60 * 60 * 1000; // schedule occurrences up to 45 days out
 const MAX_SCHEDULED = 400;                   // stay well under the OS limit
