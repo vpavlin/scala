@@ -65,7 +65,7 @@ moves sealed bytes).
 **→ [Design decisions (ADRs)](docs/adr/)** — the *why* behind all of the above. Retired
 migration plans live in [`docs/archive/`](docs/archive/).
 
-## Desktop architecture (Basecamp module, basecamp 0.2.0)
+## Desktop architecture (Basecamp module, Basecamp 0.3)
 
 | Module | Type | Description |
 |--------|------|-------------|
@@ -160,7 +160,7 @@ scala/
 always-on headless hub sync peer-to-peer over Waku; cold-start and phone-was-off catch-up
 both converge.
 
-- ✅ Basecamp 0.2.0 modules (core + pure-QML `scala-ui`), packaged as `.lgx`
+- ✅ Basecamp 0.3 modules (core + pure-QML `scala-ui`) for Linux x64, Linux ARM64 and macOS, packaged as `.lgx`
 - ✅ Android app (`mobile/`), on the shared Logos Delivery ("Loam") node or embedded
 - ✅ Event-log CRDT + byte-parity fold across C++ and TypeScript
 - ✅ Sync on [logos-sync](https://github.com/vpavlin/logos-sync) recursive-RBSR catch-up
