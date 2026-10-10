@@ -258,6 +258,23 @@ export async function setRsvp(calId: string, eventId: string, status: string): P
   notifyChange();
 }
 
+// App extension items (ADR 0021/0024): post or edit one item on an event or calendar. Any member may
+// post; only the item's author may edit it (same `id`), and the fold ignores anyone else's edit.
+// Local-first like every write. `data` is the app's own (Scala comments use { text }).
+export async function postExt(calId: string, item: { ns: string; kind: string; target: string; id?: string; data: any }): Promise<string> {
+  const id = item.id || `x-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  await publishAndApply(calId, await mkEvent(ET.EXT, { ns: item.ns, kind: item.kind, target: item.target, id, data: item.data }, calId));
+  notifyChange();
+  return id;
+}
+
+// Delete an extension item. Takes effect for its author or an owner/editor (moderation); the fold
+// ignores anyone else's delete, so the view only offers it to them.
+export async function deleteExt(calId: string, id: string): Promise<void> {
+  await publishAndApply(calId, await mkEvent(ET.EXT_DEL, { id }, calId));
+  notifyChange();
+}
+
 export async function deleteEvent(ev: CalEvent): Promise<void> {
   await assertAuthorable(ev.calendarId, ev.id);
   await publishAndApply(ev.calendarId, await mkEvent(ET.EVENT_DEL, { id: ev.id }, ev.calendarId));

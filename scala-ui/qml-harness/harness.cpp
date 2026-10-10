@@ -69,14 +69,14 @@ QString MockLogos::callModule(const QString &mod, const QString &method, const Q
     if (method == "listCalendars")
         return QString(R"([{"id":"c1","name":"Team","color":"#89b4fa","encryptionKey":"k","creatorId":"0xowner","owner":"0xowner","authorAddr":"0xowner","binding":"loam:ctx","roles":{"0xed11111111111111111111111111111111111111":"editor"},"rolesConfigured":true,"open":true,"schema":[{"key":"status","label":"Status","type":"enum","options":["Draft","Confirmed","Cancelled"]},{"key":"sold","label":"Sold out","type":"bool"}],"invites":{"0x7ic0000000000000000000000000000000000001":"editor","0x7ic0000000000000000000000000000000000002":"viewer"},"inviteLinks":{"0x7ic0000000000000000000000000000000000001":"scala://join?id=c1&key=a2V5&name=Team&inv=1111111111111111111111111111111111111111111111111111111111111111"},"claim":{}}])");
     if (method == "listEvents" || method == "listAllEvents")
-        return QString(R"([{"id":"e1","calendarId":"c1","title":"Their event","startTime":%1,"endTime":%2,"creatorId":"0xowner","fields":{"status":"Confirmed"}},{"id":"e2","calendarId":"c1","title":"Overlapping soundcheck","startTime":%3,"endTime":%4,"creatorId":"0xowner"}])")
+        return QString(R"([{"id":"e1","calendarId":"c1","title":"Their event","startTime":%1,"endTime":%2,"creatorId":"0xowner","fields":{"status":"Confirmed"},"ext":[{"ns":"scala","kind":"comment","target":"e1","id":"x-1","author":"0xed11111111111111111111111111111111111111","hlc":{"wall":%1,"ctr":0,"dev":"0xed1"},"data":{"text":"Doors at 22:00, I'll bring the projector"}},{"ns":"xyz.frequencies","kind":"vote","target":"e1","id":"x-2","author":"0xowner","hlc":{"wall":%1,"ctr":1,"dev":"0xowner"},"data":3}]},{"id":"e2","calendarId":"c1","title":"Overlapping soundcheck","startTime":%3,"endTime":%4,"creatorId":"0xowner"}])")
             .arg(EV_START).arg(EV_END).arg(EV_START.toLongLong() + 1800000LL).arg(EV_END.toLongLong() + 1800000LL);
     if (method == "createCalendar") return "\"cNEW\"";
     // ADR 0022: Loam HD root exists but is locked; two writes wait for it.
     if (method == "hdStatus") return QString(R"({"exists":true,"unlocked":false,"mainAddress":"0xma1n000000000000000000000000000000000000"})");
     if (method == "hdState") return QString(R"({"pending":2,"error":"locked","calId":"c1","at":1})");
     if (method == "createInvite") return QString(R"({"ok":true,"link":"scala://join?id=c1&key=a2V5&name=Team&inv=2222222222222222222222222222222222222222222222222222222222222222","ticket":"0x7ic3","role":"editor"})");
-    if (method == "coreVersion") return "\"0.11.0\""; // current core → no stale banner // JSON-encoded id (like the real core) — must be j()-unwrapped
+    if (method == "coreVersion") return "\"0.12.0\""; // current core → no stale banner // JSON-encoded id (like the real core) — must be j()-unwrapped
     if (method == "createEvent") return "\"eNEW\"";
     if (method == "parseShareLink") return QString(R"({"id":"cJ","key":"k","name":"Family"})");
     if (method == "handleShareLink") return "true";
@@ -222,7 +222,13 @@ int main(int argc, char **argv) {
     QTimer::singleShot(9500, [&] { runJs(&view, "searchQuery = ''; fieldFilter = null; calMode = 'lanes'"); });
     QTimer::singleShot(9800, [&] { grab(&view, out + "/14-lanes-calendar.png"); runJs(&view, "laneBy = { kind: 'field', key: 'status' }"); });
     QTimer::singleShot(10100, [&] { grab(&view, out + "/15-lanes-status.png"); });
-    QTimer::singleShot(10400, [&] { app.quit(); });
+    // Event editor scrolled to the comments (ADR 0024).
+    QTimer::singleShot(10400, [&] { runJs(&view, "calMode = 'month'; openEditEvent(monthOccurrences.length ? monthOccurrences[0] : events[0])"); });
+    QTimer::singleShot(10800, [&] { runJs(&view, "evFlick.contentY = Math.max(0, evFlick.contentHeight - evFlick.height)"); });
+    // The popup's height settles after it opens, so scroll once more just before the grab.
+    QTimer::singleShot(11300, [&] { runJs(&view, "evFlick.contentY = Math.max(0, evFlick.contentHeight - evFlick.height)"); });
+    QTimer::singleShot(11500, [&] { grab(&view, out + "/16-comments.png"); });
+    QTimer::singleShot(11800, [&] { app.quit(); });
     return app.exec();
 }
 #include "harness.moc"

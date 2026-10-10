@@ -14,6 +14,7 @@ import {
   createCalendar, deleteCalendar, buildInvite, getSharedNode, setSharedNode,
   updateCalendarMeta, getAlias, setAlias, getEventHistory, getDeviceId, setMemberRole,
   setCalendarIdentity, calendarIdentityId, pendingEventIds, setRsvp, parseInvite, onClaimResult,
+  postExt, deleteExt,
 } from "./src/lib/calendar";
 import { MembersModal } from "./src/components/MembersModal";
 import { AppearAs } from "./src/components/AppearAs";
@@ -719,6 +720,16 @@ export default function App() {
     if (!modal.editing) return;
     try { await setRsvp(modal.calId, modal.editing.id, status); await refresh(); }
     catch (e: any) { onKeycardAbort(e, () => onRsvpEvent(status)); }
+  };
+  // Comments (ADR 0024): Scala's own `ext` items, ns "scala", kind "comment", data { text }.
+  const onPostComment = async (text: string): Promise<boolean> => {
+    if (!modal.editing) return false;
+    try { await postExt(modal.calId, { ns: "scala", kind: "comment", target: modal.editing.id, data: { text } }); await refresh(); return true; }
+    catch (e: any) { onKeycardAbort(e, () => { onPostComment(text); }); return false; }
+  };
+  const onDeleteComment = async (id: string) => {
+    try { await deleteExt(modal.calId, id); await refresh(); }
+    catch (e: any) { onKeycardAbort(e, () => onDeleteComment(id)); }
   };
   const removeEvent = () => {
     if (!modal.editing) return;
@@ -1611,6 +1622,10 @@ export default function App() {
           myAddr={addrFor(cals.find((c) => c.id === modal.calId))}
           onRsvp={modal.editing ? onRsvpEvent : undefined}
           clashWith={modal.editing && modal.occ ? clashesOf(modal.occ) : []}
+          comments={modal.editing ? (((events.find((e) => e.id === modal.editing!.id) || modal.editing) as any)?.ext || []).filter((x: any) => x.ns === "scala" && x.kind === "comment") : []}
+          canModerate={isEditorMe(cals.find((c) => c.id === modal.calId))}
+          onPostComment={modal.editing ? onPostComment : undefined}
+          onDeleteComment={modal.editing ? onDeleteComment : undefined}
         />
       </SafeAreaView>
     </SafeAreaProvider>

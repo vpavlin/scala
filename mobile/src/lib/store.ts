@@ -52,6 +52,7 @@ export interface CalEvent {
   reminderMin?: number;         // reminder lead in minutes (undefined = default 10; 0 = none)
   recur?: import("./recur").Recur; // recurrence rule (undefined = does not repeat)
   rsvps?: Record<string, string>; // ADR 0021: author address → "going"|"maybe"|"no" (folded, read-only)
+  ext?: import("./engine").ExtItem[]; // ADR 0021/0024: app extension items on this event (comments etc.), creation order
   fields?: Record<string, any>; // #8: custom schema field values
   attachments?: Attachment[];   // ADR 0017: files stored in Logos Storage, referenced by CID
   creatorId?: string;
@@ -139,6 +140,13 @@ let _vcacheSaveTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleVerifyCacheSave(): void {
   if (_vcacheSaveTimer) clearTimeout(_vcacheSaveTimer);
   _vcacheSaveTimer = setTimeout(() => { writeJson(VCACHE_KEY, verifyCacheDump()).catch(() => {}); }, 3000);
+}
+
+// Events with their app extension items attached (ADR 0021/0024): `ev.ext` = the fold's ext[ev.id].
+// A copy only for events that have items, so the cached fold stays untouched.
+function withExt(f: FoldedCalendar): CalEvent[] {
+  const ext = f.ext || {};
+  return f.events.map((e: any) => (ext[e.id] ? { ...e, ext: ext[e.id] } : e)) as CalEvent[];
 }
 
 async function foldedFor(calId: string): Promise<FoldedCalendar> {
@@ -230,16 +238,14 @@ export const store = {
   },
 
   async eventsFor(calendarId: string): Promise<CalEvent[]> {
-    const f = await foldedFor(calendarId);
-    return f.events as CalEvent[];
+    return withExt(await foldedFor(calendarId));
   },
 
   async listEvents(): Promise<CalEvent[]> {
     const regs = await getRegistry();
     const out: CalEvent[] = [];
     for (const r of regs) {
-      const f = await foldedFor(r.id);
-      for (const e of f.events) out.push(e as CalEvent);
+      for (const e of withExt(await foldedFor(r.id))) out.push(e);
     }
     return out;
   },

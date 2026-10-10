@@ -440,7 +440,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.11.0"; }
+std::string ScalaImpl::coreVersion() const { return "0.12.0"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -534,6 +534,31 @@ std::string ScalaImpl::setRsvp(const std::string& calendarId, const std::string&
     authorAndPublish(scala::ET::EVENT_RSVP, p, calendarId);
     return "ok";
 }
+static bool hasCal(const std::vector<scala::CalReg>& cals, const std::string& id) {
+    for (const auto& c : cals) if (c.id == id) return true;
+    return false;
+}
+std::string ScalaImpl::postExt(const std::string& calendarId, const std::string& itemJson) {
+    json in = json::parse(itemJson, nullptr, false);
+    if (in.is_discarded() || !in.is_object()) return json{{"ok", false}, {"error", "Invalid item"}}.dump();
+    auto str = [&](const char* k) { return (in.contains(k) && in[k].is_string()) ? in[k].get<std::string>() : std::string(); };
+    json p; p["ns"] = str("ns"); p["kind"] = str("kind"); p["target"] = str("target");
+    std::string id = str("id"); if (id.empty()) id = "x-" + generateUuid();
+    p["id"] = id;
+    p["data"] = in.contains("data") ? in["data"] : json(nullptr);
+    if (p["ns"].get<std::string>().empty() || p["kind"].get<std::string>().empty() || p["target"].get<std::string>().empty())
+        return json{{"ok", false}, {"error", "An item needs ns, kind and target"}}.dump();
+    if (!hasCal(m_store->calendars(), calendarId)) return json{{"ok", false}, {"error", "Unknown calendar"}}.dump();
+    authorAndPublish(scala::ET::EXT, p, calendarId);
+    return json{{"ok", true}, {"id", id}}.dump();
+}
+std::string ScalaImpl::deleteExt(const std::string& calendarId, const std::string& id) {
+    if (id.empty()) return json{{"ok", false}, {"error", "No item id"}}.dump();
+    if (!hasCal(m_store->calendars(), calendarId)) return json{{"ok", false}, {"error", "Unknown calendar"}}.dump();
+    json p; p["id"] = id;
+    authorAndPublish(scala::ET::EXT_DEL, p, calendarId);
+    return json{{"ok", true}}.dump();
+}
 std::string ScalaImpl::listCalendars() {
     ensureDelivery();   // kym self-drive
     json arr = json::array();
@@ -600,7 +625,12 @@ std::string ScalaImpl::listAllEvents() {
     json out = json::array();
     for (const auto& c : m_store->calendars()) {
         json f = scala::foldCalendar(c.id, m_store->log(c.id));
-        for (auto& ev : f["events"]) { ev["calendarId"] = c.id; out.push_back(ev); }
+        for (auto& ev : f["events"]) {
+            ev["calendarId"] = c.id;
+            const std::string eid = ev.value("id", std::string());
+            if (f["ext"].contains(eid)) ev["ext"] = f["ext"][eid];   // ADR 0021/0024: comments etc.
+            out.push_back(ev);
+        }
     }
     return out.dump();
 }
@@ -659,6 +689,10 @@ bool ScalaImpl::deleteEvent(const std::string& id) {
 std::string ScalaImpl::listEvents(const std::string& calendarId) {
     ensureDelivery();
     json f = scala::foldCalendar(calendarId, m_store->log(calendarId));
+    for (auto& ev : f["events"]) {
+        const std::string eid = ev.value("id", std::string());
+        if (f["ext"].contains(eid)) ev["ext"] = f["ext"][eid];   // ADR 0021/0024
+    }
     return f["events"].dump();
 }
 std::string ScalaImpl::getEvent(const std::string& id) {

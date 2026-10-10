@@ -62,6 +62,8 @@ Item {
     property bool coreOutOfDate: false
     property string coreVer: ""
     readonly property string minCore: "0.11.0"   // first core with Loam HD identities + invite tickets (ADR 0022)
+    // Comments (ADR 0024) need a core with postExt/deleteExt; an older core just doesn't offer them.
+    readonly property bool coreHasComments: root.coreVer !== "" && !root.verLt(root.coreVer, "0.12.0")
     function verLt(a, b) {
         var pa = String(a).split("."), pb = String(b).split(".")
         for (var i = 0; i < 3; i++) { var x = parseInt(pa[i] || "0"), y = parseInt(pb[i] || "0"); if (x !== y) return x < y }
@@ -1785,6 +1787,34 @@ Item {
         root.evMyRsvp = next
         root.coreAsync("setRsvp", [root.editCalId, root.editingEvent.id, next], function () { root.refresh() })
     }
+    // ── comments (ADR 0024): Scala `ext` items, ns "scala", kind "comment", data { text } ──
+    // Read from the LIVE folded event (root.events updates on poll), so a peer's comment shows up.
+    function commentsOf(ev) {
+        var live = ev ? (root.eventById(ev.id) || ev) : null
+        var out = [], xs = (live && live.ext) || []
+        for (var i = 0; i < xs.length; i++) if (xs[i].ns === "scala" && xs[i].kind === "comment") out.push(xs[i])
+        return out
+    }
+    property bool commentBusy: false
+    function postComment(text) {
+        text = String(text || "").trim()
+        if (!text || root.commentBusy || !root.editingEvent) return
+        root.commentBusy = true
+        var item = { ns: "scala", kind: "comment", target: root.editingEvent.id, data: { text: text } }
+        root.coreAsync("postExt", [root.editCalId, JSON.stringify(item)], function (r) {
+            root.commentBusy = false
+            var res = root.j(r, {})
+            if (res && res.ok) { commentInput.text = ""; root.refresh() }
+            else root.notify("Couldn't post the comment" + (res && res.error ? ": " + res.error : "."), true)
+        })
+    }
+    function deleteComment(id) {
+        root.coreAsync("deleteExt", [root.editCalId, id], function (r) {
+            var res = root.j(r, {})
+            if (res && res.ok) root.refresh()
+            else root.notify("Couldn't delete the comment" + (res && res.error ? ": " + res.error : "."), true)
+        })
+    }
     // Merge my optimistic RSVP over the folded map, count a status.
     function rsvpCount(status) {
         // Read the LIVE folded event (root.events updates on poll), not the open-time snapshot, so a
@@ -1960,8 +1990,17 @@ Item {
         anchors.centerIn: Overlay.overlay
         width: 500; modal: true; padding: Theme.spacing.large
         background: Rectangle { radius: 12; color: root.cSurface; border.width: 1; border.color: root.cSurface2 }
+        // Scrolls when the editor is taller than the window (comments, clash list, custom fields).
+        height: Math.min(evCol.implicitHeight + topPadding + bottomPadding, (Overlay.overlay ? Overlay.overlay.height : 800) - 40)
+        Flickable {
+            id: evFlick
+            anchors.fill: parent; clip: true
+            contentWidth: width; contentHeight: evCol.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {}
         ColumnLayout {
-            anchors.fill: parent; spacing: Theme.spacing.small
+            id: evCol
+            width: evFlick.width; spacing: Theme.spacing.small
             LogosText { textFormat: Text.PlainText; text: root.editingEvent ? "Edit event" : "New event"; color: root.cText; font.pixelSize: 18; font.weight: Theme.typography.weightMedium }
 
             LogosText { textFormat: Text.PlainText; text: "Calendar"; color: root.cFaint; font.pixelSize: 11 }
@@ -2236,6 +2275,50 @@ Item {
                 }
             }
 
+            // ── comments (ADR 0024): any member may comment; authors and owners/editors may delete ──
+            ColumnLayout {
+                id: commentsBox
+                readonly property var list: root.editingEvent !== null ? root.commentsOf(root.editingEvent) : []
+                visible: root.editingEvent !== null
+                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: 6
+                LogosText { textFormat: Text.PlainText; text: "Comments" + (commentsBox.list.length ? " (" + commentsBox.list.length + ")" : ""); color: root.cFaint; font.pixelSize: 11 }
+                Repeater {
+                    model: commentsBox.list
+                    delegate: ColumnLayout {
+                        required property var modelData
+                        readonly property bool mine: modelData.author === root.addrFor(root.calById(root.editCalId))
+                        Layout.fillWidth: true; spacing: 2
+                        RowLayout {
+                            Layout.fillWidth: true; spacing: 8
+                            LogosText { textFormat: Text.PlainText; Layout.fillWidth: true; elide: Text.ElideRight; color: root.cSub; font.pixelSize: 11
+                                text: (parent.parent.mine ? "You" : String(parent.parent.modelData.author).substring(0, 8) + "…") + " · " + Qt.formatDateTime(new Date(parent.parent.modelData.hlc.wall), "d MMM hh:mm") }
+                            LogosText { textFormat: Text.PlainText; visible: parent.parent.mine || root.isEditorMe(root.calById(root.editCalId)); text: "Delete"; color: root.cRed; font.pixelSize: 11
+                                MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: root.deleteComment(parent.parent.parent.modelData.id) } }
+                        }
+                        LogosText { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cText; font.pixelSize: 13
+                            text: (parent.modelData.data && typeof parent.modelData.data.text === "string") ? parent.modelData.data.text : "(empty)" }
+                    }
+                }
+                LogosText { textFormat: Text.PlainText; visible: !root.coreHasComments; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cSub; font.pixelSize: 12
+                    text: "Update the ‘scala’ package to 0.12.0+ in Basecamp to post comments." }
+                RowLayout {
+                    visible: root.coreHasComments
+                    Layout.fillWidth: true; spacing: 8
+                    TextField {
+                        id: commentInput
+                        Layout.fillWidth: true; placeholderText: "Add a comment…"; color: root.cText; font.pixelSize: 13
+                        onAccepted: root.postComment(text)
+                    }
+                    Rectangle {
+                        width: postLbl.implicitWidth + 24; height: 32; radius: 8
+                        opacity: commentInput.text.trim() === "" || root.commentBusy ? 0.4 : 1
+                        color: root.cSurface; border.width: 1; border.color: root.cSurface2
+                        LogosText { id: postLbl; textFormat: Text.PlainText; anchors.centerIn: parent; text: root.commentBusy ? "Posting…" : "Post"; color: root.cText; font.pixelSize: 13 }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.postComment(commentInput.text) }
+                    }
+                }
+            }
+
             // ── RSVP (ADR 0021) — your own attendance; any member can set it ──
             ColumnLayout {
                 visible: root.editingEvent !== null
@@ -2309,6 +2392,7 @@ Item {
                 LogosButton { text: "Cancel"; onClicked: eventPopup.close() }
                 LogosButton { visible: !root.eventReadOnly; text: root.editingEvent ? "Save" : "Create"; enabled: root.eventError() === ""; onClicked: root.saveEvent() }
             }
+        }
         }
     }
 

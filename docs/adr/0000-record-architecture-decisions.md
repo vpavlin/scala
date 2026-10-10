@@ -42,6 +42,9 @@ their own ADRs and are cross-referenced rather than restated:
 - [0019](0019-collaborative-calendar-mode.md) — Collaborative calendar mode — the third permission tier
 - [0020](0020-local-first-responsiveness.md) — Local-first responsiveness — apply now, sync later; cache the fold
 - [0021](0021-rsvp-and-extensible-events.md) — RSVP (built-in) + extensible events (apps add their own types)
+- [0022](0022-identities-and-invite-tickets.md) — Loam identities + invite tickets
+- [0023](0023-app-intents.md) — App-to-app intents (proposed)
+- [0024](0024-event-comments.md) — Comments on events, as Scala `ext` items
 
 Scala also ships an SDK guide for apps built on it — [`docs/sdk.md`](../sdk.md).
 Superseded planning docs are archived under [`../archive/`](../archive/).

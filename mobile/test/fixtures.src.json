@@ -1,19 +1,517 @@
 {
   "calId": "cal1",
   "log": [
-    {"v":1,"id":"m1","type":"cal.meta","hlc":{"wall":100,"ctr":0,"dev":"A"},"dev":"A","payload":{"name":"Team","color":"#111111"}},
-    {"v":1,"id":"m2","type":"cal.meta","hlc":{"wall":200,"ctr":0,"dev":"B"},"dev":"B","payload":{"name":"Team Sync","color":"#222222"}},
-    {"v":1,"id":"e1","type":"event.put","hlc":{"wall":150,"ctr":0,"dev":"A"},"dev":"A","payload":{"id":"evA","title":"Standup","startTime":1000,"endTime":2000}},
-    {"v":1,"id":"e2","type":"event.put","hlc":{"wall":300,"ctr":0,"dev":"B"},"dev":"B","payload":{"id":"evA","title":"Standup (moved)","startTime":1500,"endTime":2500,"location":"Room 4","attachments":[{"name":"agenda.pdf","mime":"application/pdf","size":10240,"storageCid":"zDvTestCidAgenda","blobId":"sha256test"}]}},
-    {"v":1,"id":"e3","type":"event.put","hlc":{"wall":120,"ctr":0,"dev":"A"},"dev":"A","payload":{"id":"evB","title":"Lunch","startTime":5000,"endTime":6000}},
-    {"v":1,"id":"d1","type":"event.del","hlc":{"wall":400,"ctr":0,"dev":"B"},"dev":"B","payload":{"id":"evB"}},
-    {"v":1,"id":"e4","type":"event.put","hlc":{"wall":500,"ctr":0,"dev":"A"},"dev":"A","payload":{"id":"evB","title":"Lunch again (should stay deleted)","startTime":7000,"endTime":8000}},
-    {"v":1,"id":"e5","type":"event.put","hlc":{"wall":250,"ctr":3,"dev":"C"},"dev":"C","payload":{"id":"evC","title":"Review","startTime":9000,"endTime":9600,"description":"quarterly"}},
-    {"v":1,"id":"r1","type":"event.rsvp","hlc":{"wall":600,"ctr":0,"dev":"C"},"dev":"C","payload":{"eventId":"evA","status":"going"}},
-    {"v":1,"id":"r2","type":"event.rsvp","hlc":{"wall":610,"ctr":0,"dev":"B"},"dev":"B","payload":{"eventId":"evA","status":"maybe"}},
-    {"v":1,"id":"r3","type":"event.rsvp","hlc":{"wall":700,"ctr":0,"dev":"C"},"dev":"C","payload":{"eventId":"evA","status":"no"}},
-    {"v":1,"id":"r4","type":"event.rsvp","hlc":{"wall":720,"ctr":0,"dev":"B"},"dev":"B","payload":{"eventId":"evA","status":""}},
-    {"v":1,"id":"r5","type":"event.rsvp","hlc":{"wall":650,"ctr":0,"dev":"A"},"dev":"A","payload":{"eventId":"evC","status":"going"}},
-    {"v":1,"id":"r6","type":"event.rsvp","hlc":{"wall":660,"ctr":0,"dev":"A"},"dev":"A","payload":{"eventId":"evZ","status":"going"}}
+    {
+      "v": 1,
+      "id": "m1",
+      "type": "cal.meta",
+      "hlc": {
+        "wall": 100,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "name": "Team",
+        "color": "#111111"
+      }
+    },
+    {
+      "v": 1,
+      "id": "m2",
+      "type": "cal.meta",
+      "hlc": {
+        "wall": 200,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "name": "Team Sync",
+        "color": "#222222"
+      }
+    },
+    {
+      "v": 1,
+      "id": "e1",
+      "type": "event.put",
+      "hlc": {
+        "wall": 150,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "id": "evA",
+        "title": "Standup",
+        "startTime": 1000,
+        "endTime": 2000
+      }
+    },
+    {
+      "v": 1,
+      "id": "e2",
+      "type": "event.put",
+      "hlc": {
+        "wall": 300,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "id": "evA",
+        "title": "Standup (moved)",
+        "startTime": 1500,
+        "endTime": 2500,
+        "location": "Room 4",
+        "attachments": [
+          {
+            "name": "agenda.pdf",
+            "mime": "application/pdf",
+            "size": 10240,
+            "storageCid": "zDvTestCidAgenda",
+            "blobId": "sha256test"
+          }
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "id": "e3",
+      "type": "event.put",
+      "hlc": {
+        "wall": 120,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "id": "evB",
+        "title": "Lunch",
+        "startTime": 5000,
+        "endTime": 6000
+      }
+    },
+    {
+      "v": 1,
+      "id": "d1",
+      "type": "event.del",
+      "hlc": {
+        "wall": 400,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "id": "evB"
+      }
+    },
+    {
+      "v": 1,
+      "id": "e4",
+      "type": "event.put",
+      "hlc": {
+        "wall": 500,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "id": "evB",
+        "title": "Lunch again (should stay deleted)",
+        "startTime": 7000,
+        "endTime": 8000
+      }
+    },
+    {
+      "v": 1,
+      "id": "e5",
+      "type": "event.put",
+      "hlc": {
+        "wall": 250,
+        "ctr": 3,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "id": "evC",
+        "title": "Review",
+        "startTime": 9000,
+        "endTime": 9600,
+        "description": "quarterly"
+      }
+    },
+    {
+      "v": 1,
+      "id": "r1",
+      "type": "event.rsvp",
+      "hlc": {
+        "wall": 600,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "eventId": "evA",
+        "status": "going"
+      }
+    },
+    {
+      "v": 1,
+      "id": "r2",
+      "type": "event.rsvp",
+      "hlc": {
+        "wall": 610,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "eventId": "evA",
+        "status": "maybe"
+      }
+    },
+    {
+      "v": 1,
+      "id": "r3",
+      "type": "event.rsvp",
+      "hlc": {
+        "wall": 700,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "eventId": "evA",
+        "status": "no"
+      }
+    },
+    {
+      "v": 1,
+      "id": "r4",
+      "type": "event.rsvp",
+      "hlc": {
+        "wall": 720,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "eventId": "evA",
+        "status": ""
+      }
+    },
+    {
+      "v": 1,
+      "id": "r5",
+      "type": "event.rsvp",
+      "hlc": {
+        "wall": 650,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "eventId": "evC",
+        "status": "going"
+      }
+    },
+    {
+      "v": 1,
+      "id": "r6",
+      "type": "event.rsvp",
+      "hlc": {
+        "wall": 660,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "eventId": "evZ",
+        "status": "going"
+      }
+    },
+    {
+      "v": 1,
+      "id": "x1",
+      "type": "ext",
+      "hlc": {
+        "wall": 800,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "comment",
+        "target": "evA",
+        "id": "c1",
+        "data": {
+          "text": "Doors at 22:00"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "x2",
+      "type": "ext",
+      "hlc": {
+        "wall": 810,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "comment",
+        "target": "evA",
+        "id": "c2",
+        "data": {
+          "text": "Can I bring a +1?"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "x3",
+      "type": "ext",
+      "hlc": {
+        "wall": 820,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "comment",
+        "target": "evC",
+        "id": "c3",
+        "data": {
+          "text": "Rider attached"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "x4",
+      "type": "ext",
+      "hlc": {
+        "wall": 830,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "comment",
+        "target": "evA",
+        "id": "c2",
+        "data": {
+          "text": "Can I bring a +1? (edited)"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "x5",
+      "type": "ext",
+      "hlc": {
+        "wall": 840,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "comment",
+        "target": "evA",
+        "id": "c2",
+        "data": {
+          "text": "hijacked"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "x6",
+      "type": "ext.del",
+      "hlc": {
+        "wall": 850,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "id": "c1"
+      }
+    },
+    {
+      "v": 1,
+      "id": "x7",
+      "type": "ext.del",
+      "hlc": {
+        "wall": 860,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "id": "c2"
+      }
+    },
+    {
+      "v": 1,
+      "id": "x8",
+      "type": "ext",
+      "hlc": {
+        "wall": 870,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "comment",
+        "target": "evD",
+        "id": "c6",
+        "data": {
+          "text": "on a deleted event"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "x9",
+      "type": "ext.del",
+      "hlc": {
+        "wall": 880,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "id": "c3"
+      }
+    },
+    {
+      "v": 1,
+      "id": "x10",
+      "type": "ext",
+      "hlc": {
+        "wall": 890,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "vote",
+        "target": "evC",
+        "id": "c4",
+        "data": 3
+      }
+    },
+    {
+      "v": 1,
+      "id": "x11",
+      "type": "ext",
+      "hlc": {
+        "wall": 895,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "kind": "comment",
+        "target": "evC",
+        "id": "c7",
+        "data": "no namespace"
+      }
+    },
+    {
+      "v": 1,
+      "id": "x12",
+      "type": "ext.del",
+      "hlc": {
+        "wall": 900,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "id": "c5"
+      }
+    },
+    {
+      "v": 1,
+      "id": "x13",
+      "type": "ext",
+      "hlc": {
+        "wall": 910,
+        "ctr": 0,
+        "dev": "C"
+      },
+      "dev": "C",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "comment",
+        "target": "evC",
+        "id": "c5",
+        "data": {
+          "text": "deleted before it arrived"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "x14",
+      "type": "ext",
+      "hlc": {
+        "wall": 920,
+        "ctr": 0,
+        "dev": "B"
+      },
+      "dev": "B",
+      "payload": {
+        "ns": "xyz.frequencies",
+        "kind": "comment",
+        "target": "cal1",
+        "id": "c8",
+        "data": {
+          "text": "a note on the calendar itself"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "e6",
+      "type": "event.put",
+      "hlc": {
+        "wall": 690,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "id": "evD",
+        "title": "Cancelled night",
+        "startTime": 20000,
+        "endTime": 21000
+      }
+    },
+    {
+      "v": 1,
+      "id": "d2",
+      "type": "event.del",
+      "hlc": {
+        "wall": 875,
+        "ctr": 0,
+        "dev": "A"
+      },
+      "dev": "A",
+      "payload": {
+        "id": "evD"
+      }
+    }
   ]
 }

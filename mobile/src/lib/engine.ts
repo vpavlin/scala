@@ -44,6 +44,8 @@ export const ET = {
   EVENT_RSVP: "event.rsvp", // {eventId,status}     — attendance (ADR 0021): LWW per (eventId,author); self-scoped
   MEMBER_INVITE: "member.invite", // {ticket,role}  — invite ticket (ADR 0022): owner/editor offers a role to whoever holds the ticket key
   MEMBER_CLAIM: "member.claim", // {ticket,ticketPub,member,ticketSig} — redeem a ticket (first valid claim wins)
+  EXT: "ext",         // {ns,kind,target,id,data} — app extension item (ADR 0021): Scala stores, never interprets `data`
+  EXT_DEL: "ext.del", // {id}                     — delete an ext item: its author, or an owner/editor (moderation)
   SYNC_REQ: "sync.req", // {from}                  — catch-up: ask peers to re-serve; NOT stored/folded
 } as const;
 
@@ -100,7 +102,11 @@ export interface FoldedCalendar {
   open: boolean;
   collab: boolean;
   events: any[];
+  ext: Record<string, ExtItem[]>; // ADR 0021: target id -> app extension items, in creation order
 }
+
+// One app extension item (ADR 0021). `data` is the app's own; Scala never interprets it.
+export interface ExtItem { ns: string; kind: string; target: string; id: string; author: string; hlc: { wall: number; ctr: number; dev: string }; data: any }
 
 // ── fold: merged log → calendar state ────────────────────────────────────────
 // Returns {id, name, color, events:[…]}. cal.meta is LWW (last by HLC wins).
@@ -116,6 +122,10 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   const events = new Map<string, any>(); // event id -> payload
   const tombstones = new Set<string>();
   const rsvpOf = new Map<string, Map<string, string>>(); // eventId -> (author -> status) — ADR 0021, LWW by HLC
+  // ext items (ADR 0021): id -> item, in first-seen (= creation, the pass is HLC-ordered) order.
+  const extItems = new Map<string, { ns: string; kind: string; target: string; id: string; author: string; hlc: { wall: number; ctr: number; dev: string }; data: any }>();
+  const extModDel = new Set<string>();                // ids deleted by an owner/editor (moderation)
+  const extAuthorDel = new Map<string, Set<string>>(); // id -> authors who deleted it (counts only if they wrote it)
 
   // Roles + permissions (two rules) — parity with scala_engine.hpp. owner/editor/viewer +
   // an Open toggle: (1) owner/editors do anything, viewers read-only; (2) everyone else may
@@ -221,8 +231,35 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
       let m = rsvpOf.get(eid);
       if (!m) { m = new Map<string, string>(); rsvpOf.set(eid, m); }
       if (status === "") m.delete(author); else m.set(author, status);
+    } else if (e.type === ET.EXT) {
+      // App extension item (ADR 0021): any verified member posts items THEY author; an id is owned by
+      // its first author, who alone may supersede `data` (LWW: the pass is HLC-ordered). Scala never
+      // reads `data`. Order-independent: deletions are applied after the pass.
+      const p: any = e.payload || {};
+      const ns = typeof p.ns === "string" ? p.ns : "", kind = typeof p.kind === "string" ? p.kind : "";
+      const target = typeof p.target === "string" ? p.target : "", id = typeof p.id === "string" ? p.id : "";
+      if (!ns || !kind || !target || !id) continue;
+      const data = p.data === undefined ? null : p.data;
+      const have = extItems.get(id);
+      if (have) { if (have.author === author) have.data = data; continue; }
+      extItems.set(id, { ns, kind, target, id, author, hlc: { wall: e.hlc.wall, ctr: e.hlc.ctr, dev: e.hlc.dev }, data });
+    } else if (e.type === ET.EXT_DEL) {
+      const id: string = typeof e.payload?.id === "string" ? e.payload.id : "";
+      if (!id) continue;
+      if (isEditor(author, verified)) extModDel.add(id); // moderation: owner/editor at the time of deleting
+      else { let a = extAuthorDel.get(id); if (!a) { a = new Set<string>(); extAuthorDel.set(id, a); } a.add(author); }
     }
   }
+
+  // ext: drop deleted items and items on a deleted event; group by target (keys sorted, items in
+  // creation order) — matches the C++ fold.
+  const extByTarget: Record<string, any[]> = {};
+  for (const it of extItems.values()) {
+    if (extModDel.has(it.id) || extAuthorDel.get(it.id)?.has(it.author) || tombstones.has(it.target)) continue;
+    (extByTarget[it.target] ||= []).push({ ...it, hlc: { ...it.hlc } });
+  }
+  const ext: Record<string, any[]> = {};
+  Object.keys(extByTarget).sort().forEach((k) => (ext[k] = extByTarget[k]));
 
   // Attach RSVPs to surviving events only, authors in sorted order (match C++ std::map iteration).
   for (const [eid, m] of rsvpOf) {
@@ -239,7 +276,7 @@ export function foldCalendar(calId: string, log: Event[]): FoldedCalendar {
   [...roleOf.keys()].sort().forEach((k) => (roles[k] = roleOf.get(k)!));
   const pendingInvites: Record<string, string> = {};
   [...invites.keys()].sort().forEach((k) => (pendingInvites[k] = invites.get(k)!));
-  return { id: calId, name, color, description, schema, owner, roles, rolesConfigured, invites: pendingInvites, open: openCal, collab: collabCal, events: ids.map((id) => events.get(id)) };
+  return { id: calId, name, color, description, schema, owner, roles, rolesConfigured, invites: pendingInvites, open: openCal, collab: collabCal, events: ids.map((id) => events.get(id)), ext };
 }
 
 // ── Clock: stamps local events, advances past ingested causes ────────────────

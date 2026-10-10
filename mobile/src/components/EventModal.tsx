@@ -44,7 +44,7 @@ export interface HistoryEntry { author: string; at: number; action: string; payl
 export function EventModal({
   visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onDuplicate, onClose,
   schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment, fetchingName, fetchingProgress = -1,
-  rsvps, myAddr, onRsvp, clashWith = [],
+  rsvps, myAddr, onRsvp, clashWith = [], comments = [], canModerate = false, onPostComment, onDeleteComment,
 }: {
   visible: boolean;
   initial: EventDraft;
@@ -67,6 +67,10 @@ export function EventModal({
   myAddr?: string;                  // my address on this calendar (to show/set my own RSVP)
   onRsvp?: (status: string) => void; // set my attendance ("going"|"maybe"|"no"|"" to retract)
   clashWith?: { title: string; startTime: number; endTime: number }[]; // other events in this calendar overlapping this occurrence
+  comments?: { id: string; author: string; hlc: { wall: number }; data: any }[]; // ADR 0024: this event's comments, oldest first
+  canModerate?: boolean;            // owner/editor: may delete anyone's comment
+  onPostComment?: (text: string) => Promise<boolean>; // resolves true when saved locally
+  onDeleteComment?: (id: string) => void;
 }) {
   const [title, setTitle] = useState(initial.title);
   const [start, setStart] = useState(new Date(initial.startTime));
@@ -80,6 +84,14 @@ export function EventModal({
   const [recur, setRecur] = useState<Recur | undefined>(initial.recur);
   const [fields, setFields] = useState<Record<string, any>>(initial.fields || {});
   const [attachments, setAttachments] = useState<Attachment[]>(initial.attachments || []);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentBusy, setCommentBusy] = useState(false); // guards double-posting
+  const postComment = async () => {
+    const text = commentDraft.trim();
+    if (!text || commentBusy || !onPostComment) return;
+    setCommentBusy(true);
+    try { if (await onPostComment(text)) setCommentDraft(""); } finally { setCommentBusy(false); }
+  };
   const [myRsvp, setMyRsvp] = useState<string>((myAddr && rsvps?.[myAddr]) || ""); // optimistic own RSVP
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pick, setPick] = useState<null | { which: "start" | "end" | "until"; mode: "date" | "time" }>(null);
@@ -251,6 +263,39 @@ export function EventModal({
               <Pressable style={s.pill} onPress={() => setPick({ which: "end", mode: "date" })}><Text style={s.pillT}>{fmtDate(end)}</Text></Pressable>
               {!allDay && <Pressable style={s.pill} onPress={() => setPick({ which: "end", mode: "time" })}><Text style={s.pillT}>{fmtTime(end)}</Text></Pressable>}
             </View>
+
+            {/* Comments (ADR 0024): any member may comment; authors and owners/editors may delete. */}
+            {onPostComment && (
+              <>
+                <Text style={s.label}>Comments{comments.length ? ` (${comments.length})` : ""}</Text>
+                {comments.map((c) => {
+                  const mine = !!myAddr && c.author === myAddr;
+                  const text = c.data && typeof c.data.text === "string" ? c.data.text : "";
+                  return (
+                    <View key={c.id} style={{ borderLeftWidth: 2, borderLeftColor: C.border, paddingLeft: 8, marginTop: 6 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={{ color: C.sub, fontSize: 11, flex: 1 }} numberOfLines={1}>
+                          {mine ? "You" : `${c.author.slice(0, 8)}…`} · {new Date(c.hlc.wall).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </Text>
+                        {(mine || canModerate) && onDeleteComment && (
+                          <Pressable hitSlop={8} onPress={() => onDeleteComment(c.id)}><Text style={{ color: C.danger, fontSize: 11 }}>Delete</Text></Pressable>
+                        )}
+                      </View>
+                      <Text style={{ color: C.text, fontSize: 14 }}>{text || "(empty)"}</Text>
+                    </View>
+                  );
+                })}
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 8, alignItems: "flex-end" }}>
+                  <TextInput
+                    style={[s.input, { flex: 1, marginTop: 0 }]} value={commentDraft} onChangeText={setCommentDraft}
+                    placeholder="Add a comment…" placeholderTextColor={C.sub} multiline maxLength={2000}
+                  />
+                  <Pressable onPress={postComment} disabled={!commentDraft.trim() || commentBusy} style={[s.pill, { flex: 0, paddingHorizontal: 16 }, (!commentDraft.trim() || commentBusy) && { opacity: 0.4 }]}>
+                    <Text style={s.pillT}>{commentBusy ? "Posting…" : "Post"}</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
 
             {/* Clash warning: other events in this calendar overlap this occurrence (a hint, not a block). */}
             {clashWith.length > 0 && (

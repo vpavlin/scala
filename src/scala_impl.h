@@ -112,6 +112,11 @@ public:
     std::string getEventHistory(const std::string& calId, const std::string& eventId);
     // Set MY attendance on an event (ADR 0021); self-scoped, no edit-rights needed.
     std::string setRsvp(const std::string& calendarId, const std::string& eventId, const std::string& status);
+    // App extension items (ADR 0021/0024): post or edit one item; `itemJson` = {ns,kind,target,id?,data}.
+    // Any member may post; only the item's author may edit (same id). Returns {"ok":true,"id":…} or {"ok":false,"error":…}.
+    std::string postExt(const std::string& calendarId, const std::string& itemJson);
+    // Delete an ext item; takes effect for its author or an owner/editor. Returns {"ok":true} or {"ok":false,"error":…}.
+    std::string deleteExt(const std::string& calendarId, const std::string& id);
 
     // ── Snapshots (ADR 0020): bootstrap catch-up from one sealed Storage blob ──
     // Cut the calendar's log at the latest completed epoch (default 1h), serialize + AES-seal it +

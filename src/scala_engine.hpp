@@ -41,6 +41,8 @@ namespace ET {
     constexpr const char* EVENT_PUT = "event.put";   // {id,title,startTime,…}— create/edit an event (LWW upsert by id)
     constexpr const char* EVENT_DEL = "event.del";   // {id}                  — tombstone an event (terminal)
     constexpr const char* MEMBER_SET = "member.set"; // {member,role}         — roles (#3): owner/admin grants admin|viewer|remove. Opt-in: no member.set = open calendar.
+    constexpr const char* EXT        = "ext";        // {ns,kind,target,id,data} — app extension item (ADR 0021): stored, `data` never interpreted
+    constexpr const char* EXT_DEL    = "ext.del";    // {id}                     — delete an ext item: its author, or an owner/editor (moderation)
     constexpr const char* EVENT_RSVP = "event.rsvp"; // {eventId,status}       — attendance (ADR 0021): LWW per (eventId,author); self-scoped
     constexpr const char* MEMBER_INVITE = "member.invite"; // {ticket,role} — invite ticket (ADR 0022): owner/editor offers a role to the ticket holder
     constexpr const char* MEMBER_CLAIM  = "member.claim";  // {ticket,ticketPub,member,ticketSig} — redeem a ticket (first valid claim wins)
@@ -61,6 +63,11 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     std::map<std::string, json> events;   // event id -> event payload
     std::set<std::string> tombstones;
     std::map<std::string, std::map<std::string, std::string>> rsvpOf; // eventId -> (author -> status) — ADR 0021, LWW by HLC
+    // ext items (ADR 0021): id -> item, plus first-seen order (= creation: the pass is HLC-ordered).
+    std::map<std::string, json> extItems;
+    std::vector<std::string> extOrder;
+    std::set<std::string> extModDel;                               // ids deleted by an owner/editor (moderation)
+    std::map<std::string, std::set<std::string>> extAuthorDel;     // id -> authors who deleted it
 
     // ── roles + permissions (two rules; owner/editor/viewer + Open toggle) ────
     // owner = author of the earliest cal.meta. roleOf grants "editor"/"viewer". Two rules:
@@ -177,7 +184,36 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
             std::string status = e.payload.value("status", std::string());
             if (status.empty()) rsvpOf[eid].erase(author);
             else rsvpOf[eid][author] = status;
+        } else if (e.type == ET::EXT) {
+            // App extension item (ADR 0021): any verified member posts items THEY author; an id is owned
+            // by its first author, who alone may supersede `data` (LWW: HLC-ordered pass). Scala never
+            // reads `data`. Order-independent: deletions are applied after the pass. Mirrors engine.ts.
+            auto str = [&](const char* k) { return (e.payload.contains(k) && e.payload[k].is_string()) ? e.payload[k].get<std::string>() : std::string(); };
+            std::string ns = str("ns"), kind = str("kind"), target = str("target"), id = str("id");
+            if (ns.empty() || kind.empty() || target.empty() || id.empty()) continue;
+            json data = e.payload.contains("data") ? e.payload["data"] : json(nullptr);
+            auto have = extItems.find(id);
+            if (have != extItems.end()) { if (have->second["author"] == author) have->second["data"] = data; continue; }
+            extItems[id] = json{{"ns", ns}, {"kind", kind}, {"target", target}, {"id", id}, {"author", author},
+                                {"hlc", json{{"wall", e.hlc.wall}, {"ctr", e.hlc.ctr}, {"dev", e.hlc.dev}}}, {"data", data}};
+            extOrder.push_back(id);
+        } else if (e.type == ET::EXT_DEL) {
+            std::string id = (e.payload.contains("id") && e.payload["id"].is_string()) ? e.payload["id"].get<std::string>() : std::string();
+            if (id.empty()) continue;
+            if (isEditor(author, verified)) extModDel.insert(id);   // moderation: owner/editor at the time of deleting
+            else extAuthorDel[id].insert(author);
         }
+    }
+
+    // ext: drop deleted items and items on a deleted event; group by target (std::map → keys sorted,
+    // items in creation order) — matches the TS fold.
+    json ext = json::object();
+    for (const auto& id : extOrder) {
+        const json& it = extItems[id];
+        std::string author = it["author"].get<std::string>(), target = it["target"].get<std::string>();
+        if (extModDel.count(id) || (extAuthorDel.count(id) && extAuthorDel[id].count(author)) || tombstones.count(target)) continue;
+        if (!ext.contains(target)) ext[target] = json::array();
+        ext[target].push_back(it);
     }
 
     // Attach RSVPs to surviving events only (author keys sorted via std::map — matches the TS fold).
@@ -198,7 +234,7 @@ inline json foldCalendar(const std::string& calId, const std::vector<Event>& log
     return json{{"id", calId}, {"name", name}, {"color", color},
                 {"description", description}, {"schema", schema},
                 {"owner", owner}, {"roles", roles}, {"rolesConfigured", rolesConfigured}, {"invites", pendingInvites},
-                {"open", openCal}, {"collab", collabCal}, {"events", evArr}};
+                {"open", openCal}, {"collab", collabCal}, {"events", evArr}, {"ext", ext}};
 }
 
 } // namespace scala
