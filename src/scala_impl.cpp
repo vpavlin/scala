@@ -138,7 +138,7 @@ scala::Event ScalaImpl::mkEvent(const std::string& type, const json& payload, co
             std::string ir = modules().loam_core.identityForContainer(calId); // sync caller → JSON string
             if (!ir.empty()) {
                 json meta = json::parse(ir, nullptr, false);
-                if (meta.is_object()) signer = meta.value("address", std::string());
+                if (meta.is_object()) signer = scala::sv(meta, "address");
             }
         } catch (...) {}
         if (!signer.empty()) {
@@ -148,8 +148,8 @@ scala::Event ScalaImpl::mkEvent(const std::string& type, const json& payload, co
                 std::string sr = modules().loam_core.signDigest(calId, digestHex); // sync caller → JSON string
                 if (!sr.empty()) {
                     json sres = json::parse(sr, nullptr, false);
-                    std::string sg = sres.is_object() ? sres.value("sig", std::string()) : std::string();
-                    std::string pk = sres.is_object() ? sres.value("pub", std::string()) : std::string();
+                    std::string sg = sres.is_object() ? scala::sv(sres, "sig") : std::string();
+                    std::string pk = sres.is_object() ? scala::sv(sres, "pub") : std::string();
                     if (!sg.empty() && !pk.empty()) {
                         e.pub = pk; e.sig = sg;
                         return e; // signed by the loam identity
@@ -188,7 +188,7 @@ bool ScalaImpl::authorEvent(const std::string& type, const json& payload, const 
     std::string kind, signer, domain;
     try {
         json meta = json::parse(modules().loam_core.identityForContainer(calId), nullptr, false);
-        if (meta.is_object()) { kind = meta.value("kind", std::string()); signer = meta.value("address", std::string()); }
+        if (meta.is_object()) { kind = scala::sv(meta, "kind"); signer = scala::sv(meta, "address"); }
     } catch (...) {}
     if (kind != "keycard" || signer.empty()) return false;
 
@@ -409,7 +409,7 @@ void ScalaImpl::startModules() {
     modules().loam_core.onKeycardSignResult([this](const std::string& ref, const std::string& resultJson) {
         json r = json::parse(resultJson, nullptr, false);
         const bool err = !r.is_object() || r.contains("error");
-        const std::string emsg = r.is_object() ? r.value("error", std::string()) : std::string("bad result");
+        const std::string emsg = r.is_object() ? scala::sv(r, "error") : std::string("bad result");
         auto it = m_pendingKc.find(ref);
         if (it == m_pendingKc.end()) {   // enrol (or an already-resolved ref)
             emitKcStatus("", ref, "enroll", err ? "failed" : "done", emsg);
@@ -422,8 +422,8 @@ void ScalaImpl::startModules() {
         // keycard calendars can be event-less; device/soft author cal.meta synchronously at create.)
         auto cleanupOrphan = [this, &pk] { if (m_store->log(pk.calId).empty()) { m_sync->stopSync(pk.calId); m_store->removeCalendar(pk.calId); } };
         if (err) { cleanupOrphan(); emitKcStatus(pk.calId, ref, "event", "failed", emsg); return; }
-        pk.event.pub = r.value("pub", std::string());
-        pk.event.sig = r.value("sig", std::string());
+        pk.event.pub = scala::sv(r, "pub");
+        pk.event.sig = scala::sv(r, "sig");
         if (pk.event.pub.empty() || pk.event.sig.empty()) { cleanupOrphan(); emitKcStatus(pk.calId, ref, "event", "failed", "empty signature"); return; }
         publishAndApply(pk.calId, pk.event);          // now it's a fully-signed event
         emitKcStatus(pk.calId, ref, "event", "done", "");
@@ -441,7 +441,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.12.1"; }
+std::string ScalaImpl::coreVersion() const { return "0.12.2"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -492,7 +492,7 @@ bool ScalaImpl::setMemberRole(const std::string& calId, const std::string& membe
 bool ScalaImpl::manageMember(const std::string& jsonArg) {
     json in = json::parse(jsonArg, nullptr, false);
     if (in.is_discarded() || !in.is_object()) return false;
-    return setMemberRole(in.value("calId", std::string()), in.value("member", std::string()), in.value("role", std::string()));
+    return setMemberRole(scala::sv(in, "calId"), scala::sv(in, "member"), scala::sv(in, "role"));
 }
 // #4: per-event edit history — every event.put/del touching this id, in log order,
 // as [{author,at,action,payload}]. Reads the raw log (not the fold) so nothing collapses.
@@ -506,7 +506,7 @@ std::string ScalaImpl::getEventHistory(const std::string& calId, const std::stri
     json out = json::array();
     json prev; bool havePrev = false;
     for (const auto& e : m_store->log(calId)) {
-        if (!e.payload.is_object() || e.payload.value("id", std::string()) != eventId) continue;
+        if (!e.payload.is_object() || e.scala::sv(payload, "id") != eventId) continue;
         // Only what the fold could accept: an unsigned or forged entry isn't history. And the author
         // is the one the signature covers (hlc.dev), not the top-level dev a sender can set freely.
         if (!scala::isSigned(e) || !scala::verifyEvent(e)) continue;
@@ -566,8 +566,8 @@ std::string ScalaImpl::listCalendars() {
     const json privs = kvJson("inv:privs"), claims = kvJson("inv:claims");
     for (const auto& c : m_store->calendars()) {
         json f = scala::foldCalendar(c.id, m_store->log(c.id));
-        std::string nm = f.value("name", std::string()); if (nm.empty()) nm = c.name;
-        std::string col = f.value("color", std::string()); if (col.empty()) col = c.color;
+        std::string nm = scala::sv(f, "name"); if (nm.empty()) nm = c.name;
+        std::string col = scala::sv(f, "color"); if (col.empty()) col = c.color;
         // Resolve the calendar's authoring identity ADDRESS here (once), so the view gets it in this
         // single listCalendars call instead of making one blocking loam IPC per calendar in refresh().
         std::string authorAddr;
@@ -578,14 +578,14 @@ std::string ScalaImpl::listCalendars() {
             if (authorAddr.empty()) resolveHdAddr(c.id, [](std::string, std::string) {});
         } else {
             try { json im = json::parse(modules().loam_core.identityForContainer(c.id), nullptr, false);
-                  if (im.is_object()) authorAddr = im.value("address", std::string()); } catch (...) {}
+                  if (im.is_object()) authorAddr = scala::sv(im, "address"); } catch (...) {}
         }
         // Pending invites (ADR 0022) + the links for the ones this device created, and this device's
         // own claim (never the ticket key).
         json invites = f.value("invites", json::object());
         json links = json::object();
         if (!invites.empty()) {
-            json mine = privs.value(c.id, json::object());
+            json mine = (privs.is_object() && privs.contains(c.id)) ? privs[c.id] : json::object();
             const std::string join = scala::links::buildJoinLink(c.id, c.key, nm);
             for (auto it = invites.begin(); it != invites.end(); ++it)
                 if (mine.contains(it.key()) && mine[it.key()].is_string())
@@ -593,8 +593,8 @@ std::string ScalaImpl::listCalendars() {
         }
         json claim = json::object();
         if (claims.contains(c.id) && claims[c.id].is_object()) {
-            std::string st = claims[c.id].value("state", std::string()), note = claims[c.id].value("note", std::string());
-            const std::string ticket = claims[c.id].value("ticket", std::string());
+            std::string st = scala::sv(claims[c.id], "state"), note = scala::sv(claims[c.id], "note");
+            const std::string ticket = scala::sv(claims[c.id], "ticket");
             if (st == "posted") {   // what the fold made of our claim
                 const json roles = f.value("roles", json::object());
                 if (!authorAddr.empty() && roles.contains(authorAddr)) { st = "redeemed"; note = ""; }
@@ -607,15 +607,15 @@ std::string ScalaImpl::listCalendars() {
                            {"invites", invites}, {"inviteLinks", links}, {"claim", claim},
                            {"isShared", true}, {"encryptionKey", c.key}, {"creatorId", m_identity},
                            // #7/#8/#3: surface description, custom-field schema and roles to the view.
-                           {"description", f.value("description", std::string())},
+                           {"description", scala::sv(f, "description")},
                            {"schema", f.value("schema", json::array())},
-                           {"owner", f.value("owner", std::string())},
+                           {"owner", scala::sv(f, "owner")},
                            {"roles", f.value("roles", json::object())},
-                           {"rolesConfigured", f.value("rolesConfigured", false)},
+                           {"rolesConfigured", scala::bv(f, "rolesConfigured", false)},
                            // Surface the Open/Restricted flag so the view's toggle + canAddTo see it
                            // (without this it reads `undefined` → always "open", and the toggle snaps back).
-                           {"open", f.value("open", true)},
-                           {"collab", f.value("collab", false)}});
+                           {"open", scala::bv(f, "open", true)},
+                           {"collab", scala::bv(f, "collab", false)}});
     }
     return arr.dump();
 }
@@ -628,7 +628,7 @@ std::string ScalaImpl::listAllEvents() {
         json f = scala::foldCalendar(c.id, m_store->log(c.id));
         for (auto& ev : f["events"]) {
             ev["calendarId"] = c.id;
-            const std::string eid = ev.value("id", std::string());
+            const std::string eid = scala::sv(ev, "id");
             // ADR 0021/0024: the fold's items, always (an old event may carry a stale stored copy).
             if (f["ext"].contains(eid)) ev["ext"] = f["ext"][eid]; else ev.erase("ext");
             out.push_back(ev);
@@ -686,7 +686,7 @@ bool ScalaImpl::deleteEvent(const std::string& id) {
     for (const auto& c : m_store->calendars()) {
         json f = scala::foldCalendar(c.id, m_store->log(c.id));
         for (const auto& ev : f["events"])
-            if (ev.value("id", std::string()) == id) {
+            if (scala::sv(ev, "id") == id) {
                 authorAndPublish(scala::ET::EVENT_DEL, json{{"id", id}}, c.id);
                 return true;
             }
@@ -697,7 +697,7 @@ std::string ScalaImpl::listEvents(const std::string& calendarId) {
     ensureDelivery();
     json f = scala::foldCalendar(calendarId, m_store->log(calendarId));
     for (auto& ev : f["events"]) {
-        const std::string eid = ev.value("id", std::string());
+        const std::string eid = scala::sv(ev, "id");
         if (f["ext"].contains(eid)) ev["ext"] = f["ext"][eid]; else ev.erase("ext");   // ADR 0021/0024
     }
     return f["events"].dump();
@@ -705,7 +705,7 @@ std::string ScalaImpl::listEvents(const std::string& calendarId) {
 std::string ScalaImpl::getEvent(const std::string& id) {
     for (const auto& c : m_store->calendars()) {
         json f = scala::foldCalendar(c.id, m_store->log(c.id));
-        for (const auto& ev : f["events"]) if (ev.value("id", std::string()) == id) return ev.dump();
+        for (const auto& ev : f["events"]) if (scala::sv(ev, "id") == id) return ev.dump();
     }
     return "{}";
 }
@@ -715,7 +715,7 @@ std::string ScalaImpl::searchEvents(const std::string& query) {
     for (const auto& c : m_store->calendars()) {
         json f = scala::foldCalendar(c.id, m_store->log(c.id));
         for (const auto& ev : f["events"]) {
-            std::string hay = ev.value("title", std::string()) + " " + ev.value("description", std::string()) + " " + ev.value("location", std::string());
+            std::string hay = scala::sv(ev, "title") + " " + scala::sv(ev, "description") + " " + scala::sv(ev, "location");
             for (auto& ch : hay) ch = tolower(ch);
             if (hay.find(q) != std::string::npos) out.push_back(ev);
         }
@@ -845,7 +845,7 @@ std::string ScalaImpl::exportCalendarIcs(const std::string& calendarId) {
     scala::CalReg c = m_store->calendar(calendarId);
     if (c.id.empty()) return "";
     json f = scala::foldCalendar(c.id, m_store->log(c.id));
-    std::string nm = f.value("name", std::string()); if (nm.empty()) nm = c.name.empty() ? std::string("Scala Calendar") : c.name;
+    std::string nm = scala::sv(f, "name"); if (nm.empty()) nm = c.name.empty() ? std::string("Scala Calendar") : c.name;
     const std::string dtstamp = icsFmtUtc(nowMs());
     std::string out;
     out += "BEGIN:VCALENDAR\r\n";
@@ -854,10 +854,10 @@ std::string ScalaImpl::exportCalendarIcs(const std::string& calendarId) {
     out += "CALSCALE:GREGORIAN\r\n";
     out += icsFold("X-WR-CALNAME:" + icsEscape(nm)) + "\r\n";
     for (const auto& ev : f["events"]) {
-        std::string id = ev.value("id", std::string());
+        std::string id = scala::sv(ev, "id");
         long long st = (ev.contains("startTime") && ev["startTime"].is_number()) ? ev["startTime"].get<long long>() : 0;
         long long en = (ev.contains("endTime") && ev["endTime"].is_number()) ? ev["endTime"].get<long long>() : st;
-        bool allDay = ev.value("allDay", false);
+        bool allDay = scala::bv(ev, "allDay", false);
         out += "BEGIN:VEVENT\r\n";
         out += icsFold("UID:" + (id.empty() ? std::to_string(st) : id) + "@scala") + "\r\n";
         out += "DTSTAMP:" + dtstamp + "\r\n";
@@ -868,12 +868,12 @@ std::string ScalaImpl::exportCalendarIcs(const std::string& calendarId) {
             out += "DTSTART:" + icsFmtUtc(st) + "\r\n";
             out += "DTEND:" + icsFmtUtc(en > 0 ? en : st) + "\r\n";
         }
-        std::string title = ev.value("title", std::string());       if (!title.empty()) out += icsFold("SUMMARY:" + icsEscape(title)) + "\r\n";
-        std::string desc  = ev.value("description", std::string()); if (!desc.empty())  out += icsFold("DESCRIPTION:" + icsEscape(desc)) + "\r\n";
-        std::string loc   = ev.value("location", std::string());    if (!loc.empty())   out += icsFold("LOCATION:" + icsEscape(loc)) + "\r\n";
-        std::string url   = ev.value("url", std::string());         if (!url.empty())   out += icsFold("URL:" + icsEscape(url)) + "\r\n";
+        std::string title = scala::sv(ev, "title");       if (!title.empty()) out += icsFold("SUMMARY:" + icsEscape(title)) + "\r\n";
+        std::string desc  = scala::sv(ev, "description"); if (!desc.empty())  out += icsFold("DESCRIPTION:" + icsEscape(desc)) + "\r\n";
+        std::string loc   = scala::sv(ev, "location");    if (!loc.empty())   out += icsFold("LOCATION:" + icsEscape(loc)) + "\r\n";
+        std::string url   = scala::sv(ev, "url");         if (!url.empty())   out += icsFold("URL:" + icsEscape(url)) + "\r\n";
         if (ev.contains("recur") && ev["recur"].is_object()) {
-            const auto& r = ev["recur"]; std::string freq = r.value("freq", std::string());
+            const auto& r = ev["recur"]; std::string freq = scala::sv(r, "freq");
             std::string F = freq == "daily" ? "DAILY" : freq == "weekly" ? "WEEKLY" : freq == "monthly" ? "MONTHLY" : freq == "yearly" ? "YEARLY" : "";
             if (!F.empty()) {
                 std::string rr = "RRULE:FREQ=" + F;
@@ -906,12 +906,12 @@ std::string ScalaImpl::importIcs(const std::string& calendarId, const std::strin
             inEvent = false;
             if (ev.contains("startTime")) {
                 if (!ev.contains("endTime"))
-                    ev["endTime"] = ev.value("allDay", false) ? ev["startTime"].get<long long>() : ev["startTime"].get<long long>() + 3600000LL;
+                    ev["endTime"] = scala::bv(ev, "allDay", false) ? ev["startTime"].get<long long>() : ev["startTime"].get<long long>() + 3600000LL;
                 // Idempotent import: reuse a stable event id from the VEVENT UID so re-importing (or
                 // round-tripping our own export, which writes UID:<id>@scala) upserts by id instead of
                 // duplicating. Foreign UIDs are used verbatim as the id (still a stable dedup key). No
                 // UID → a fresh uuid (a one-off, can't dedup — matches the old behaviour).
-                { std::string uid = ev.value("uid", std::string());
+                { std::string uid = scala::sv(ev, "uid");
                   const std::string suf = "@scala";
                   if (uid.size() > suf.size() && uid.compare(uid.size() - suf.size(), suf.size(), suf) == 0)
                       uid = uid.substr(0, uid.size() - suf.size());
@@ -988,7 +988,7 @@ std::string ScalaImpl::generateShareLink(const std::string& calendarId) {
     scala::CalReg c = m_store->calendar(calendarId);
     if (c.id.empty() || c.key.empty()) return "";
     json f = scala::foldCalendar(c.id, m_store->log(c.id));
-    std::string nm = f.value("name", std::string()); if (nm.empty()) nm = c.name;
+    std::string nm = scala::sv(f, "name"); if (nm.empty()) nm = c.name;
     return scala::links::buildJoinLink(c.id, c.key, nm);
 }
 std::string ScalaImpl::parseShareLink(const std::string& link) {
@@ -1034,7 +1034,7 @@ void ScalaImpl::kvJsonSet(const std::string& key, const json& v) { m_store->kvSe
 // "ctx" (the calendar's own identity) | "main" | "" (not bound to a Loam HD identity).
 std::string ScalaImpl::hdBinding(const std::string& calId) {
     json b = kvJson("hd:bindings");
-    return b.value(calId, std::string());
+    return scala::sv(b, calId);
 }
 void ScalaImpl::setHdBinding(const std::string& calId, const std::string& mode) {
     json b = kvJson("hd:bindings");
@@ -1043,7 +1043,7 @@ void ScalaImpl::setHdBinding(const std::string& calId, const std::string& mode) 
 }
 std::string ScalaImpl::hdCachedAddr(const std::string& calId) {
     json a = kvJson("hd:addr");
-    return a.value(calId, std::string());
+    return scala::sv(a, calId);
 }
 
 // identityId "loam:ctx" / "loam:main" → HD binding (kept by scala; loam_core derives the key).
@@ -1078,8 +1078,8 @@ void ScalaImpl::resolveHdAddr(const std::string& calId, std::function<void(std::
                     json r = json::parse(raw, nullptr, false);
                     if (r.is_string()) r = json::parse(r.get<std::string>(), nullptr, false);
                     if (!r.is_object()) { cb("", "Loam gave no identity"); return; }
-                    if (r.contains("error")) { cb("", r.value("error", std::string("error"))); return; }
-                    const std::string addr = r.value("address", std::string());
+                    if (r.contains("error")) { cb("", scala::sv(r, "error", "error")); return; }
+                    const std::string addr = scala::sv(r, "address");
                     if (addr.empty()) { cb("", "Loam gave no address"); return; }
                     json a = kvJson("hd:addr"); a[calId] = addr; kvJsonSet("hd:addr", a);
                     cb(addr, "");
@@ -1122,9 +1122,9 @@ void ScalaImpl::pumpHd() {
                         json r = json::parse(raw, nullptr, false);
                         if (r.is_string()) r = json::parse(r.get<std::string>(), nullptr, false);
                         if (!r.is_object()) { hdFail(p.calId, "Loam gave no signature"); return; }
-                        if (r.contains("error")) { hdFail(p.calId, r.value("error", std::string("error"))); return; }
-                        e.pub = r.value("pub", std::string());
-                        e.sig = r.value("sig", std::string());
+                        if (r.contains("error")) { hdFail(p.calId, scala::sv(r, "error", "error")); return; }
+                        e.pub = scala::sv(r, "pub");
+                        e.sig = scala::sv(r, "sig");
                         if (!scala::verifyEvent(e)) {
                             // The root changed under a cached address: forget it, re-resolve on retry.
                             json a = kvJson("hd:addr"); a.erase(p.calId); kvJsonSet("hd:addr", a);
@@ -1156,7 +1156,7 @@ void ScalaImpl::boundAddress(const std::string& calId, std::function<void(std::s
                 onLoop([this, cb, ok, raw] {
                     json r = ok ? json::parse(raw, nullptr, false) : json();
                     if (r.is_string()) r = json::parse(r.get<std::string>(), nullptr, false);
-                    std::string addr = r.is_object() ? r.value("address", std::string()) : std::string();
+                    std::string addr = r.is_object() ? scala::sv(r, "address") : std::string();
                     if (addr.empty()) addr = m_identity;   // mkEvent's own fallback: the local device key
                     cb(addr, addr.empty() ? "no identity" : "");
                 });
@@ -1180,8 +1180,8 @@ void ScalaImpl::tryClaims(const std::string& onlyCalId) {
         const std::string calId = it.key();
         if (!onlyCalId.empty() && calId != onlyCalId) continue;
         const json c = it.value();
-        if (!c.is_object() || c.value("state", std::string()) != "waiting") continue;
-        const std::string priv = c.value("priv", std::string()), ticket = c.value("ticket", std::string());
+        if (!c.is_object() || scala::sv(c, "state") != "waiting") continue;
+        const std::string priv = scala::sv(c, "priv"), ticket = scala::sv(c, "ticket");
         if (m_store->calendar(calId).id.empty()) continue;
         // Let the join's catch-up settle first: the invite can arrive a moment before someone else's
         // claim of the same ticket, and a claim posted then is only wasted (the fold ignores it).
@@ -1197,23 +1197,23 @@ void ScalaImpl::tryClaims(const std::string& onlyCalId) {
         }
         const std::vector<scala::Event> log = m_store->log(calId);
         json f = scala::foldCalendar(calId, log);
-        if (f.value("owner", std::string()).empty()) continue;            // not synced yet
+        if (scala::sv(f, "owner").empty()) continue;            // not synced yet
         json invites = f.value("invites", json::object());
         if (!invites.contains(ticket)) {
             bool offered = false;
             for (const auto& e : log)
-                if (e.type == scala::ET::MEMBER_INVITE && e.payload.is_object() && e.payload.value("ticket", std::string()) == ticket) offered = true;
+                if (e.type == scala::ET::MEMBER_INVITE && e.payload.is_object() && e.scala::sv(payload, "ticket") == ticket) offered = true;
             if (offered) setClaimState(calId, "unavailable", "This invite was already used or withdrawn.");
-            else if (nowMs() - c.value("since", 0LL) > 7LL * 24 * 3600 * 1000) setClaimState(calId, "expired", "The invite never arrived.");
+            else if (nowMs() - scala::lv(c, "since", 0LL) > 7LL * 24 * 3600 * 1000) setClaimState(calId, "expired", "The invite never arrived.");
             continue;   // else: the invite hasn't synced yet — keep waiting
         }
         // Order the claim after the invite in HLC terms, even if our clock is behind the inviter's.
         for (const auto& e : log)
-            if (e.type == scala::ET::MEMBER_INVITE && e.payload.is_object() && e.payload.value("ticket", std::string()) == ticket
+            if (e.type == scala::ET::MEMBER_INVITE && e.payload.is_object() && e.scala::sv(payload, "ticket") == ticket
                 && (e.hlc.wall > m_wall || (e.hlc.wall == m_wall && e.hlc.ctr > m_ctr))) { m_wall = e.hlc.wall; m_ctr = e.hlc.ctr; }
         if (m_claimBusy.count(calId)) continue;
         m_claimBusy.insert(calId);
-        const std::string owner = f.value("owner", std::string());
+        const std::string owner = scala::sv(f, "owner");
         boundAddress(calId, [this, calId, priv, owner](std::string member, std::string err) {
             m_claimBusy.erase(calId);
             if (!err.empty() || member.empty()) {   // e.g. Loam locked: stay "waiting", retried on the tick
@@ -1238,9 +1238,9 @@ std::string ScalaImpl::createInvite(const std::string& calId, const std::string&
     const std::string join = generateShareLink(calId);
     if (join.empty()) return fail("unknown calendar");
     json f = scala::foldCalendar(calId, m_store->log(calId));
-    const std::string me = hdCachedAddr(calId), owner = f.value("owner", std::string());
+    const std::string me = hdCachedAddr(calId), owner = scala::sv(f, "owner");
     if (!me.empty() && !owner.empty() && me != owner) {
-        const std::string r = f.value("roles", json::object()).value(me, std::string());
+        const std::string r = scala::sv(f.value("roles", json::object()), me);
         if (r != "editor" && r != "admin") return fail("only the owner or an editor can invite");
     }
     const scala::SignId t = scala::generateIdentity();   // one-time ticket key (OpenSSL RAND_bytes)
@@ -1273,7 +1273,7 @@ std::string ScalaImpl::addMemberByIdentity(const std::string& calId, const std::
     scala::links::IdentityRef r = scala::links::parseIdentityRef(identity);
     if (!r.ok) return json{{"ok", false}, {"error", r.error}}.dump();
     json f = scala::foldCalendar(calId, m_store->log(calId));
-    if (r.address == f.value("owner", std::string())) return json{{"ok", false}, {"error", "that is the calendar's owner"}}.dump();
+    if (r.address == scala::sv(f, "owner")) return json{{"ok", false}, {"error", "that is the calendar's owner"}}.dump();
     setMemberRole(calId, r.address, role);
     return json{{"ok", true}, {"member", r.address}}.dump();
 }
@@ -1312,7 +1312,7 @@ std::string ScalaImpl::diagnostics() {
     for (const auto& c : m_store->calendars()) {
         json f = scala::foldCalendar(c.id, m_store->log(c.id));
         int n = (int)f["events"].size(); totalEvents += n;
-        std::string nm = f.value("name", std::string()); if (nm.empty()) nm = c.name;
+        std::string nm = scala::sv(f, "name"); if (nm.empty()) nm = c.name;
         cals.push_back(json{{"id", c.id}, {"name", nm}, {"shared", true},
                             {"syncing", m_sync ? m_sync->isSyncing(c.id) : false}, {"events", n}});
     }
@@ -1441,7 +1441,7 @@ void ScalaImpl::ensureStorage() {
     json cfg = storageConfig();
     m_storageRunningCfg = cfg.dump();
     fprintf(stderr, "[scala] storage start: listen %s, announce %s\n",
-            cfg.value("listen-ip", std::string()).c_str(), cfg.value("nat", std::string("nothing")).c_str());
+            scala::sv(cfg, "listen-ip").c_str(), scala::sv(cfg, "nat", "nothing").c_str());
     // Logos 0.3.x hosts (Basecamp 0.3, logosctl) bundle storage_module and initialize it themselves
     // on the public logos.test Storage network right after loading it; a second init() is refused
     // ("context already initialized") and our config would be silently ignored. So: if init() says
@@ -1618,7 +1618,7 @@ std::string ScalaImpl::getStorageExtip() {
     if (m_storageRestarting) return std::string();             // stopped, or not serving the new config yet
     json c = json::parse(m_storageRunningCfg, nullptr, false);
     if (c.is_discarded() || !c.is_object()) return std::string();
-    std::string nat = c.value("nat", std::string());
+    std::string nat = scala::sv(c, "nat");
     return nat.rfind("extip:", 0) == 0 ? nat.substr(6) : std::string();
 }
 
@@ -1642,20 +1642,20 @@ void ScalaImpl::onStorageDownloadDone(const std::string& payload) {
 void ScalaImpl::completeUpload(const std::string& payload) {
     json p = json::parse(payload, nullptr, false);
     if (p.is_discarded() || !p.is_object()) return;
-    std::string sess = p.value("sessionId", std::string());
+    std::string sess = scala::sv(p, "sessionId");
     // ADR 0020: a snapshot upload completing → record the pointer (getSnapshotPointer serves it).
     auto sit = m_pendSnap.find(sess);
     if (sit != m_pendSnap.end()) {
         PendingSnap sn = sit->second; m_pendSnap.erase(sit);
         std::error_code ec; afs::remove(sn.tmpPath, ec);
-        if (p.value("success", false)) {
-            std::string cid = p.value("cid", std::string());
+        if (scala::bv(p, "success", false)) {
+            std::string cid = scala::sv(p, "cid");
             json ptr{{"v", 1}, {"cid", cid}, {"epoch", sn.epoch},
                      {"coversUpToHlc", {{"wall", sn.epoch}, {"ctr", 0}, {"dev", ""}}}, {"count", sn.count}};
             m_lastSnapshot[sn.calId] = ptr.dump();
             fprintf(stderr, "Scala: snapshot uploaded cal=%s cid=%s count=%lld\n", sn.calId.c_str(), cid.c_str(), sn.count);
         } else {
-            fprintf(stderr, "Scala: snapshot upload FAILED cal=%s: %s\n", sn.calId.c_str(), p.value("error", std::string()).c_str());
+            fprintf(stderr, "Scala: snapshot upload FAILED cal=%s: %s\n", sn.calId.c_str(), scala::sv(p, "error").c_str());
         }
         return;
     }
@@ -1663,11 +1663,11 @@ void ScalaImpl::completeUpload(const std::string& payload) {
     if (it == m_pendUp.end()) return;
     PendingUp up = it->second; m_pendUp.erase(it);
     std::error_code ec; afs::remove(up.tmpPath, ec);   // sealed blob now lives in the storage node
-    if (!p.value("success", false)) {
-        json e{{"ok", false}, {"error", p.value("error", std::string("upload failed"))}};
+    if (!scala::bv(p, "success", false)) {
+        json e{{"ok", false}, {"error", scala::sv(p, "error", "upload failed")}};
         finishUpload(up.calId, up.blobId, e.dump()); return;
     }
-    json ok{{"ok", true}, {"cid", p.value("cid", std::string())}, {"name", up.name},
+    json ok{{"ok", true}, {"cid", scala::sv(p, "cid")}, {"name", up.name},
             {"mime", up.mime}, {"size", up.size}, {"blobId", up.blobId}};
     finishUpload(up.calId, up.blobId, ok.dump());
 }
@@ -1681,7 +1681,7 @@ void ScalaImpl::cacheAttachments(const scala::Event& e) {
     ensureStorage();
     for (const auto& a : e.payload["attachments"]) {
         if (!a.is_object()) continue;
-        std::string cid = a.value("storageCid", std::string());
+        std::string cid = scala::sv(a, "storageCid");
         if (cid.empty()) continue;
         try {
             StdLogosResult ex = modules().storage_module.exists(cid);
@@ -1756,12 +1756,12 @@ std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const s
 void ScalaImpl::completeDownload(const std::string& payload) {
     json p = json::parse(payload, nullptr, false);
     if (p.is_discarded() || !p.is_object()) return;
-    std::string sess = p.value("sessionId", std::string());
+    std::string sess = scala::sv(p, "sessionId");
     auto it = m_pendDown.find(sess);
     if (it == m_pendDown.end()) return;
     PendingDown dn = it->second; m_pendDown.erase(it);
-    if (!p.value("success", false)) {
-        json e{{"ok", false}, {"error", p.value("error", std::string("download failed"))}};
+    if (!scala::bv(p, "success", false)) {
+        json e{{"ok", false}, {"error", scala::sv(p, "error", "download failed")}};
         finishDownload(dn.calId, dn.cid, e.dump()); return;
     }
     std::string sealed;
@@ -1794,7 +1794,7 @@ void ScalaImpl::pollStorageSessions() {
         if (r.success && arr.is_array())
             for (const auto& m : arr) {
                 if (!m.is_object()) continue;
-                std::string cid = m.value("cid", std::string());
+                std::string cid = scala::sv(m, "cid");
                 long long size = m.contains("datasetSize") && m["datasetSize"].is_number() ? m["datasetSize"].get<long long>() : -1;
                 if (m.contains("filename") && m["filename"].is_string()) byName[m["filename"].get<std::string>()] = { cid, size };
                 if (!cid.empty()) sizeByCid[cid] = size;

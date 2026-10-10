@@ -24,6 +24,24 @@
 #include "scala_identity.hpp"   // event signature verification (authenticity)
 
 namespace scala {
+
+// Typed reads for JSON that other people (or other modules) wrote. nlohmann's value() throws on a
+// wrong type or a non-object, and an exception in a Basecamp core kills the module.
+inline std::string sv(const nlohmann::json& o, const std::string& k, const std::string& d = std::string()) {
+    if (!o.is_object()) return d;
+    auto it = o.find(k);
+    return (it != o.end() && it->is_string()) ? it->get<std::string>() : d;
+}
+inline bool bv(const nlohmann::json& o, const std::string& k, bool d) {
+    if (!o.is_object()) return d;
+    auto it = o.find(k);
+    return (it != o.end() && it->is_boolean()) ? it->get<bool>() : d;
+}
+inline long long lv(const nlohmann::json& o, const std::string& k, long long d) {
+    if (!o.is_object()) return d;
+    auto it = o.find(k);
+    return (it != o.end() && it->is_number()) ? it->get<long long>() : d;
+}
 using json = nlohmann::json;
 
 // Adopt the shared spine into the scala:: namespace so the rest of the module
