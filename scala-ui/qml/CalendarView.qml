@@ -878,14 +878,30 @@ Item {
     property string soonText: ""        // "<title> starts in <N> min"
     property bool soonVisible: false
     property real dismissedOcc: -1      // occ timestamp the user dismissed
+    // Honours each event's reminder (None / 10 min / 30 min / 1 hour / 1 day; default 10 min), like the
+    // phone: the banner appears once now is within that lead of the start.
+    function reminderLeadMs(ev) {
+        var m = (ev && typeof ev.reminderMin === "number") ? ev.reminderMin : 10
+        return Math.max(0, Math.min(1440, m)) * 60000
+    }
+    function soonLabel(ms) {
+        var mins = Math.max(0, Math.round(ms / 60000))
+        if (mins < 60) return "in " + mins + " min"
+        if (mins < 24 * 60) { var h = Math.round(mins / 60); return "in " + h + " hour" + (h === 1 ? "" : "s") }
+        return "tomorrow"
+    }
     function computeSoon() {
         var now = Date.now()
-        var occ = root.expandEvents(root.events, now, now + 15 * 60000)
+        var occ = root.expandEvents(root.events, now, now + 1440 * 60000 + 60000)
         var best = null
-        for (var i = 0; i < occ.length; i++) { if (occ[i].startTime >= now) { best = occ[i]; break } }
-        if (best && best.occ !== root.dismissedOcc) {
-            var mins = Math.max(0, Math.round((best.startTime - now) / 60000))
-            root.soonText = (best.title || "(untitled)") + " starts in " + mins + " min"
+        for (var i = 0; i < occ.length; i++) {
+            var o = occ[i], lead = root.reminderLeadMs(o)
+            if (o.allDay || lead === 0 || o.startTime < now || now < o.startTime - lead || o.occ === root.dismissedOcc) continue
+            best = o; break
+        }
+        if (best) {
+            root.soonText = (best.title || "(untitled)") + " starts " + root.soonLabel(best.startTime - now)
+                + (root.soonLabel(best.startTime - now) === "tomorrow" ? " at " + Qt.formatTime(new Date(best.startTime), "hh:mm") : "")
             root.soonOcc = best
             root.soonVisible = true
         } else {

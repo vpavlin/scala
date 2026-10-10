@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 #include <ifaddrs.h>       // shrooms-mesh auto-detect (getifaddrs)
@@ -728,7 +729,7 @@ std::vector<long long> expandOccurrences(const scala::json& ev, long long winSta
     long long end = (ev.contains("endTime") && ev["endTime"].is_number()) ? ev["endTime"].get<long long>() : start;
     long long dur = end > start ? end - start : 0;
     const scala::json* r = (ev.contains("recur") && ev["recur"].is_object()) ? &ev["recur"] : nullptr;
-    std::string freq = r ? r->value("freq", std::string()) : std::string();
+    std::string freq = (r && r->contains("freq") && (*r)["freq"].is_string()) ? (*r)["freq"].get<std::string>() : std::string();
     if (freq.empty()) {
         if (start + dur >= winStart && start <= winEnd) occ.push_back(start);
         return occ;
@@ -816,14 +817,16 @@ std::string ScalaImpl::getPendingReminders() {
     for (const auto& c : m_store->calendars()) {
         json f = scala::foldCalendar(c.id, m_store->log(c.id));
         for (const auto& ev : f["events"]) {
-            int lead = (ev.contains("reminderMin") && ev["reminderMin"].is_number()) ? ev["reminderMin"].get<int>() : 10;
+            int lead = (ev.contains("reminderMin") && ev["reminderMin"].is_number()) ? (int)std::min(1440.0, std::max(0.0, ev["reminderMin"].get<double>())) : 10;
             if (lead <= 0) continue;
             for (long long occ : expandOccurrences(ev, now, horizon)) {
                 long long fireAt = occ - (long long)lead * 60000LL;
                 if (now >= fireAt && now < occ) {
-                    out.push_back(json{{"calendarId", c.id}, {"id", ev.value("id", std::string())},
-                                       {"title", ev.value("title", std::string())}, {"startTime", occ},
-                                       {"occ", occ}, {"reminderMin", lead}, {"location", ev.value("location", std::string())}});
+                    // Typed reads: event fields come from other members, and json::value() throws on a wrong type.
+                    auto str = [&](const char* k) { return (ev.contains(k) && ev[k].is_string()) ? ev[k].get<std::string>() : std::string(); };
+                    out.push_back(json{{"calendarId", c.id}, {"id", str("id")},
+                                       {"title", str("title")}, {"startTime", occ},
+                                       {"occ", occ}, {"reminderMin", lead}, {"location", str("location")}});
                     break;   // one pending reminder per event is enough
                 }
             }
