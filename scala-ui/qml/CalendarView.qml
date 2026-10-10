@@ -406,6 +406,34 @@ Item {
         return root.expandEvents(src, ws, we)
     }
 
+    // ── clash warnings (same algorithm as mobile src/lib/clashes.ts) ──────────
+    // Timed occurrences in the same calendar whose times overlap. A hint only: nothing is
+    // stored. All-day and zero-length occurrences never clash. Covers the visible month grid.
+    function occKey(o) { return o.seriesId + "@" + o.occ }
+    function findClashes(occs) {
+        var groups = {}, out = {}
+        for (var i = 0; i < occs.length; i++) {
+            var o = occs[i]
+            if (o.allDay || !(o.endTime > o.startTime) || !o.calendarId) continue
+            (groups[o.calendarId] = groups[o.calendarId] || []).push(o)
+        }
+        function add(a, b) { var k = root.occKey(a); (out[k] = out[k] || []).push(b) }
+        for (var g in groups) {
+            var list = groups[g]
+            list.sort(function (a, b) { return (a.startTime - b.startTime) || (root.occKey(a) < root.occKey(b) ? -1 : (root.occKey(a) > root.occKey(b) ? 1 : 0)) })
+            for (var x = 0; x < list.length; x++)
+                for (var y = x + 1; y < list.length && list[y].startTime < list[x].endTime; y++) {
+                    if (root.occKey(list[x]) === root.occKey(list[y])) continue
+                    add(list[x], list[y]); add(list[y], list[x])
+                }
+        }
+        for (var k in out) out[k].sort(function (a, b) { return a.startTime - b.startTime })
+        return out
+    }
+    property var clashMap: root.findClashes(root.monthOccurrences)
+    function clashesOf(ev) { return (ev && ev.seriesId !== undefined && root.clashMap[root.occKey(ev)]) || [] }
+    function clashMark(ev) { var n = root.clashesOf(ev).length; return n ? "⚠ " : "" }
+
     function eventsOnDay(d) {
         var ds = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
         var de = ds + 24 * 3600 * 1000 - 1
@@ -863,7 +891,7 @@ Item {
                                         Rectangle { width: 3; height: 22; radius: 1.5; color: root.evColor(modelData); Layout.alignment: Qt.AlignVCenter }
                                         ColumnLayout {
                                             Layout.fillWidth: true; spacing: 0
-                                            LogosText { textFormat: Text.PlainText; text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            LogosText { textFormat: Text.PlainText; text: root.clashMark(modelData) + root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
                                             LogosText { textFormat: Text.PlainText; text: root.fmtTime(modelData.startTime); color: root.cSub; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
                                         }
                                     }
@@ -899,7 +927,7 @@ Item {
                             Row {
                                 id: adRow; anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 8; spacing: 6
                                 Rectangle { width: 3; height: 16; radius: 1.5; color: root.evColor(modelData); anchors.verticalCenter: parent.verticalCenter }
-                                LogosText { textFormat: Text.PlainText; text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                                LogosText { textFormat: Text.PlainText; text: root.clashMark(modelData) + root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
                             }
                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
                         }
@@ -933,7 +961,7 @@ Item {
                                                 id: evCol2
                                                 anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                                                 anchors.leftMargin: 16; anchors.rightMargin: 10; spacing: 2
-                                                LogosText { textFormat: Text.PlainText; text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; width: parent.width }
+                                                LogosText { textFormat: Text.PlainText; text: root.clashMark(modelData) + root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; width: parent.width }
                                                 LogosText { textFormat: Text.PlainText; text: root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime) + (modelData.location ? " · " + modelData.location : ""); color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; width: parent.width }
                                             }
                                             MouseArea { id: evMA2; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openEditEvent(modelData) }
@@ -1004,7 +1032,7 @@ Item {
                                 ColumnLayout {
                                     id: cardCol
                                     Layout.fillWidth: true; spacing: 2
-                                    LogosText { textFormat: Text.PlainText; text: root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    LogosText { textFormat: Text.PlainText; text: root.clashMark(modelData) + root.rsvpMark(modelData) + (modelData.title || "(untitled)"); color: root.myRsvpOf(modelData) === "no" ? root.cSub : root.cText; font.strikeout: root.myRsvpOf(modelData) === "no"; font.pixelSize: 14; font.weight: Theme.typography.weightMedium; elide: Text.ElideRight; Layout.fillWidth: true }
                                     LogosText { textFormat: Text.PlainText;
                                         text: (root.searching ? Qt.formatDate(new Date(modelData.startTime), "ddd MMM d") + " · " : "") + root.fmtTime(modelData.startTime) + " – " + root.fmtTime(modelData.endTime)
                                         color: root.cSub; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true
@@ -1058,6 +1086,7 @@ Item {
 
     // ── event editor popup ─────────────────────────────────────────────────
     property var editingEvent: null       // null = creating
+    property var editingOcc: null         // the occurrence that was opened (for clash warnings)
     property string editCalId: ""
     property string lastCalId: ""           // remember last calendar an event was created in → preselect it
     property var evCals: []                 // cached writable-calendar list for the event modal's picker (stable → currentIndex resolves)
@@ -1239,7 +1268,7 @@ Item {
     function openNewEvent() {
         var w = writableCalendars()
         if (w.length === 0) { newCalPopup.open(); return }
-        editingEvent = null
+        editingEvent = null; editingOcc = null
         root.evCals = w
         // Preselect the calendar you last added an event to (if still writable), else the first.
         var pre = w[0].id
@@ -1263,6 +1292,7 @@ Item {
         root.evCals = writableCalendars()
         if (occ && occ.seriesId) { var m = root.eventById(occ.seriesId); if (m) ev = m }
         editingEvent = ev
+        editingOcc = (occ && occ.seriesId !== undefined) ? occ : null
         editCalId = ev.calendarId
         var s = new Date(ev.startTime), e = new Date(ev.endTime)
         evTitle.text = ev.title || ""; evDate.text = fmtDateInput(s)
@@ -1715,6 +1745,31 @@ Item {
                                          : (model.ftype === "color" ? "#rrggbb"
                                          : (model.ftype === "url" ? "https://…" : "")))
                         onTextChanged: evFieldsModel.setProperty(fieldRow.rowIndex, "sval", text)
+                    }
+                }
+            }
+
+            // ── clash warning: other events in this calendar overlap this occurrence (a hint, not a block) ──
+            Rectangle {
+                readonly property var clashList: root.editingEvent !== null ? root.clashesOf(root.editingOcc) : []
+                visible: clashList.length > 0
+                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
+                implicitHeight: clashCol.implicitHeight + 16
+                color: "transparent"; radius: 8; border.width: 1; border.color: root.cRed
+                Column {
+                    id: clashCol
+                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: 8 }
+                    spacing: 2
+                    LogosText {
+                        textFormat: Text.PlainText; color: root.cRed; font.pixelSize: 12; font.weight: Theme.typography.weightMedium
+                        text: "⚠ Overlaps " + (parent.parent.clashList.length === 1 ? "another event" : parent.parent.clashList.length + " other events") + " in this calendar"
+                    }
+                    Repeater {
+                        model: parent.parent.clashList.slice(0, 5)
+                        delegate: LogosText {
+                            textFormat: Text.PlainText; color: root.cText; font.pixelSize: 12; elide: Text.ElideRight; width: clashCol.width
+                            text: (modelData.title || "(untitled)") + " · " + new Date(modelData.startTime).toLocaleDateString() + " " + root.fmtTime(modelData.startTime) + "–" + root.fmtTime(modelData.endTime)
+                        }
                     }
                 }
             }

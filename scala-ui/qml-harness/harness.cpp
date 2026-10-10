@@ -54,8 +54,8 @@ QString MockLogos::callModule(const QString &mod, const QString &method, const Q
     if (method == "listCalendars")
         return QString(R"([{"id":"c1","name":"Team","color":"#89b4fa","encryptionKey":"k","creatorId":"0xowner","owner":"0xowner","authorAddr":"0xowner","binding":"loam:ctx","roles":{"0xed11111111111111111111111111111111111111":"editor"},"rolesConfigured":true,"open":true,"schema":[],"invites":{"0x7ic0000000000000000000000000000000000001":"editor","0x7ic0000000000000000000000000000000000002":"viewer"},"inviteLinks":{"0x7ic0000000000000000000000000000000000001":"scala://join?id=c1&key=a2V5&name=Team&inv=1111111111111111111111111111111111111111111111111111111111111111"},"claim":{}}])");
     if (method == "listEvents" || method == "listAllEvents")
-        return QString(R"([{"id":"e1","calendarId":"c1","title":"Their event","startTime":%1,"endTime":%2,"creatorId":"0xowner"}])")
-            .arg(EV_START).arg(EV_END);
+        return QString(R"([{"id":"e1","calendarId":"c1","title":"Their event","startTime":%1,"endTime":%2,"creatorId":"0xowner"},{"id":"e2","calendarId":"c1","title":"Overlapping soundcheck","startTime":%3,"endTime":%4,"creatorId":"0xowner"}])")
+            .arg(EV_START).arg(EV_END).arg(EV_START.toLongLong() + 1800000LL).arg(EV_END.toLongLong() + 1800000LL);
     if (method == "createCalendar") return "\"cNEW\"";
     // ADR 0022: Loam HD root exists but is locked; two writes wait for it.
     if (method == "hdStatus") return QString(R"({"exists":true,"unlocked":false,"mainAddress":"0xma1n000000000000000000000000000000000000"})");
@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
     QTimer::singleShot(1500, [&] { runJs(&view, "toggleCalVisible('c1')"); });
     QTimer::singleShot(1550, [&] { grab(&view, out + "/08-hidden.png"); runJs(&view, "toggleCalVisible('c1')"); });
     // New-calendar dialog now has the custom-fields editor (matches settings).
-    QTimer::singleShot(1600, [&] { runJs(&view, "openEditEvent(events[0])"); });
+    QTimer::singleShot(1600, [&] { runJs(&view, "openEditEvent(monthOccurrences.length ? monthOccurrences[0] : events[0])"); });
     QTimer::singleShot(2000, [&] { grab(&view, out + "/01-edit-others.png"); runJs(&view, "eventPopup.close()"); });
     QTimer::singleShot(2400, [&] { runJs(&view, "openNewEvent()"); });
     QTimer::singleShot(2800, [&] { grab(&view, out + "/02-new-own.png"); runJs(&view, "eventPopup.close()"); });

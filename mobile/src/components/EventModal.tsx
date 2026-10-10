@@ -44,7 +44,7 @@ export interface HistoryEntry { author: string; at: number; action: string; payl
 export function EventModal({
   visible, initial, calendars, calendarId, onPickCalendar, canPickCalendar, onSave, onDelete, onDuplicate, onClose,
   schema = [], loadHistory, canEdit = true, readonlyReason, onOpenAttachment, fetchingName, fetchingProgress = -1,
-  rsvps, myAddr, onRsvp,
+  rsvps, myAddr, onRsvp, clashWith = [],
 }: {
   visible: boolean;
   initial: EventDraft;
@@ -66,6 +66,7 @@ export function EventModal({
   rsvps?: Record<string, string>;   // ADR 0021: folded attendance (author addr → status)
   myAddr?: string;                  // my address on this calendar (to show/set my own RSVP)
   onRsvp?: (status: string) => void; // set my attendance ("going"|"maybe"|"no"|"" to retract)
+  clashWith?: { title: string; startTime: number; endTime: number }[]; // other events in this calendar overlapping this occurrence
 }) {
   const [title, setTitle] = useState(initial.title);
   const [start, setStart] = useState(new Date(initial.startTime));
@@ -250,6 +251,18 @@ export function EventModal({
               <Pressable style={s.pill} onPress={() => setPick({ which: "end", mode: "date" })}><Text style={s.pillT}>{fmtDate(end)}</Text></Pressable>
               {!allDay && <Pressable style={s.pill} onPress={() => setPick({ which: "end", mode: "time" })}><Text style={s.pillT}>{fmtTime(end)}</Text></Pressable>}
             </View>
+
+            {/* Clash warning: other events in this calendar overlap this occurrence (a hint, not a block). */}
+            {clashWith.length > 0 && (
+              <View style={{ borderWidth: 1, borderColor: C.danger, borderRadius: 8, padding: 8, marginTop: 10, gap: 2 }}>
+                <Text style={{ color: C.danger, fontSize: 12, fontWeight: "700" }}>⚠ Overlaps {clashWith.length === 1 ? "another event" : `${clashWith.length} other events`} in this calendar</Text>
+                {clashWith.slice(0, 5).map((c, i) => (
+                  <Text key={i} style={{ color: C.text, fontSize: 12 }} numberOfLines={1}>
+                    {c.title || "(untitled)"} · {fmtDate(new Date(c.startTime))} {fmtTime(new Date(c.startTime))}–{fmtTime(new Date(c.endTime))}
+                  </Text>
+                ))}
+              </View>
+            )}
 
             {/* RSVP (ADR 0021) — your own attendance; anyone in the calendar can set it. */}
             {showRsvp && (

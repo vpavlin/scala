@@ -25,6 +25,7 @@ import { SharedNodeStatus } from "./src/lib/loam-transport-pkg/src/SharedNodeSta
 import { ensureNotifyPermission, scheduleReminders } from "./src/lib/notify";
 import { MonthGrid, CellRect } from "./src/components/MonthGrid";
 import { expandEvents } from "./src/lib/recur";
+import { findClashes, occKey } from "./src/lib/clashes";
 import { EventModal, EventDraft } from "./src/components/EventModal";
 import { Drawer } from "./src/components/Drawer";
 import { IdentitiesPanel, KeycardTapOverlay, KeycardPinGate } from "./src/components/KeycardProbe";
@@ -99,13 +100,15 @@ function EventBadges({ ev }: { ev: any }) {
 }
 
 // Event title + a "syncing" pill when the event is saved locally but not yet on the wire (local-first).
-function EvTitle({ ev, pending, oneLine, myRsvp }: { ev: any; pending?: boolean; oneLine?: boolean; myRsvp?: string }) {
+// `clashes` = how many other events in the same calendar overlap this one (a warning, not an error).
+function EvTitle({ ev, pending, oneLine, myRsvp, clashes }: { ev: any; pending?: boolean; oneLine?: boolean; myRsvp?: string; clashes?: number }) {
   const no = myRsvp === "no"; // declined → recede (strikethrough + dim)
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
       {myRsvp === "going" && <Text style={{ color: C.accent, fontSize: 14, fontWeight: "800" }}>✓</Text>}
       {myRsvp === "maybe" && <Text style={{ color: C.today, fontSize: 14, fontWeight: "800" }}>?</Text>}
       <Text style={[s.evTitle, no && { textDecorationLine: "line-through", color: C.sub }]} numberOfLines={oneLine ? 1 : undefined}>{ev.title}{ev.recur ? "  ↻" : ""}</Text>
+      {!!clashes && <Text style={s.clashPill}>⚠ overlaps {clashes}</Text>}
       {pending && <Text style={s.syncPill}>⟳ syncing</Text>}
     </View>
   );
@@ -175,7 +178,7 @@ export default function App() {
   const [selected, setSelected] = useState(new Date());
   const [drawer, setDrawer] = useState(false);
 
-  const [modal, setModal] = useState<{ open: boolean; draft: EventDraft; editing?: CalEvent; calId: string }>({
+  const [modal, setModal] = useState<{ open: boolean; draft: EventDraft; editing?: CalEvent; calId: string; occ?: CalEvent }>({
     open: false, draft: { title: "", startTime: Date.now(), endTime: Date.now() + 3600_000 }, calId: "",
   });
 
@@ -563,6 +566,17 @@ export default function App() {
     return groups;
   }, [visibleEvents, query]);
 
+  // Clash warnings: timed events in the same calendar whose times overlap (src/lib/clashes.ts).
+  // One window covers everything any view shows: the month grid (± a week), the selected week,
+  // and the agenda (−30 … +365 days, the widest a search goes).
+  const clashes = useMemo(() => {
+    const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+    const start = Math.min(new Date(cursor.getFullYear(), cursor.getMonth(), 1).getTime() - 7 * 864e5, weekDays[0].getTime(), t0.getTime() - 30 * 864e5);
+    const end = Math.max(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1).getTime() + 7 * 864e5, weekDays[6].getTime() + 864e5, t0.getTime() + 365 * 864e5);
+    return findClashes(expandEvents(visibleEvents, start, end));
+  }, [visibleEvents, cursor, weekDays]);
+  const clashesOf = useCallback((ev: any) => (ev && ev.seriesId != null ? clashes.get(occKey(ev)) : undefined) || [], [clashes]);
+
   // Feed the home-screen agenda widget: the next 24h of events, grouped by day with Today/Tomorrow
   // dividers. If the next 24h is quiet, fall back to the next few upcoming so it's never empty.
   // Local-only, refreshed whenever events/calendars change — updates offline.
@@ -624,7 +638,7 @@ export default function App() {
   const openEdit = (occ: CalEvent) => {
     const m = events.find((e) => e.id === occ.id) || occ;
     setModal({
-      open: true, editing: m, calId: m.calendarId,
+      open: true, editing: m, calId: m.calendarId, occ,
       draft: {
         id: m.id, title: m.title, startTime: m.startTime, endTime: m.endTime, description: m.description,
         location: m.location, url: m.url, allDay: m.allDay, reminderMin: m.reminderMin, recur: m.recur, fields: m.fields,
@@ -956,7 +970,7 @@ export default function App() {
               <Pressable style={[s.event, dragEv?.id === ev.id && { opacity: 0.4 }]} onPress={() => openEdit(ev)}>
                 <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
                 <View style={{ flex: 1 }}>
-                  <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
+                  <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} clashes={clashesOf(ev).length} />
                   <Text style={s.sub}>
                     {ev.allDay
                       ? "All day"
@@ -997,7 +1011,7 @@ export default function App() {
             <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
               <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
               <View style={{ flex: 1 }}>
-                <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
+                <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} clashes={clashesOf(ev).length} />
                 <Text style={s.sub}>{ev.allDay ? "All day" : `${new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}{ev.location ? ` · ${ev.location}` : ""}</Text>
               </View>
             </Pressable>
@@ -1029,7 +1043,7 @@ export default function App() {
                 <View style={s.hourLine}>
                   {items.length === 0 ? <View style={s.hourEmpty} /> : items.map((ev) => (
                     <Pressable key={`${ev.id}-${ev.startTime}`} onPress={() => openEdit(ev)} style={[s.hourEvent, { borderLeftColor: evColor(ev) }]}>
-                      <EvTitle ev={ev} pending={pendingIds.has(ev.id)} oneLine myRsvp={myRsvpFor(ev)} />
+                      <EvTitle ev={ev} pending={pendingIds.has(ev.id)} oneLine myRsvp={myRsvpFor(ev)} clashes={clashesOf(ev).length} />
                       <Text style={s.sub} numberOfLines={1}>
                         {new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – {new Date(ev.endTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                         {ev.location ? ` · ${ev.location}` : ""}
@@ -1052,7 +1066,7 @@ export default function App() {
                 <Pressable key={`${ev.id}-${ev.startTime}`} style={s.event} onPress={() => openEdit(ev)}>
                   <View style={[s.dot, { backgroundColor: evColor(ev) }]} />
                   <View style={{ flex: 1 }}>
-                    <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} />
+                    <EvTitle ev={ev} pending={pendingIds.has(ev.id)} myRsvp={myRsvpFor(ev)} clashes={clashesOf(ev).length} />
                     <Text style={s.sub}>
                       {ev.allDay
                         ? "All day"
@@ -1477,6 +1491,7 @@ export default function App() {
           rsvps={((events.find((e) => e.id === (modal.editing as any)?.id) || modal.editing) as any)?.rsvps}
           myAddr={addrFor(cals.find((c) => c.id === modal.calId))}
           onRsvp={modal.editing ? onRsvpEvent : undefined}
+          clashWith={modal.editing && modal.occ ? clashesOf(modal.occ) : []}
         />
       </SafeAreaView>
     </SafeAreaProvider>
@@ -1543,6 +1558,7 @@ const s = StyleSheet.create({
   hourEmpty: { height: 32 },
   hourEvent: { backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, padding: 10, marginTop: 6 },
   evTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
+  clashPill: { color: C.danger, fontSize: 10, fontWeight: "700", borderWidth: 1, borderColor: C.danger, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, overflow: "hidden" },
   syncPill: { color: C.today, fontSize: 10, fontWeight: "700", borderWidth: 1, borderColor: C.today, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, overflow: "hidden" },
   sub: { color: C.sub, fontSize: 12 },
   dot: { width: 12, height: 12, borderRadius: 6 },

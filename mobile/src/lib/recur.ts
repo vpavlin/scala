@@ -5,7 +5,7 @@
 // and sync/roles/merge are unchanged. Editing or deleting an occurrence acts on the
 // master (`seriesId`). The exact same algorithm runs in the desktop QML view (embedded
 // JS) so both platforms show identical occurrences.
-import { CalEvent } from "./store";
+import type { CalEvent } from "./store";
 
 export type Freq = "daily" | "weekly" | "monthly" | "yearly";
 export interface Recur {
