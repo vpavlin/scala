@@ -6,6 +6,8 @@ and the two sync **peer-to-peer** — no server. Several people can edit a share
 offline and converge with no write lost; it's end-to-end encrypted (the network only ever
 moves sealed bytes).
 
+**Demo:** a 5-minute walkthrough for showing Scala live is in [docs/demo.md](docs/demo.md).
+
 **Scala** = **S**ecure **CAL**endar **A**pp
 
 ## How it works (the short version)
