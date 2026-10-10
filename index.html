@@ -627,7 +627,7 @@
         <p class="note">64-bit ARM phones only. Loam is recommended: one shared node for all apps, plus Bluetooth. Without it, Scala runs its own node.</p>
       </div>
       <div class="pcard">
-        <span class="badge" style="--cc:var(--sky)">Desktop · Basecamp 0.2.x</span>
+        <span class="badge" style="--cc:var(--sky)">Desktop · Basecamp 0.3</span>
         <h3>Basecamp</h3>
         <ol class="steps">
           <li>In Basecamp, open the package manager and add this URL under <b>package repositories</b>:</li>
@@ -636,7 +636,7 @@
         <ol class="steps" start="2">
           <li>Install <b>Scala</b> (package <code class="inl">scala_ui</code>). It pulls in the <code class="inl">scala</code> core, <code class="inl">loam_core</code> and <code class="inl">storage_module</code> automatically.</li>
         </ol>
-        <p class="note">Supported: Basecamp 0.2.x. Basecamp 0.3 support is coming.</p>
+        <p class="note">Supported: Basecamp 0.3 on Linux x64, Linux ARM64 and macOS.</p>
       </div>
     </div>
   </div>
@@ -652,14 +652,13 @@
         <li class="h">Limitations</li>
         <li><b>Keycard support is experimental.</b> It has not been verified end to end, especially on the desktop.</li>
         <li><b>Bluetooth</b> (via Loam) is experimental and Android only.</li>
-        <li><b>Basecamp 0.2.x only</b> for now. Android builds are arm64 only.</li>
+        <li><b>Basecamp 0.3</b> on Linux and macOS (Apple Silicon). Android builds are arm64 only.</li>
         <li><b>No key rotation.</b> Anyone who ever had the invite link can still read the calendar.</li>
         <li><b>Large attachments</b> between two devices that are both behind NAT may fail without a hub; a hub you run keeps them fetchable.</li>
         <li>Some features change how events are processed (for example Collaborative mode), so everyone sharing a calendar should run a recent version.</li>
       </ul>
       <ul class="status-list">
         <li class="h">Coming next</li>
-        <li>Basecamp 0.3 support.</li>
         <li>Verified Keycard signing on the desktop, with the same card as on the phone.</li>
         <li>Desktop system notifications for reminders.</li>
         <li>A desktop search box and UTC toggle, and richer custom-field display.</li>
