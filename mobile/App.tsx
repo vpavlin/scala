@@ -27,6 +27,7 @@ import { MonthGrid, CellRect } from "./src/components/MonthGrid";
 import { expandEvents } from "./src/lib/recur";
 import { findClashes, occKey } from "./src/lib/clashes";
 import { filterChoices, matchesFieldFilter, rangeWindow, RANGES, type FieldFilter, type RangeId } from "./src/lib/filters";
+import { buildLanes, type LaneBy } from "./src/lib/lanes";
 import { EventModal, EventDraft } from "./src/components/EventModal";
 import { Drawer } from "./src/components/Drawer";
 import { IdentitiesPanel, KeycardTapOverlay, KeycardPinGate } from "./src/components/KeycardProbe";
@@ -185,7 +186,8 @@ export default function App() {
     () => (activeFilter ? calVisibleEvents.filter((e) => matchesFieldFilter(e, activeFilter)) : calVisibleEvents),
     [calVisibleEvents, activeFilter],
   );
-  const [viewMode, setViewMode] = useState<"month" | "week" | "day" | "agenda">("month"); // month grid / week strip / day timeline / upcoming agenda
+  const [viewMode, setViewMode] = useState<"month" | "week" | "day" | "lanes" | "agenda">("month"); // month grid / week strip / day timeline / lanes per calendar or venue / upcoming agenda
+  const [laneBy, setLaneBy] = useState<LaneBy>({ kind: "calendar" }); // lanes view: one column per calendar or per enum-field value
   const [query, setQuery] = useState(""); // agenda search
   const [status, setStatus] = useState("starting");
   const [shared, setShared] = useState(false);
@@ -591,6 +593,27 @@ export default function App() {
   }, [calVisibleEvents, cursor, weekDays]);
   const clashesOf = useCallback((ev: any) => (ev && ev.seriesId != null ? clashes.get(occKey(ev)) : undefined) || [], [clashes]);
 
+  // Lanes view (src/lib/lanes.ts): 14 days from the selected day, one column per calendar or per
+  // value of an enum field (e.g. venue). Lane options = the shown calendars' enum fields.
+  const laneFields = useMemo(() => {
+    const out: { key: string; label: string; options: string[] }[] = [];
+    for (const c of shownCals) for (const f of c.schema || []) {
+      if (f && f.key && f.type === "enum") {
+        const have = out.find((x) => x.key === f.key);
+        if (have) { for (const o of f.options || []) if (o && !have.options.includes(o)) have.options.push(o); }
+        else out.push({ key: f.key, label: f.label || f.key, options: (f.options || []).filter(Boolean) });
+      }
+    }
+    return out;
+  }, [shownCals]);
+  const laneGrid = useMemo(() => {
+    if (viewMode !== "lanes") return null;
+    const d0 = new Date(selected); d0.setHours(0, 0, 0, 0);
+    const by: LaneBy = laneBy.kind === "field" && laneFields.some((f) => f.key === laneBy.key) ? laneBy : { kind: "calendar" };
+    const opts = by.kind === "field" ? (laneFields.find((f) => f.key === by.key)?.options || []) : [];
+    return buildLanes(expandEvents(visibleEvents, d0.getTime(), d0.getTime() + 15 * 864e5), by, d0.getTime(), 14,
+      shownCals.map((c) => ({ id: c.id, name: c.name })), opts);
+  }, [viewMode, selected, laneBy, laneFields, visibleEvents, shownCals]);
   // Feed the home-screen agenda widget: the next 24h of events, grouped by day with Today/Tomorrow
   // dividers. If the next 24h is quiet, fall back to the next few upcoming so it's never empty.
   // Local-only, refreshed whenever events/calendars change — updates offline.
@@ -953,9 +976,9 @@ export default function App() {
         {/* view toggle + search */}
         <View style={s.viewBar}>
           <View style={s.segment}>
-            {(["month", "week", "day", "agenda"] as const).map((m) => (
+            {(["month", "week", "day", "lanes", "agenda"] as const).map((m) => (
               <Pressable key={m} onPress={() => setViewMode(m)} style={[s.segBtn, viewMode === m && s.segBtnOn]}>
-                <Text style={[s.segT, viewMode === m && s.segTOn]}>{m === "month" ? "Month" : m === "week" ? "Week" : m === "day" ? "Day" : "Agenda"}</Text>
+                <Text style={[s.segT, viewMode === m && s.segTOn]}>{m === "month" ? "Month" : m === "week" ? "Week" : m === "day" ? "Day" : m === "lanes" ? "Lanes" : "Agenda"}</Text>
               </Pressable>
             ))}
           </View>
@@ -1098,6 +1121,60 @@ export default function App() {
             );
           })}
         </ScrollView>
+        </>) : viewMode === "lanes" && laneGrid ? (<>
+        {/* Lanes: rows = days, columns = calendars or the values of an enum field (e.g. venue). */}
+        <View style={s.laneBar}>
+          <Pressable hitSlop={8} onPress={() => setSelected((d) => { const x = new Date(d); x.setDate(x.getDate() - 7); return x; })}><Text style={s.laneNav}>‹</Text></Pressable>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: "center" }} style={{ flex: 1 }}>
+            {[{ key: "", label: "Calendar" }, ...laneFields].map((f) => {
+              const on = f.key === "" ? laneBy.kind === "calendar" || !laneFields.some((x) => laneBy.kind === "field" && x.key === laneBy.key) : laneBy.kind === "field" && laneBy.key === f.key;
+              return (
+                <Pressable key={f.key || "_cal"} onPress={() => setLaneBy(f.key ? { kind: "field", key: f.key } : { kind: "calendar" })} style={[s.chip, on && s.chipOn]}>
+                  <Text style={[s.chipT, on && s.chipTOn]}>By {f.label.toLowerCase()}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <Pressable hitSlop={8} onPress={() => setSelected((d) => { const x = new Date(d); x.setDate(x.getDate() + 7); return x; })}><Text style={s.laneNav}>›</Text></Pressable>
+        </View>
+        {laneGrid.lanes.length === 0 ? <Text style={[s.sub, { padding: 16 }]}>No calendars to show.</Text> : (
+        <ScrollView style={{ flex: 1 }}>
+          <ScrollView horizontal>
+            <View>
+              <View style={s.laneRow}>
+                <View style={s.laneDate} />
+                {laneGrid.lanes.map((l) => (
+                  <View key={l.id} style={s.laneHead}>
+                    {laneBy.kind === "calendar" && <View style={[s.dot, { backgroundColor: colorForId(l.id) }]} />}
+                    <Text style={s.laneHeadT} numberOfLines={1}>{l.label}</Text>
+                  </View>
+                ))}
+              </View>
+              {laneGrid.days.map((d) => {
+                const date = new Date(d.date); const today = sameDay(date, new Date());
+                return (
+                  <View key={d.date} style={s.laneRow}>
+                    <Pressable style={s.laneDate} onPress={() => { setSelected(date); setViewMode("day"); }}>
+                      <Text style={[s.laneDateT, today && { color: C.today, fontWeight: "700" }]}>{date.toLocaleDateString(undefined, { weekday: "short" })}</Text>
+                      <Text style={[s.laneDateT, today && { color: C.today, fontWeight: "700" }]}>{date.toLocaleDateString(undefined, { day: "numeric", month: "short" })}</Text>
+                    </Pressable>
+                    {d.cells.map((cell, ci) => (
+                      <View key={ci} style={s.laneCell}>
+                        {cell.map((ev) => (
+                          <Pressable key={`${ev.id}-${ev.startTime}`} onPress={() => openEdit(ev)} style={[s.laneEv, { borderLeftColor: evColor(ev) }]}>
+                            <Text style={s.laneEvT} numberOfLines={1}>{clashesOf(ev).length ? "⚠ " : ""}{ev.title || "(untitled)"}</Text>
+                            <Text style={s.laneEvS} numberOfLines={1}>{ev.allDay ? "All day" : new Date(ev.startTime).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </ScrollView>
+        )}
         </>) : (
         <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
           {agenda.length === 0 && <Text style={[s.sub, { padding: 16 }]}>{query.trim() || activeFilter ? "No matching events." : `No events: ${(RANGES.find((r) => r.id === rangeId) || RANGES[2]).label.toLowerCase()}.`}</Text>}
@@ -1578,7 +1655,7 @@ const s = StyleSheet.create({
   grid: { paddingHorizontal: 12, paddingTop: 4 },
   viewBar: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingBottom: 6 },
   segment: { flexDirection: "row", backgroundColor: C.surface, borderRadius: 9, borderWidth: 1, borderColor: C.border, overflow: "hidden" },
-  segBtn: { paddingVertical: 6, paddingHorizontal: 16 },
+  segBtn: { paddingVertical: 6, paddingHorizontal: 11 },
   segBtnOn: { backgroundColor: C.primary },
   segT: { color: C.sub, fontSize: 13, fontWeight: "600" },
   segTOn: { color: C.bg },
@@ -1600,6 +1677,17 @@ const s = StyleSheet.create({
   hourEmpty: { height: 32 },
   hourEvent: { backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, padding: 10, marginTop: 6 },
   evTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
+  laneBar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingBottom: 8 },
+  laneNav: { color: C.primary, fontSize: 22, paddingHorizontal: 4 },
+  laneRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: C.border },
+  laneDate: { width: 64, paddingVertical: 6, paddingHorizontal: 8, justifyContent: "center" },
+  laneDateT: { color: C.sub, fontSize: 12 },
+  laneHead: { width: 140, flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 6 },
+  laneHeadT: { color: C.text, fontSize: 13, fontWeight: "700", flexShrink: 1 },
+  laneCell: { width: 140, padding: 4, gap: 4, borderLeftWidth: 1, borderLeftColor: C.border, minHeight: 44 },
+  laneEv: { backgroundColor: C.surface, borderRadius: 6, borderLeftWidth: 3, paddingHorizontal: 6, paddingVertical: 4 },
+  laneEvT: { color: C.text, fontSize: 12, fontWeight: "600" },
+  laneEvS: { color: C.sub, fontSize: 11 },
   chipRow: { gap: 6, paddingHorizontal: 14, paddingBottom: 8, alignItems: "center" },
   chip: { borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4 },
   chipOn: { borderColor: C.primary, backgroundColor: C.surface },

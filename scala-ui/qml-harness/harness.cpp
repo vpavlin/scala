@@ -154,7 +154,11 @@ int main(int argc, char **argv) {
     QTimer::singleShot(8500, [&] { runJs(&view, "fieldFilter = { key: 'status', value: 'Confirmed' }; searchQuery = 'e'"); });
     QTimer::singleShot(8900, [&] { grab(&view, out + "/12-filter-search.png"); runJs(&view, "rangeId = 'next7'; rangePicked = true"); });
     QTimer::singleShot(9200, [&] { grab(&view, out + "/13-filter-range.png"); });
-    QTimer::singleShot(9500, [&] { app.quit(); });
+    // Lanes view: by calendar, then by the Status field.
+    QTimer::singleShot(9500, [&] { runJs(&view, "searchQuery = ''; fieldFilter = null; calMode = 'lanes'"); });
+    QTimer::singleShot(9800, [&] { grab(&view, out + "/14-lanes-calendar.png"); runJs(&view, "laneBy = { kind: 'field', key: 'status' }"); });
+    QTimer::singleShot(10100, [&] { grab(&view, out + "/15-lanes-status.png"); });
+    QTimer::singleShot(10400, [&] { app.quit(); });
     return app.exec();
 }
 #include "harness.moc"
