@@ -92,6 +92,12 @@ public:
     /// Create an event in a calendar. Returns the event ID.
     std::string createEvent(const std::string& calendarId, const std::string& eventJson);
 
+    /// Create or update an event under a CALLER-CHOSEN id (an upsert): a second put with the same id
+    /// is an edit, checked against the calendar's edit rules by the fold. For mirroring and re-import
+    /// (a derived id means every device writes the same event, never a duplicate). Returns the id, or
+    /// "" for an empty id / bad JSON. createEvent keeps minting a fresh id, so copies stay copies.
+    std::string putEvent(const std::string& calendarId, const std::string& eventId, const std::string& eventJson);
+
     /// Create an event from explicit scalar fields (no JSON, no commas) — usable from
     /// the logoscore CLI, which splits args on commas and types numbers as int. start/end
     /// are epoch-ms passed as STRINGS. Lets a headless hub inject a real, visible event.

@@ -441,7 +441,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.12.3"; }
+std::string ScalaImpl::coreVersion() const { return "0.12.4"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -654,6 +654,16 @@ std::string ScalaImpl::createEvent(const std::string& calendarId, const std::str
     for (const char* k : {"ext", "rsvps", "seriesId", "occ"}) p.erase(k);
     authorAndPublish(scala::ET::EVENT_PUT, p, calendarId);
     return p["id"].get<std::string>();
+}
+std::string ScalaImpl::putEvent(const std::string& calendarId, const std::string& eventId, const std::string& eventJson) {
+    json p = json::parse(eventJson, nullptr, false);
+    if (eventId.empty() || p.is_discarded() || !p.is_object()) return "";
+    if (!hasCal(m_store->calendars(), calendarId)) return "";
+    p["id"] = eventId;
+    p.erase("calendarId"); p.erase("creatorId");   // set by the fold
+    for (const char* k : {"ext", "rsvps", "seriesId", "occ"}) p.erase(k);
+    authorAndPublish(scala::ET::EVENT_PUT, p, calendarId);
+    return eventId;
 }
 std::string ScalaImpl::createEventAt(const std::string& calendarId, const std::string& title,
                                      const std::string& startMs, const std::string& endMs) {
