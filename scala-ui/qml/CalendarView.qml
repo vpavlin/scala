@@ -298,7 +298,7 @@ Item {
     function myRsvpOf(ev) { if (!ev || !ev.rsvps) return ""; var me = root.addrFor(root.calById(ev.calendarId)); return (me && ev.rsvps[me]) || "" }
     function rsvpMark(ev) { var s = root.myRsvpOf(ev); return s === "going" ? "✓ " : (s === "maybe" ? "? " : "") }
     // An event's colour IS its calendar's colour — the calendar is the event's identity here.
-    // (A Frequencies-style app maps a custom-field value to colour itself; scala shows the field
+    // (A Freequencies-style app maps a custom-field value to colour itself; scala shows the field
     // value as a badge but keeps the event the calendar's colour — no per-event override.)
     function evColor(ev) { return root.calColor(ev ? ev.calendarId : "") }
     // Day timeline (calMode "day"): all-day band + hour-bucketed schedule for a day.
@@ -1715,7 +1715,7 @@ Item {
         eventPopup.close(); refresh()
     }
     // Duplicate an existing event in one click → a new event with the same fields (same time; the
-    // user moves/edits it after). Frequencies: fast setup of similar nights. Needs add rights.
+    // user moves/edits it after). Freequencies: fast setup of similar nights. Needs add rights.
     function duplicateEvent() {
         if (!root.editingEvent) return
         var src = root.editingEvent

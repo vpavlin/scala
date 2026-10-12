@@ -242,7 +242,7 @@
       },
       "dev": "A",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "comment",
         "target": "evA",
         "id": "c1",
@@ -262,7 +262,7 @@
       },
       "dev": "C",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "comment",
         "target": "evA",
         "id": "c2",
@@ -282,7 +282,7 @@
       },
       "dev": "B",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "comment",
         "target": "evC",
         "id": "c3",
@@ -302,7 +302,7 @@
       },
       "dev": "C",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "comment",
         "target": "evA",
         "id": "c2",
@@ -322,7 +322,7 @@
       },
       "dev": "B",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "comment",
         "target": "evA",
         "id": "c2",
@@ -370,7 +370,7 @@
       },
       "dev": "A",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "comment",
         "target": "evD",
         "id": "c6",
@@ -404,7 +404,7 @@
       },
       "dev": "C",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "vote",
         "target": "evC",
         "id": "c4",
@@ -453,7 +453,7 @@
       },
       "dev": "C",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "comment",
         "target": "evC",
         "id": "c5",
@@ -473,7 +473,7 @@
       },
       "dev": "B",
       "payload": {
-        "ns": "xyz.frequencies",
+        "ns": "xyz.freequencies",
         "kind": "comment",
         "target": "cal1",
         "id": "c8",

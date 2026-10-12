@@ -83,7 +83,7 @@ function AccessTierSelector({ value, onChange, C, s }: { value: AccessTier; onCh
   );
 }
 
-// Render an event's custom-field values as small badges (status/type/tags → Frequencies).
+// Render an event's custom-field values as small badges (status/type/tags → Freequencies).
 // Skips empty + long (text) values; caps at 4. Renders nothing for events with no fields.
 function EventBadges({ ev }: { ev: any }) {
   const f = (ev as any).fields;
@@ -523,7 +523,7 @@ export default function App() {
   };
   const colorFor = useCallback((id: string) => colorForId(id), []);
   // An event's colour IS its calendar's colour — the calendar is the event's identity here.
-  // (A Frequencies-style app maps a custom-field value to colour on its own side; scala shows
+  // (A Freequencies-style app maps a custom-field value to colour on its own side; scala shows
   // the field value as a badge but keeps the event the calendar's colour — no per-event override.)
   const evColor = useCallback((ev: any) => colorForId(ev && ev.calendarId), []);
   // Expand recurrence occurrences for the selected day (non-recurring events pass through once).

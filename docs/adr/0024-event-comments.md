@@ -6,8 +6,8 @@
 ## Context
 
 [ADR 0021](0021-rsvp-and-extensible-events.md) designed a generic `ext` event (app extension items
-grouped by target) and said comments would be implemented by Frequencies on top of it, with Scala
-showing at most a count. Frequencies ([plan](https://github.com/vpavlin/frequencies)) puts per-event
+grouped by target) and said comments would be implemented by Freequencies on top of it, with Scala
+showing at most a count. Freequencies ([plan](https://github.com/vpavlin/freequencies)) puts per-event
 comments in Scala instead ("internal comments per event → Scala, not the app"), and it has no UI of
 its own yet. Promoters, crew and artists need to discuss a night where they already look at it.
 
@@ -24,7 +24,7 @@ its own yet. Promoters, crew and artists need to discuss a night where they alre
   - the fold returns `ext: { target → [items in creation order] }`.
 - **Comments are a Scala feature**: items with `ns: "scala"`, `kind: "comment"`, `data: { text }`. Both
   event editors show the thread, a box to post, and Delete for your own comments (owners/editors see it
-  on all of them). Frequencies reads the same items, so a comment made in either app shows in both.
+  on all of them). Freequencies reads the same items, so a comment made in either app shows in both.
 - The core (`postExt`, `deleteExt`) and the mobile library (`postExt`, `deleteExt`) are generic: any
   app can store its own `ns`/`kind` items without a Scala change. Event listings attach each event's
   items as `ev.ext`.

@@ -10,8 +10,8 @@ This document is that contract: what the engine gives you, the invariants you mu
 seams where an app plugs in. It is a synthesis of the ADRs in [`docs/adr/`](adr/) — each section
 links the ADR that is the source of truth.
 
-**Frequencies** (a private, decentralized, uncensorable event-organisation app) is used throughout as
-a running example of an app built on this SDK — but nothing here is Frequencies-specific; the same
+**Freequencies** (a private, decentralized, uncensorable event-organisation app) is used throughout as
+a running example of an app built on this SDK — but nothing here is Freequencies-specific; the same
 seams serve any consumer.
 
 ---
@@ -219,7 +219,7 @@ Scala renders each value as a **badge** on the event card. That's it — no inte
 - **Scala** shows a field's *value* (a badge) and always draws the event in its **calendar's** colour.
 - **An app on top** layers meaning on those same fields — e.g. map a `status` enum
   (`Confirmed`/`Tentative`/`Cancelled`) or a `venue`/`type` field to colour, grouping, filtering,
-  posters. That mapping lives entirely in the consuming app's view. (Frequencies is the example.)
+  posters. That mapping lives entirely in the consuming app's view. (Freequencies is the example.)
 
 The payoff: **an event authored in a downstream app still reads correctly when opened in Scala** — the
 field values are visible, the event sits in its calendar's colour, nothing looks broken. No forked
@@ -231,7 +231,7 @@ over the identical event log.
 > Scala's event model (and then in both folds).
 
 ### Extension points already sketched
-- **Colour / grouping / filtering by field** — Frequencies-side, from a chosen field. Scala already
+- **Colour / grouping / filtering by field** — Freequencies-side, from a chosen field. Scala already
   ships field-value badges, a **Day timeline**, and a per-device **calendar show/hide** filter you
   can build on.
 - **Public / community tier** — a fold-level access change (extends [0019](adr/0019-collaborative-calendar-mode.md));

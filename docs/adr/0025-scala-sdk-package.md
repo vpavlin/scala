@@ -6,7 +6,7 @@
 ## Context
 
 [`docs/sdk.md`](../sdk.md) presents Scala as an SDK, but its TypeScript half lived in the app at
-`mobile/src/lib`, so another app (Frequencies first) could only use it by copying files. Copies drift,
+`mobile/src/lib`, so another app (Freequencies first) could only use it by copying files. Copies drift,
 and the fold must stay byte-identical to the C++ one.
 
 ## Decision
