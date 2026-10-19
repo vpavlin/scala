@@ -183,6 +183,10 @@ public:
     /// concrete occurrence start (ms) the reminder is for (== startTime for non-recurring events).
     std::string getPendingReminders();
 
+    // Occurrences starting in [fromMs, toMs) of a calendar's events, folded; tz = IANA name or "" (process zone).
+    // Returns [{eventId, occ}] (ms) or {"error": ...}. For a scheduler reading the calendar (shrooms ADR-064).
+    std::string dueOccurrences(const std::string& calendarId, int64_t fromMs, int64_t toMs, const std::string& tz);
+
     // ── iCalendar (RFC 5545) interop ─────────────────────────────────────────
     /// Export a calendar to an .ics document (VCALENDAR/VEVENT text). "" if the calendar is unknown.
     std::string exportCalendarIcs(const std::string& calendarId);
@@ -228,6 +232,10 @@ logos_events:
 
     /// Emitted when the module identity changes.
     void identityChanged();
+
+    /// Emitted when a calendar's log grew (an event of ours, or a new one from the wire), at most
+    /// once per ~300 ms per calendar. Refold (listEvents / listCalendars / dueOccurrences) on it.
+    void calendarChanged(const std::string& calendarId);
 
     /// Progress of an async Keycard authoring/enrol op (scala ADR 0016). statusJson =
     /// {purpose:"event"|"enroll", phase:"pending"|"done"|"failed", error?}. The view shows a
@@ -291,6 +299,8 @@ private:
     void tryClaims(const std::string& onlyCalId);
     void setClaimState(const std::string& calId, const std::string& state, const std::string& note);
     std::set<std::string> m_claimBusy;   // calendars whose claim is being built (address lookup in flight)
+    std::set<std::string> m_changedPending;          // calIds with a calendarChanged waiting to go out
+    void noteChanged(const std::string& calId);      // coalesced calendarChanged
     std::map<std::string, long long> m_lastFresh;   // calId -> when its log last grew from the wire
     std::set<std::string> m_claimRecheck;            // calendars with a settle re-check scheduled
     static constexpr int kClaimSettleMs = 8000;

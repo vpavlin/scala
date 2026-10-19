@@ -1,6 +1,7 @@
 #include "scala_impl.h"
 #include "qrcodegen.hpp"
 #include "scala_links.hpp"
+#include "scala_recur.hpp"
 
 // Generated umbrella: modules() + typed dependency wrappers (delivery_module)
 #include "logos_sdk.h"
@@ -164,8 +165,15 @@ scala::Event ScalaImpl::mkEvent(const std::string& type, const json& payload, co
     return e;
 }
 void ScalaImpl::publishAndApply(const std::string& calId, const scala::Event& e) {
-    m_store->appendEvent(calId, e);                        // persist locally first
+    if (m_store->appendEvent(calId, e)) noteChanged(calId);   // persist locally first
     m_sync->sendEvent(calId, scala::eventToJson(e).dump()); // then broadcast (no-op if not syncing)
+}
+// One calendarChanged per calendar per burst (a catch-up can bring hundreds of events at once).
+void ScalaImpl::noteChanged(const std::string& calId) {
+    if (!m_changedPending.insert(calId).second) return;
+    auto fire = [this, calId] { m_changedPending.erase(calId); calendarChanged(calId); };
+    if (m_resyncTimer) QTimer::singleShot(300, m_resyncTimer, fire);
+    else QTimer::singleShot(300, fire);
 }
 
 // ── keycard-aware authoring (scala ADR 0016) ─────────────────────────────────
@@ -233,7 +241,7 @@ void ScalaImpl::applyIncoming(const std::string& calId, const std::string& event
     const bool fresh = m_store->appendEvent(calId, e);   // idempotent (dedup by id); the view's poll refolds
     cacheAttachments(e);
     // A waiting invite claim can go out as soon as its member.invite (or the calendar's owner) arrives.
-    if (fresh) m_lastFresh[calId] = nowMs();
+    if (fresh) { m_lastFresh[calId] = nowMs(); noteChanged(calId); }
     if (fresh && (e.type == scala::ET::MEMBER_INVITE || e.type == scala::ET::CAL_META))
         onLoop([this, calId] { tryClaims(calId); });              // ADR 0017: pull+pin any attachment CID we lack → we now serve it too
 }
@@ -441,7 +449,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.12.4"; }
+std::string ScalaImpl::coreVersion() const { return "0.12.5"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -734,40 +742,7 @@ std::string ScalaImpl::searchEvents(const std::string& query) {
 }
 // ── reminders + iCalendar helpers ────────────────────────────────────────────
 namespace {
-constexpr long long kNoUntil = 4102444800000LL;   // ~year 2100, "no UNTIL" sentinel
-
-// Expand an event's occurrence start times (ms) overlapping [winStart, winEnd] — the same
-// daily/weekly/monthly/yearly rule the QML view + mobile recur.ts use, via local calendar math.
-std::vector<long long> expandOccurrences(const scala::json& ev, long long winStart, long long winEnd) {
-    std::vector<long long> occ;
-    if (!ev.contains("startTime") || !ev["startTime"].is_number()) return occ;
-    long long start = ev["startTime"].get<long long>();
-    long long end = (ev.contains("endTime") && ev["endTime"].is_number()) ? ev["endTime"].get<long long>() : start;
-    long long dur = end > start ? end - start : 0;
-    const scala::json* r = (ev.contains("recur") && ev["recur"].is_object()) ? &ev["recur"] : nullptr;
-    std::string freq = (r && r->contains("freq") && (*r)["freq"].is_string()) ? (*r)["freq"].get<std::string>() : std::string();
-    if (freq.empty()) {
-        if (start + dur >= winStart && start <= winEnd) occ.push_back(start);
-        return occ;
-    }
-    int interval = 1;
-    if (r->contains("interval") && (*r)["interval"].is_number()) { int iv = (*r)["interval"].get<int>(); interval = iv > 1 ? iv : 1; }
-    long long until = (r->contains("until") && (*r)["until"].is_number()) ? (*r)["until"].get<long long>() : kNoUntil;
-    std::time_t t = (std::time_t)(start / 1000); std::tm cur{}; localtime_r(&t, &cur);
-    for (int guard = 0; guard < 5000; ++guard) {
-        std::tm tmp = cur; tmp.tm_isdst = -1;
-        long long occStart = (long long)std::mktime(&tmp) * 1000LL;
-        if (occStart > winEnd || occStart > until) break;
-        if (occStart + dur >= winStart) occ.push_back(occStart);
-        if (freq == "daily")        cur.tm_mday += interval;
-        else if (freq == "weekly")  cur.tm_mday += 7 * interval;
-        else if (freq == "monthly") cur.tm_mon  += interval;
-        else if (freq == "yearly")  cur.tm_year += interval;
-        else break;
-        cur.tm_isdst = -1; std::mktime(&cur);   // normalize (e.g. mday overflow → next month)
-    }
-    return occ;
-}
+using scala::expandOccurrences;   // scala_recur.hpp
 
 std::string icsEscape(const std::string& s) {
     std::string o; o.reserve(s.size() + 8);
@@ -849,6 +824,15 @@ std::string ScalaImpl::getPendingReminders() {
         }
     }
     return out.dump();
+}
+
+// The occurrences starting in [fromMs, toMs), from the FOLDED calendar only (a scheduler reads it;
+// shrooms ADR-064). tz: IANA name, "" = this process's zone. [{eventId, occ}] or {"error": …}.
+std::string ScalaImpl::dueOccurrences(const std::string& calendarId, int64_t fromMs, int64_t toMs, const std::string& tz) {
+    scala::CalReg c = m_store->calendar(calendarId);
+    if (c.id.empty()) return json{{"error", "No such calendar: " + calendarId}}.dump();
+    json f = scala::foldCalendar(c.id, m_store->log(c.id));
+    return scala::dueOccurrences(f["events"], (long long)fromMs, (long long)toMs, tz).dump();
 }
 
 std::string ScalaImpl::exportCalendarIcs(const std::string& calendarId) {
