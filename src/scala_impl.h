@@ -316,6 +316,7 @@ private:
     long long m_storageRestartAt = 0;    // when the restart began (ms since epoch)
     std::vector<std::pair<std::string, std::string>> m_snapAfterRestart; // (calId, epochSizeMsStr) queued mid-restart
     nlohmann::json storageConfig();      // the config ensureStorage would start the node with right now
+    bool storageOff();                   // SCALA_STORAGE=off or setting storage=off
     void ensureStorage();                // idempotent: subscribe events + init + start the node
     // ADR 0020: make the storage node announce the shrooms-mesh address so a fetcher (e.g. a phone that
     // is a mesh peer) can dial it. Persists the setting; restarts a running node whose config differs.

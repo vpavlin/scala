@@ -449,7 +449,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.12.5"; }
+std::string ScalaImpl::coreVersion() const { return "0.12.6"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1415,7 +1415,17 @@ json ScalaImpl::storageConfig() {
 }
 
 // Idempotent: subscribe to storage events, then init+start the node with storageConfig().
+// A machine that only needs calendars (e.g. an agent schedule runner on the mesh) can run Scala with
+// no Logos Storage node: env SCALA_STORAGE=off, or the setting storage=off. Attachments and
+// snapshots then fail with a clear error; storage_module is an optional dependency.
+bool ScalaImpl::storageOff() {
+    const char* e = std::getenv("SCALA_STORAGE");
+    const std::string v = e ? e : getSetting("storage", "on");
+    return v == "off" || v == "0" || v == "false";
+}
+
 void ScalaImpl::ensureStorage() {
+    if (storageOff()) return;   // SCALA_STORAGE=off / setting storage=off: no Logos Storage node from Scala
     if (m_storageInit) return;
     m_storageInit = true;
     m_storageDir = getSetting("storage_dir", std::string(getenv("HOME") ? getenv("HOME") : ".") + "/.scala-storage");
@@ -1455,6 +1465,7 @@ void ScalaImpl::ensureStorage() {
 
 std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std::string& filePath,
                                         const std::string& name, const std::string& mime) {
+    if (storageOff()) { finishUpload(calendarId, "", "{\"ok\":false,\"error\":\"Logos Storage is off on this computer\"}"); return ""; }
     ensureStorage();
     std::string bytes;
     if (!scalaReadFile(filePath, bytes)) { finishUpload(calendarId, "", "{\"ok\":false,\"error\":\"cannot read file\"}"); return ""; }
@@ -1479,6 +1490,7 @@ std::string ScalaImpl::uploadAttachment(const std::string& calendarId, const std
 // (CalendarSync::sealBlob — mobile opens it with the same scheme), and upload to Storage. The CID
 // arrives async via onStorageUploadDone → getSnapshotPointer.
 std::string ScalaImpl::snapshotCalendar(const std::string& calendarId, const std::string& epochSizeMsStr) {
+    if (storageOff()) return json{{"ok", false}, {"error", "Logos Storage is off on this computer"}}.dump();
     // A restart whose stop/start event never arrived would otherwise block snapshots, getStorageExtip
     // and queued work for good: after 60 s, rebuild the node directly (we're in a module call here,
     // not inside a storage event callback, so calling the module is safe).
@@ -1538,6 +1550,7 @@ std::string ScalaImpl::getSnapshotPointer(const std::string& calendarId) {
 // only: nothing is persisted (a saved guess overrode a hand-set extip and outlived leaving the mesh).
 // Restarts a running node whose config differs. Off the mesh, or on a root, it only ensures the node is up.
 bool ScalaImpl::ensureStorageMesh() {
+    if (storageOff()) return false;
     if (m_storageHostOwned) { ensureStorage(); return false; }   // never reconfigure the host's node
     std::string rootMode = getSetting("storage_root", "");
     if (rootMode == "1" || rootMode == "true") { ensureStorage(); return true; }   // a root's settings are explicit
@@ -1602,6 +1615,7 @@ void ScalaImpl::onStorageStart(const std::string& payload) {
 }
 
 std::string ScalaImpl::getStorageSpr() {
+    if (storageOff()) return std::string();
     ensureStorage();
     try { StdLogosResult r = modules().storage_module.spr(); if (r.success) return resVal(r); } catch (...) {}
     return std::string();
@@ -1670,6 +1684,7 @@ void ScalaImpl::completeUpload(const std::string& payload) {
 // into our local store. That makes THIS node a provider too — so a household/hub node caches and
 // serves attachments for everyone, and content survives the original uploader going offline.
 void ScalaImpl::cacheAttachments(const scala::Event& e) {
+    if (storageOff()) return;
     if (e.type != scala::ET::EVENT_PUT) return;
     if (!e.payload.contains("attachments") || !e.payload["attachments"].is_array()) return;
     ensureStorage();
@@ -1720,6 +1735,7 @@ void ScalaImpl::retryCacheFetches() {
 
 std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const std::string& cid,
                                           const std::string& name) {
+    if (storageOff()) { finishDownload(calendarId, cid, "{\"ok\":false,\"error\":\"Logos Storage is off on this computer\"}"); return cid; }
     ensureStorage();
     std::string sealedPath = m_storageDir + "/dl/" + cid + ".sealed";
     std::string outName = name.empty() ? cid : name;
