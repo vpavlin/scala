@@ -298,6 +298,17 @@ void ScalaImpl::onContextReady() {
     // return a status string, so these callbacks take std::string, not StdLogosResult.)
     Tx::Ops ops;
     ops.createNode = [this](const std::string& cfg, Tx::Cb cb) {
+        // Calendars go over plain relay, not SDS reliable channels: Scala's own RBSR catch-up already
+        // repairs gaps, and SDS put a ~19 KB bloom filter on every message (measured: 760-1368 B frames
+        // became 19.6-20.4 KB). Per topic, so other apps on the shared node keep channels. Relay and
+        // channel peers interoperate both ways. SCALA_CHANNELS=on keeps channels. An older loam_core
+        // without setTopicMode just ignores this and stays on channels.
+        {
+            const char* e = std::getenv("SCALA_CHANNELS");
+            const std::string v = e ? e : getSetting("channels", "off");
+            if (!(v == "on" || v == "1" || v == "true"))
+                modules().loam_core.setTopicModeAsync("/scala/", "relay", [](std::string) {});
+        }
         modules().loam_core.setSenderIdAsync(m_identity.empty() ? std::string("scala-default") : m_identity,
                                              [](std::string) {});
         auto fired = std::make_shared<bool>(false);
@@ -449,7 +460,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.12.6"; }
+std::string ScalaImpl::coreVersion() const { return "0.12.7"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
