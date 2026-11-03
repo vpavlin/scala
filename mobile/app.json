@@ -3,14 +3,14 @@
     "name": "Scala",
     "slug": "scala",
     "scheme": "scala",
-    "version": "0.9.119",
+    "version": "0.9.120",
     "platforms": [
       "android"
     ],
     "icon": "./assets/icon.png",
     "android": {
       "package": "xyz.vpavlin.scala",
-      "versionCode": 140,
+      "versionCode": 141,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#11111b"
@@ -26,7 +26,7 @@
       "@react-native-community/datetimepicker",
       "expo-notifications",
       "./plugins/withScalaWidget",
-      "./plugins/withLogosStorage"
+      "./plugins/withScalaFiles"
     ],
     "extra": {
       "comment": "versionCode here is source of truth; assert it matches android/app/build.gradle after prebuild."

@@ -7,9 +7,10 @@ One laptop with Basecamp, one Android phone. Everything runs on the public demo 
 ## Before (10 minutes, once)
 
 **Phone:** add the F-Droid repo from [apps.vpavlin.xyz](https://apps.vpavlin.xyz) and install
-**Scala** (0.9.115 or newer) and **Loam** (0.0.55 or newer). Scala uses Loam's shared node by
+**Scala** (0.9.120 or newer) and **Loam** (0.0.68 or newer). Scala uses Loam's shared node by
 default: open Loam once, leave it running, then open Scala and approve it in Loam when asked.
-(Without Loam, turn off *Shared node* in Scala's ☰ menu and restart Scala; it then runs its own node.)
+(Without Loam, turn off *Shared node* in Scala's ☰ menu and restart Scala; it then runs its own node,
+but attachments need Loam: since 0.9.120 the phone fetches files through Loam's Storage.)
 
 **Laptop:** Basecamp 0.3. Add the package repository `https://apps.vpavlin.xyz/logos-repo.json`
 and install **Scala** (its core and Loam modules come along).
@@ -48,6 +49,8 @@ anyone with the link: other people may have edited it, which is fine, it's a dem
 - Title, time, maybe a *Location*; tap *Create*. It shows up on the laptop.
 - On the laptop, open it: *Your RSVP* (Going / Maybe / No) and the *History* of who did what.
 - *Say:* every change is signed by the person who made it, so you always know who moved the meeting.
+- *Optional, attachments:* open **Welcome** on the phone and tap *scala-logo.png*. The file comes from
+  Logos Storage (through Loam), encrypted to the calendar, and lands in Downloads.
 
 **5. Offline, then merge (1 min).**
 - Put the phone in airplane mode. Edit an event on the phone (say, Coffee & Scala's time) and,

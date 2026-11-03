@@ -218,11 +218,10 @@ export default function App() {
   // DEV: editable Codex fetch target. Default = the always-on scala VPS hub (public Storage provider
   // 128.140.55.128:8199, systemd scala-hub.service) so attachments resolve out-of-the-box; still
   // editable in the debug modal for a LAN/mesh/other bootstrap without a rebuild.
-  const [codexAddr, setCodexAddr] = useState("/ip4/128.140.55.128/tcp/8199/p2p/16Uiu2HAm9MihmCFk6rY2YdkNa78LU5xrdj4wBn5jUUea5ABqCVa8");
   const [codexCid, setCodexCid] = useState("zDvZRwzm27RpKjiufRiwVrR8rgHm9ekioBPhcF6CPTRi1TKsZaKc");
-  // Bootstrap off our OWN Loam Storage network (the VPS hub's private DHT root) instead of the public
-  // logos.test net (kad-incompatible with our build). The hub advertises its public IP so any phone reaches it.
-  const [codexBoot, setCodexBoot] = useState("spr:CiUIAhIhAs8AX5JLuRffkJiqakPZmpE_WeRw_xFzpYfWF13jGgupEgIDARo7CicAJQgCEiECzwBfkku5F9-QmKpqQ9makT9Z5HD_EXOlh9YXXeMaC6kQiOWy1QYaCgoIBICMN4AGIAcqRzBFAiEApW6gyJWos3KuqcV6DfAYwnwddjGni2ryZqjI7ud6MtMCICqFNyyEC3YgjiYHN0Wr3XZRn0ESD8v00Sv6cWynXTvK");
+  // The Storage node that caches calendar attachments (the 0.3 Scala hub on the VPS, :8299). Loam dials
+  // it first for every attachment; the DHT on logos.test finds other holders.
+  const [codexBoot, setCodexBoot] = useState("spr:CiUIAhIhAh5nIjds2Lq96ZrE5WSb16M6IBueTodW3rcXAd1zfqJ1EgIDARqNAQonACUIAhIhAh5nIjds2Lq96ZrE5WSb16M6IBueTodW3rcXAd1zfqJ1EPKVptcGGgoKCASAjDeABiBrGlAKTgSAjDeABiBrgYDAAUECHmciN2zYur3pmsTlZJvXozogG55Oh1betxcB3XN-onWShjbgAW6Q5DlpBvfpCGl1JcTUNnD5oelUZ-r8DtqGLipGMEQCIAjmBtHPsVRxEM8TaJtaeBvu_M4ntUHKb0Vfi5tHcjGxAiBZcxmR9V5Kb-JlJ-aHH4QpKIrLXaRe1HvWXX5Yb7_2Eg");
   const [codexDbg, setCodexDbg] = useState(false);       // Codex debug modal open
   const [codexLog, setCodexLog] = useState<string[]>([]); // live step-by-step log
   const [codexBusy, setCodexBusy] = useState(false);
@@ -242,30 +241,25 @@ export default function App() {
       catch (e: any) { push(`  ✗ ${label} (${Date.now() - t0}ms): [${e?.code ?? "?"}] ${e?.message ?? e}`); await yield_(); throw e; }
     };
     setCodexBusy(true); setCodexLog([]); await yield_();
-    const addr = codexAddr.trim(), CID = codexCid.trim(), boot = codexBoot.trim();
-    const PEER = (addr.split("/p2p/")[1] || "").trim();
+    const CID = codexCid.trim(), boot = codexBoot.trim();
     try {
-      if (!codexStorage.available()) { push("✗ native module not in this build (x86_64 emulator?)"); return; }
       if (!CID) { push("✗ enter a CID"); return; }
-      push(`net  ${boot ? "OUR bootstrap (" + boot.slice(0, 20) + "…)" : "logos.test (public)"}`);
+      const info = await step("Loam storage info", () => codexStorage.info());
+      if (!info) { push("✗ no answer from Loam (not installed, or Scala not approved in Loam)"); return; }
+      push(`  state=${info.state ?? (info.running ? "running" : "idle")} online=${info.online} cache=${info.cacheFiles} files${info.nodeError ? " error=" + info.nodeError : ""}`);
+      if (!(await codexStorage.available())) { push("✗ Storage is off in Loam"); return; }
+      push(`hub  ${boot ? boot.slice(0, 24) + "…" : "(none: DHT only)"}`);
       push(`cid  ${CID}`); await yield_();
-      // Bootstrap off our own node → its DHT knows the provider; discovery then finds + fetches.
-      await step("init node", () => codexStorage.init(boot ? { "bootstrap-node": [boot] } : {}));
-      push(`  version=${await codexStorage.version()}`);
-      push(`  spr=${(await codexStorage.spr()).slice(0, 44)}…`); await yield_();
-      // Optional: also dial the holder directly if a /p2p/ multiaddr was given (belt-and-suspenders).
-      if (PEER) await step("connect peer", () => codexStorage.connect(PEER, [addr]));
-      const dbg = await step("debug (peers)", () => codexStorage.debug());
-      try { const j = JSON.parse(dbg); push(`  connected peers: ${(j.connections || []).length}`); } catch { /* raw */ }
-      try { push(`  exists=${await codexStorage.exists(CID)}`); } catch (e: any) { push(`  exists ✗ [${e?.code ?? "?"}] ${e?.message ?? e}`); }
-      await yield_();
       const dir = await codexStorage.filesDir();
-      // downloadToFile does download_init then download_stream internally; its reject code names which stage failed.
-      const content = await step("download (init+stream)", () => codexStorage.downloadToFile(CID, `${dir}/fetched.txt`, { local: false }));
-      push(content ? `✅ CONTENT: ${content}` : "✅ downloaded — file on disk (empty/large, not shown inline)");
+      let last = "";
+      const n = await step("fetch through Loam", () => codexStorage.fetchToFile(CID, `${dir}/fetched.bin`, {
+        sprs: boot ? [boot] : [], idleLimitMs: 180_000,
+        onProgress: (p) => { const l = `  ${p.state} ${p.bytes}/${p.total || "?"} B${p.restarts ? ` (restarts ${p.restarts})` : ""}`; if (l !== last) { last = l; push(l); } },
+      }));
+      push(`✅ ${n} bytes in ${dir}/fetched.bin`);
     } catch { push("— stopped —"); }
     finally { setCodexBusy(false); await yield_(); }
-  }, [codexBusy, codexAddr, codexCid]);
+  }, [codexBusy, codexCid, codexBoot]);
   const [calSetIdentity, setCalSetIdentity] = useState("");   // the open calendar-settings sheet's bound identity
   const [currentCalId, setCurrentCalId] = useState<string>("");     // #5: last-tapped calendar (preselected for new events)
   const [aliasMap, setAliasMap] = useState<Record<string, string>>({}); // #7: device-local name overrides
@@ -803,29 +797,20 @@ export default function App() {
     const cal = cals.find((c) => c.id === modal.calId);
     if (!cal?.encryptionKey) { Alert.alert("Attachment", "This calendar has no key — can't decrypt."); return; }
     if (!att.storageCid) { Alert.alert("Attachment", "Not uploaded yet (no CID)."); return; }
-    if (!codexStorage.available()) { Alert.alert("Attachment", "Storage module not in this build."); return; }
+    if (!(await codexStorage.available())) { Alert.alert("Attachment", "Attachments are fetched through Loam. Install Loam (and turn its Storage on), then try again."); return; }
     const cid = att.storageCid;
-    let progressTimer: ReturnType<typeof setInterval> | null = null;
     fetchingCids.current.add(cid);
     setAttachFetching(att.name || cid.slice(0, 12)); // non-blocking "fetching…" overlay
     try {
-      await codexStorage.init({ "bootstrap-node": [codexBoot.trim()] });   // ride our own Loam Storage network
       const dir = await codexStorage.filesDir();
       const sealedPath = `${dir}/attach-dl/${att.storageCid}.sealed`;
-      // Progress = bytes written to the destination / expected sealed size (plaintext + 28 B:
-      // 12 B nonce + 16 B tag). Chunks are written as they arrive; nothing until a source is found.
-      const expected = (att.size || 0) + 28;
       setAttachProgress(-1);
-      progressTimer = setInterval(async () => {
-        const n = await codexStorage.fileSize(sealedPath);
-        if (n > 0 && att.size) setAttachProgress(Math.min(0.99, n / expected));
-      }, 700);
-      // The native download has no deadline of its own; without one a stalled fetch looked like
-      // "nothing happens". (The native op may still finish later; the file then just isn't opened.)
-      await Promise.race([
-        codexStorage.downloadToFile(att.storageCid, sealedPath, { local: false }),
-        new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error("no provider answered within 2 minutes — is the uploader or the hub online?"), { code: "timeout" })), 120000)),
-      ]);
+      // Loam fetches in the background (it keeps going if Scala is closed) and recovers from network
+      // changes by itself; we only poll its job. No data for 3 min = give up.
+      await codexStorage.fetchToFile(cid, sealedPath, {
+        sprs: codexBoot.trim() ? [codexBoot.trim()] : [], idleLimitMs: 180_000,
+        onProgress: (p) => { if (p.total > 0) setAttachProgress(Math.min(0.99, p.bytes / p.total)); },
+      });
       const sealed = toByteArray(await codexStorage.readFileB64(sealedPath));
       const plain = openSealed(cal.encryptionKey, sealed);
       if (!plain) { Alert.alert("Attachment ❌", "Decrypt failed (wrong calendar key?)."); return; }
@@ -835,7 +820,6 @@ export default function App() {
     } catch (e: any) {
       Alert.alert("Attachment ❌", `[${e?.code ?? "?"}] ${e?.message ?? e}`);
     } finally {
-      if (progressTimer) clearInterval(progressTimer);
       fetchingCids.current.delete(cid);
       setAttachFetching(null);
       setAttachProgress(-1);
@@ -925,13 +909,6 @@ export default function App() {
     const sub = Linking.addEventListener("url", (e) => { void onUrl(e.url); });
     return () => sub.remove();
   }, [joinIdentity]);
-  // Warm Storage up as soon as an event with attachments is opened, so the first tap doesn't also
-  // pay for starting the node and finding the hub.
-  const openedAttachments = modal.open && ((modal.editing as any)?.attachments || []).some((a: Attachment) => !!a.storageCid);
-  useEffect(() => {
-    if (openedAttachments && codexStorage.available())
-      codexStorage.init({ "bootstrap-node": [codexBoot.trim()] }).catch(() => {});
-  }, [openedAttachments, codexBoot]);
   const toggleShared = async (v: boolean) => { setShared(v); await setSharedNode(v); Alert.alert(v ? "Shared node ON" : "Shared node OFF", "Restart Scala to apply."); };
   const shiftMonth = (delta: number) => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
 
@@ -1163,7 +1140,7 @@ export default function App() {
               {/* DEV: Codex fetch-client debugger — modal with live step-by-step progress + Copy logs. */}
               <Text style={s.pLabel}>Codex storage (dev)</Text>
               <Pressable style={s.calRow} onPress={() => setCodexDbg(true)}>
-                <Text style={s.calName}>🧪 Codex fetch debug</Text>
+                <Text style={s.calName}>🧪 Storage fetch debug (Loam)</Text>
                 <Text style={s.share}>Open</Text>
               </Pressable>
 
@@ -1484,16 +1461,13 @@ export default function App() {
         <Modal visible={codexDbg} animationType="slide" onRequestClose={() => setCodexDbg(false)}>
           <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1115" }}>
             <View style={{ flexDirection: "row", alignItems: "center", padding: 14 }}>
-              <Text style={{ color: "#e8eaed", fontSize: 18, fontWeight: "700", flex: 1 }}>Codex fetch debug</Text>
+              <Text style={{ color: "#e8eaed", fontSize: 18, fontWeight: "700", flex: 1 }}>Storage fetch (through Loam)</Text>
               <Pressable onPress={() => setCodexDbg(false)} hitSlop={12}><Text style={{ color: "#6ea8fe", fontSize: 16 }}>Close</Text></Pressable>
             </View>
             <View style={{ paddingHorizontal: 14, gap: 6 }}>
-              <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Bootstrap SPR (our Loam Storage node — empty = public logos.test)</Text>
+              <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Hub SPR (a Storage node that holds it; dialled first)</Text>
               <TextInput style={[s.searchIn, { minHeight: 38 }]} value={codexBoot} onChangeText={setCodexBoot}
                 placeholder="spr:… (our bootstrap node)" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} multiline />
-              <Text style={{ color: "#9aa1ad", fontSize: 12 }}>Peer multiaddr (optional direct dial; peerId from /p2p/)</Text>
-              <TextInput style={[s.searchIn, { minHeight: 38 }]} value={codexAddr} onChangeText={setCodexAddr}
-                placeholder="/ip4/<host>/tcp/8070/p2p/<peerId>" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} multiline />
               <Text style={{ color: "#9aa1ad", fontSize: 12 }}>CID</Text>
               <TextInput style={s.searchIn} value={codexCid} onChangeText={setCodexCid}
                 placeholder="CID to fetch" placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} />
