@@ -66,6 +66,11 @@ QString MockLogos::callModule(const QString &mod, const QString &method, const Q
         for (const auto &v : a) parts << v.toString();
         fprintf(stderr, "[CALL] %s(%s)\n", qPrintable(method), qPrintable(parts.join(" | ")));
     }
+    // SCALA_HARNESS_FAIL_LISTS=1: after the first load, list calls answer "" like a timed-out call
+    // (the view must keep what it shows instead of emptying the sidebar).
+    static int listCalls = 0;
+    if ((method == "listCalendars" || method == "listAllEvents") && qEnvironmentVariableIsSet("SCALA_HARNESS_FAIL_LISTS") && ++listCalls > 2)
+        return "";
     if (method == "listCalendars")
         return QString(R"([{"id":"c1","name":"Team","color":"#89b4fa","encryptionKey":"k","creatorId":"0xowner","owner":"0xowner","authorAddr":"0xowner","binding":"loam:ctx","roles":{"0xed11111111111111111111111111111111111111":"editor"},"rolesConfigured":true,"open":true,"schema":[{"key":"status","label":"Status","type":"enum","options":["Draft","Confirmed","Cancelled"]},{"key":"sold","label":"Sold out","type":"bool"}],"invites":{"0x7ic0000000000000000000000000000000000001":"editor","0x7ic0000000000000000000000000000000000002":"viewer"},"inviteLinks":{"0x7ic0000000000000000000000000000000000001":"scala://join?id=c1&key=a2V5&name=Team&inv=1111111111111111111111111111111111111111111111111111111111111111"},"claim":{}}])");
     if (method == "listEvents" || method == "listAllEvents")
@@ -184,6 +189,13 @@ int main(int argc, char **argv) {
         return app.exec();
     }
 
+    if (qEnvironmentVariableIsSet("SCALA_HARNESS_FAIL_LISTS")) {
+        // First load succeeds; then force refreshes whose calls fail, and check nothing was emptied.
+        QTimer::singleShot(1200, [&] { runJs(&view, "console.log('[failcheck] before cals=' + calendars.length + ' events=' + events.length)"); runJs(&view, "refresh()"); });
+        QTimer::singleShot(1800, [&] { runJs(&view, "refresh()"); });
+        QTimer::singleShot(2600, [&] { runJs(&view, "console.log('[failcheck] after cals=' + calendars.length + ' events=' + events.length + ' busy=' + refreshBusy)"); grab(&view, out + "/90-failed-refresh.png"); app.exit(0); });
+        return app.exec();
+    }
     // Let the 3s poll + first frame settle, then screenshot each surface in turn.
     QTimer::singleShot(1200, [&] { grab(&view, out + "/01-main.png"); });
     // Day timeline view (calMode "day") — hour-bucketed schedule.

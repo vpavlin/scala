@@ -336,6 +336,8 @@ private:
     // (~2-4 min after its Storage starts), so the first fetch often finds no provider. Retry each
     // missing CID every minute for 30 min. cid -> {first seen ms, last try ms}.
     std::map<std::string, std::pair<long long, long long>> m_cacheRetry;
+    std::set<std::string> m_existsInFlight;          // storageHasAsync: one exists() per CID at a time
+    void storageHasAsync(const std::string& cid, std::function<void(bool)> cb);
     bool m_cacheSwept = false;   // one pass over stored events after start: re-queue attachments we lack
     void retryCacheFetches();  // cache-on-see: fetch any attachment CID we lack → become a provider
     struct PendingUp { std::string calId, name, mime, blobId, tmpPath; long long size = 0; long long since = 0; };

@@ -460,7 +460,7 @@ void ScalaImpl::ensureDelivery() { if (m_sync) m_sync->bootstrap(); }
 // ── identity ─────────────────────────────────────────────────────────────────
 // Keep in sync with metadata.json "version". The view compares this to the minimum it needs and
 // shows an "update the scala core" banner if the core is older (or lacks this method entirely).
-std::string ScalaImpl::coreVersion() const { return "0.12.7"; }
+std::string ScalaImpl::coreVersion() const { return "0.12.8"; }
 std::string ScalaImpl::getIdentity() const { return m_identity; }
 void ScalaImpl::setIdentity(const std::string& pubkeyHex) {
     if (m_identity != pubkeyHex) { m_identity = pubkeyHex; m_store->kvSet("identity", m_identity); identityChanged(); }
@@ -1703,19 +1703,37 @@ void ScalaImpl::cacheAttachments(const scala::Event& e) {
         if (!a.is_object()) continue;
         std::string cid = scala::sv(a, "storageCid");
         if (cid.empty()) continue;
-        try {
-            StdLogosResult ex = modules().storage_module.exists(cid);
-            bool have = ex.success && ((ex.value.is_boolean() && ex.value.get<bool>()) || (ex.value.is_string() && ex.value.get<std::string>() == "true"));
-            if (!have) {
-                // storage_module >= 3.0 fetch() waits up to 30 s for the manifest — longer than the
-                // 20 s IPC timeout — so it must never be a synchronous call. isPrivate=false,
-                // advertise=true: we become a provider for it.
-                modules().storage_module.fetchAsyncResult(cid, false, true, [](logos::AsyncResult<StdLogosResult>) {}, kStorageCallTimeoutMs);
-                if (!m_cacheRetry.count(cid) && m_cacheRetry.size() < 500)
-                    m_cacheRetry[cid] = { nowMs(), nowMs() };
-            }
-        } catch (...) { /* best-effort caching */ }
+        storageHasAsync(cid, [this, cid](bool have) {
+            if (have) return;
+            // storage_module >= 3.0 fetch() waits up to 30 s for the manifest — longer than the
+            // 20 s IPC timeout — so it must never be a synchronous call. isPrivate=false,
+            // advertise=true: we become a provider for it.
+            try { modules().storage_module.fetchAsyncResult(cid, false, true, [](logos::AsyncResult<StdLogosResult>) {}, kStorageCallTimeoutMs); } catch (...) {}
+            if (!m_cacheRetry.count(cid) && m_cacheRetry.size() < 500)
+                m_cacheRetry[cid] = { nowMs(), nowMs() };
+        });
     }
+}
+
+// exists(cid) WITHOUT blocking this module: storage_module serves one request at a time, and while it
+// is stuck on a fetch (an unfetchable CID waits out its manifest timeout) a synchronous exists() hit
+// the 20 s IPC timeout on our event loop — so every call the view made meanwhile timed out too and the
+// calendars vanished from the sidebar. One check per CID in flight; cb runs on our event loop.
+void ScalaImpl::storageHasAsync(const std::string& cid, std::function<void(bool)> cb) {
+    if (m_existsInFlight.count(cid)) return;
+    m_existsInFlight.insert(cid);
+    try {
+        modules().storage_module.existsAsyncResult(cid, [this, cid, cb](logos::AsyncResult<StdLogosResult> ar) {
+            const bool ok = ar.ok();
+            const StdLogosResult ex = ok ? ar.value : StdLogosResult{};
+            onLoop([this, cid, cb, ok, ex] {
+                m_existsInFlight.erase(cid);
+                if (!ok) return;   // timed out / storage busy: decide on a later tick
+                cb(ex.success && ((ex.value.is_boolean() && ex.value.get<bool>()) ||
+                                  (ex.value.is_string() && ex.value.get<std::string>() == "true")));
+            });
+        }, kStorageCallTimeoutMs);
+    } catch (...) { m_existsInFlight.erase(cid); }
 }
 
 // Runs on the 30 s resync tick. fetch() has no completion event, so success is observed as exists().
@@ -1727,21 +1745,23 @@ void ScalaImpl::retryCacheFetches() {
             for (const auto& e : m_store->log(c.id)) cacheAttachments(e);
     }
     const long long now = nowMs();
+    std::vector<std::string> due;
     for (auto it = m_cacheRetry.begin(); it != m_cacheRetry.end();) {
-        const std::string cid = it->first;
         if (now - it->second.first > 30 * 60 * 1000) { it = m_cacheRetry.erase(it); continue; }
-        bool have = false;
-        try {
-            StdLogosResult ex = modules().storage_module.exists(cid);
-            have = ex.success && ((ex.value.is_boolean() && ex.value.get<bool>()) || (ex.value.is_string() && ex.value.get<std::string>() == "true"));
-        } catch (...) {}
-        if (have) { it = m_cacheRetry.erase(it); continue; }
-        if (now - it->second.second >= 60000) {
-            it->second.second = now;
-            try { modules().storage_module.fetchAsyncResult(cid, false, true, [](logos::AsyncResult<StdLogosResult>) {}, kStorageCallTimeoutMs); } catch (...) {}
-        }
+        due.push_back(it->first);
         ++it;
     }
+    for (const auto& cid : due)
+        storageHasAsync(cid, [this, cid](bool have) {
+            auto it = m_cacheRetry.find(cid);
+            if (it == m_cacheRetry.end()) return;
+            if (have) { m_cacheRetry.erase(it); return; }
+            const long long t = nowMs();
+            if (t - it->second.second >= 60000) {
+                it->second.second = t;
+                try { modules().storage_module.fetchAsyncResult(cid, false, true, [](logos::AsyncResult<StdLogosResult>) {}, kStorageCallTimeoutMs); } catch (...) {}
+            }
+        });
 }
 
 std::string ScalaImpl::downloadAttachment(const std::string& calendarId, const std::string& cid,
