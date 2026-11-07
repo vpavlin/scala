@@ -265,12 +265,17 @@ Item {
         refreshIdentities()
         // The core aggregates everything the view needs into two calls — listCalendars carries each
         // calendar's authoring address (loam binding), listAllEvents every event tagged with calendarId.
+        // A failed or timed-out call gives "" (not a list): keep what's on screen and let the next
+        // refresh try again, instead of emptying the sidebar and the calendar.
+        var keep = function () { Qt.callLater(function () { root.refreshBusy = false; if (root.refreshAgain) { root.refreshAgain = false; root.refresh() } }) }
         root.coreAsync("listCalendars", [], function (r1) {
-            var cals = root.j(r1, [])
+            var cals = root.j(r1, null)
+            if (!Array.isArray(cals)) { console.warn("scala view: listCalendars failed, keeping the current list"); keep(); return }
             var ca = {}
             for (var ci = 0; ci < cals.length; ci++) ca[cals[ci].id] = cals[ci].authorAddr || ""
             root.coreAsync("listAllEvents", [], function (r2) {
-                var evs = root.j(r2, [])
+                var evs = root.j(r2, null)
+                if (!Array.isArray(evs)) { console.warn("scala view: listAllEvents failed, keeping the current events"); keep(); return }
                 // Deferred apply: reassigning these models rebuilds the calendar/event Repeaters;
                 // deferring keeps that off any in-flight signal handler's stack.
                 Qt.callLater(function () {
